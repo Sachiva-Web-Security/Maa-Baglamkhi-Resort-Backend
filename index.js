@@ -39,12 +39,6 @@ app.use("/api/assignments", require("./routes/assignmentRoute"));
 
 const kitchenRoutes = require("./routes/kitchenRoutes");
 app.use("/api/kitchen", kitchenRoutes);
-
-const tableRoutes = require("./routes/tableRoutes");
-
-app.use("/api/tables"
-  , tableRoutes
-);
 // TEST
 app.get("/", (req, res) => {
   res.send("Backend Running 🚀");
