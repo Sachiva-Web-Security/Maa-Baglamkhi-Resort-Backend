@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import './OrderSummary.css';
 
-const OrderSummary = ({ orderItems, onRemoveItem, onUpdateQuantity }) => {
+const OrderSummary = ({ orderItems, onRemoveItem, onUpdateQuantity, onDiscountChange }) => {
+  const [discount, setDiscount] = useState(0);
+
   const calculateSubtotal = () => {
     return orderItems.reduce((total, item) => total + (item.price * item.quantity), 0);
   };
@@ -10,8 +13,14 @@ const OrderSummary = ({ orderItems, onRemoveItem, onUpdateQuantity }) => {
   };
 
   const calculateGrandTotal = () => {
-    return calculateSubtotal() + calculateGST();
+    const totalBeforeDiscount = calculateSubtotal() + calculateGST();
+    return Math.max(0, totalBeforeDiscount - discount);
   };
+
+  // Sync discount with parent via a prop if provided
+  if (typeof onDiscountChange === 'function') {
+    onDiscountChange(discount);
+  }
 
   const handleQuantityChange = (itemId, newQuantity) => {
     if (newQuantity < 1) {
@@ -76,6 +85,24 @@ const OrderSummary = ({ orderItems, onRemoveItem, onUpdateQuantity }) => {
               <div className="total-row gst-row">
                 <span>GST (5%)</span>
                 <span>₹{calculateGST().toFixed(2)}</span>
+              </div>
+              <div className="total-row discount-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '8px 0', padding: '0 16px' }}>
+                <span style={{ fontSize: '14px', color: 'var(--muted)' }}>Discount (₹)</span>
+                <input 
+                  type="number" 
+                  min="0"
+                  value={discount}
+                  onChange={(e) => setDiscount(Number(e.target.value))}
+                  style={{
+                    width: '80px',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    background: 'rgba(0,0,0,0.2)',
+                    color: '#fff',
+                    textAlign: 'right'
+                  }}
+                />
               </div>
               <div className="total-row grand-total">
                 <span>Grand Total</span>
