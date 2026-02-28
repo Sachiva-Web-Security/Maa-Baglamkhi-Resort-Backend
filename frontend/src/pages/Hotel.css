@@ -1,0 +1,282 @@
+.hotel-container {
+  padding: 100px 30px 30px;
+  background-color: #f3f4f6;
+  min-height: 100vh;
+}
+
+.hotel-title {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 24px;
+  color: #1f2937;
+}
+
+.action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.action-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: none;
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.action-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.action-btn:active {
+  transform: translateY(0);
+}
+
+.action-btn-blue {
+  background-color: #2563eb;
+}
+
+.action-btn-green {
+  background-color: #16a34a;
+}
+
+.action-btn-red {
+  background-color: #dc2626;
+}
+
+.action-btn-purple {
+  background-color: #9333ea;
+}
+
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.summary-card {
+  background: white;
+  padding: 16px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.summary-card-green {
+  background-color: #dcfce7;
+}
+
+.summary-card-red {
+  background-color: #fee2e2;
+}
+
+.summary-card-yellow {
+  background-color: #fef3c7;
+}
+
+.summary-label {
+  color: #6b7280;
+  font-size: 14px;
+  margin: 0 0 8px 0;
+}
+
+.summary-value {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+  color: #1f2937;
+}
+
+.summary-value-green {
+  color: #16a34a;
+}
+
+.summary-value-red {
+  color: #dc2626;
+}
+
+.summary-value-yellow {
+  color: #ca8a04;
+}
+
+.section-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #1f2937;
+}
+
+.room-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.room-card {
+  padding: 16px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.room-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+}
+
+.room-available {
+  background-color: #dcfce7;
+}
+
+.room-occupied {
+  background-color: #fee2e2;
+}
+
+.room-cleaning {
+  background-color: #fef3c7;
+}
+
+.room-number {
+  font-weight: 700;
+  font-size: 16px;
+  margin: 0 0 8px 0;
+  color: #1f2937;
+}
+
+.room-status {
+  font-size: 14px;
+  margin: 4px 0;
+  color: #374151;
+}
+
+.room-guest {
+  font-size: 13px;
+  margin: 4px 0 0 0;
+  color: #6b7280;
+  font-style: italic;
+}
+
+.booking-table-container {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  overflow-x: auto;
+  margin-top: 32px;
+}
+
+.table-section-title {
+  font-size: 18px;
+  font-weight: 600;
+  padding: 16px;
+  border-bottom: 1px solid #e5e7eb;
+  margin: 0;
+  color: #1f2937;
+}
+
+.booking-table {
+  width: 100%;
+  text-align: left;
+  border-collapse: collapse;
+}
+
+.table-header {
+  background-color: #f3f4f6;
+}
+
+.table-th {
+  padding: 12px;
+  font-weight: 600;
+  color: #374151;
+  font-size: 14px;
+}
+
+.table-row {
+  border-top: 1px solid #e5e7eb;
+}
+
+.table-td {
+  padding: 12px;
+  font-size: 14px;
+  color: #1f2937;
+}
+
+.status-badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-block;
+}
+
+.status-occupied {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.action-buttons-inline {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.action-btn-small {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: none;
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.action-btn-small:hover {
+  opacity: 0.9;
+}
+
+.action-btn-yellow {
+  background-color: #ca8a04;
+}
+
+@media (max-width: 768px) {
+  .hotel-container {
+    padding: 100px 15px 15px;
+  }
+
+  .summary-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .room-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+
+  .action-buttons {
+    flex-direction: column;
+  }
+
+  .action-btn {
+    width: 100%;
+  }
+
+  .booking-table-container {
+    overflow-x: scroll;
+  }
+
+  .action-buttons-inline {
+    flex-direction: column;
+  }
+
+  .action-btn-small {
+    width: 100%;
+  }
+}
+

@@ -1,0 +1,158 @@
+.accounts-page {
+  padding: 100px 30px 30px;
+  background-color: #f3f4f6;
+  min-height: 100vh;
+}
+
+.accounts-title {
+  font-size: 24px;
+  font-weight: 800;
+  margin: 0 0 24px 0;
+  color: #111827;
+}
+
+.accounts-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.accounts-action-btn {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 800;
+  color: #ffffff;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.accounts-action-btn:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+.accounts-action-btn:active {
+  transform: translateY(0);
+}
+
+.accounts-action-btn--green {
+  background: #16a34a;
+}
+.accounts-action-btn--red {
+  background: #dc2626;
+}
+.accounts-action-btn--blue {
+  background: #2563eb;
+}
+.accounts-action-btn--purple {
+  background: #7c3aed;
+}
+
+.accounts-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.accounts-table-card {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  margin-bottom: 22px;
+}
+
+.accounts-table-card__header {
+  padding: 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.accounts-table-card__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: #111827;
+}
+
+.accounts-table-wrap {
+  overflow-x: auto;
+}
+
+.accounts-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.accounts-thead {
+  background: #f3f4f6;
+}
+
+.accounts-th {
+  padding: 12px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #374151;
+}
+
+.accounts-reports-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.accounts-view__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.accounts-view__label {
+  color: #6b7280;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.accounts-view__value {
+  color: #111827;
+  font-weight: 700;
+  font-size: 13px;
+  text-align: right;
+}
+
+.accounts-view__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.accounts-audit__text {
+  margin: 0 0 10px 0;
+  color: #374151;
+  font-size: 14px;
+}
+
+.accounts-audit__list {
+  margin: 0;
+  padding-left: 18px;
+  color: #111827;
+  font-size: 14px;
+}
+
+.accounts-audit__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+@media (max-width: 768px) {
+  .accounts-page {
+    padding: 100px 15px 15px;
+  }
+}
+
