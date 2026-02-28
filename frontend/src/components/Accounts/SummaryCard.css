@@ -1,0 +1,67 @@
+.accounts-summary-card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  user-select: none;
+}
+
+.accounts-summary-card--clickable {
+  cursor: pointer;
+}
+
+.accounts-summary-card--clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+}
+
+.accounts-summary-card--default {
+  background: #ffffff;
+}
+
+.accounts-summary-card--green {
+  background: #dcfce7;
+}
+
+.accounts-summary-card--red {
+  background: #fee2e2;
+}
+
+.accounts-summary-card--blue {
+  background: #dbeafe;
+}
+
+.accounts-summary-card--purple {
+  background: #ede9fe;
+}
+
+.accounts-summary-card__label {
+  margin: 0 0 8px 0;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.accounts-summary-card__value {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: #111827;
+}
+
+.accounts-summary-card__value--default {
+  color: #111827;
+}
+.accounts-summary-card__value--green {
+  color: #16a34a;
+}
+.accounts-summary-card__value--red {
+  color: #dc2626;
+}
+.accounts-summary-card__value--blue {
+  color: #2563eb;
+}
+.accounts-summary-card__value--purple {
+  color: #7c3aed;
+}
+

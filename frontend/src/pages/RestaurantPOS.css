@@ -1,0 +1,175 @@
+.restaurant-pos-container {
+  display: flex;
+  height: calc(100vh - 70px);
+  background-color: #f3f4f6;
+  margin-top: 70px;
+}
+
+.tables-section {
+  width: 20%;
+  background: white;
+  padding: 20px;
+  border-right: 1px solid #e5e7eb;
+  overflow-y: auto;
+}
+
+.menu-section {
+  width: 50%;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.billing-section {
+  width: 30%;
+  background: white;
+  padding: 20px;
+  border-left: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+}
+
+.section-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #1f2937;
+}
+
+.selected-table-info {
+  background-color: #dbeafe;
+  color: #1e40af;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.tables-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.menu-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+}
+
+.split-bill-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+}
+
+.form-input {
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.split-bill-info {
+  background-color: #f3f4f6;
+  padding: 12px;
+  border-radius: 6px;
+}
+
+.split-bill-info p {
+  margin: 4px 0;
+  font-size: 14px;
+  color: #374151;
+}
+
+.split-bill-info p:first-child {
+  font-weight: 600;
+}
+
+.form-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.btn-cancel,
+.btn-submit {
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s, background-color 0.2s;
+}
+
+.btn-cancel {
+  background-color: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.btn-cancel:hover {
+  background-color: #e5e7eb;
+}
+
+.btn-submit {
+  background-color: #2563eb;
+  color: white;
+  border: none;
+}
+
+.btn-submit:hover {
+  opacity: 0.9;
+}
+
+@media (max-width: 1024px) {
+  .restaurant-pos-container {
+    flex-direction: column;
+    height: auto;
+  }
+
+  .tables-section,
+  .menu-section,
+  .billing-section {
+    width: 100%;
+    border: none;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .tables-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .menu-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .tables-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .menu-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+

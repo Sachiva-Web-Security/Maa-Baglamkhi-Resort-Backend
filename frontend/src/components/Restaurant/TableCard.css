@@ -1,0 +1,50 @@
+.table-card {
+  padding: 12px;
+  border-radius: 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  border: 2px solid transparent;
+}
+
+.table-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+}
+
+.table-selected {
+  border-color: #3b82f6;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.table-available {
+  background-color: #dcfce7;
+}
+
+.table-occupied {
+  background-color: #fee2e2;
+}
+
+.table-reserved {
+  background-color: #fef3c7;
+}
+
+.table-number {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 4px;
+  color: #1f2937;
+}
+
+.table-status {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.table-guest-count {
+  font-size: 11px;
+  color: #9ca3af;
+  font-style: italic;
+}
+

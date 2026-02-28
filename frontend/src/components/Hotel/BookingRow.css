@@ -1,0 +1,56 @@
+.table-row {
+  border-top: 1px solid #e5e7eb;
+}
+
+.table-td {
+  padding: 12px;
+  font-size: 14px;
+  color: #1f2937;
+}
+
+.status-badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-block;
+}
+
+.status-occupied {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.action-buttons-inline {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.action-btn-small {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: none;
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.action-btn-small:hover {
+  opacity: 0.9;
+}
+
+.action-btn-blue {
+  background-color: #2563eb;
+}
+
+.action-btn-yellow {
+  background-color: #ca8a04;
+}
+
+.action-btn-red {
+  background-color: #dc2626;
+}
+
