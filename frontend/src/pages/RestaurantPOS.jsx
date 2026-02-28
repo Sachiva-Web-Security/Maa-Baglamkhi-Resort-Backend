@@ -42,7 +42,7 @@ const RestaurantPOS = () => {
     }
   };
 
-const handleGenerateBill = async (paymentMethod) => {
+const handleGenerateBill = async ({ paymentMethod }) => {
   if (!selectedTable) return alert("Select a table first");
   try {
     await API.post("/restaurant/bill", {

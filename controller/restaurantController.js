@@ -89,7 +89,7 @@ exports.getPendingOrder = (req, res) => {
 
 // ------------------- BILLING -------------------
 exports.generateBill = (req, res) => {
-  let { tableNumber, paymentMethod } = req.body;
+  let { tableNumber, paymentMethod, items, subtotal, gst, total } = req.body;
   if (!tableNumber || !paymentMethod) return res.status(400).json({ message: "Missing fields" });
 
   // Ensure tableNumber has "T" prefix
@@ -97,6 +97,26 @@ exports.generateBill = (req, res) => {
     tableNumber = `T${tableNumber}`;
   }
 
+  // If frontend provides items directly, skip the pending DB order check
+  if (items && items.length > 0) {
+    if (subtotal === undefined) subtotal = items.reduce((acc, i) => acc + i.price * i.quantity, 0);
+    if (gst === undefined) gst = subtotal * 0.05;
+    if (total === undefined) total = subtotal + gst;
+
+    const tableNumInt = parseInt(tableNumber.toString().replace("T", ""));
+
+    RestaurantModel.createBill(
+      { table: tableNumInt, items, subtotal, gst, total, paymentMethod },
+      (err2, result) => {
+        if (err2) return res.status(500).json({ message: err2.message });
+
+        res.json({ message: "Bill generated", billId: result.insertId, subtotal, gst, total });
+      }
+    );
+    return;
+  }
+
+  // Legacy behavior: query pending order
   RestaurantModel.getPendingOrder(tableNumber, (err, order) => {
     if (err) {
       console.error("DB Error:", err);
@@ -104,12 +124,14 @@ exports.generateBill = (req, res) => {
     }
     if (!order) return res.status(400).json({ message: "No pending order" });
 
-    const subtotal = order.items.reduce((acc, i) => acc + i.price * i.quantity, 0);
-    const gst = subtotal * 0.05;
-    const total = subtotal + gst;
+    const orderSubtotal = order.items.reduce((acc, i) => acc + i.price * i.quantity, 0);
+    const orderGst = orderSubtotal * 0.05;
+    const orderTotal = orderSubtotal + orderGst;
+
+    const tableNumInt = parseInt(tableNumber.toString().replace("T", ""));
 
     RestaurantModel.createBill(
-      { table: tableNumber, items: order.items, subtotal, gst, total, paymentMethod },
+      { table: tableNumInt, items: order.items, subtotal: orderSubtotal, gst: orderGst, total: orderTotal, paymentMethod },
       (err2, result) => {
         if (err2) return res.status(500).json({ message: err2.message });
 
@@ -117,7 +139,7 @@ exports.generateBill = (req, res) => {
           if (err3) console.error("Mark order paid failed", err3.message);
         });
 
-        res.json({ message: "Bill generated", billId: result.insertId, subtotal, gst, total });
+        res.json({ message: "Bill generated", billId: result.insertId, subtotal: orderSubtotal, gst: orderGst, total: orderTotal });
       }
     );
   });
