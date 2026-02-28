@@ -7,6 +7,11 @@ const getRooms = (callback) => {
   db.query(sql, callback);
 };
 
+const addRoom = (roomNumber, callback) => {
+  const sql = "INSERT INTO rooms (room_number, status) VALUES (?, 'Available')";
+  db.query(sql, [roomNumber], callback);
+};
+
 // Bookings
 const getBookings = (callback) => {
   const sql =
@@ -51,6 +56,26 @@ const setRoomCleaning = (roomNumber, callback) => {
   db.query(sql, [roomNumber], callback);
 };
 
+const updateBookingDates = (bookingId, checkOut, callback) => {
+  const sql = "UPDATE hotel_bookings SET check_out = ? WHERE id = ?";
+  db.query(sql, [checkOut, bookingId], callback);
+};
+
+const updateBookingRoom = (bookingId, newRoom, callback) => {
+  const sql = "UPDATE hotel_bookings SET room_number = ? WHERE id = ?";
+  db.query(sql, [newRoom, bookingId], callback);
+};
+
+const updateRoomStatus = (roomNumber, status, callback) => {
+  const sql = "UPDATE rooms SET status = ? WHERE room_number = ?";
+  db.query(sql, [status, roomNumber], callback);
+};
+
+const clearRoomGuest = (roomNumber, callback) => {
+  const sql = "UPDATE rooms SET status = 'Cleaning', guest = NULL, check_in = NULL, check_out = NULL WHERE room_number = ?";
+  db.query(sql, [roomNumber], callback);
+};
+
 module.exports = {
   getRooms,
   getBookings,
@@ -58,5 +83,10 @@ module.exports = {
   updateRoomForBooking,
   checkoutBooking,
   setRoomCleaning,
+  updateBookingDates,
+  updateBookingRoom,
+  updateRoomStatus,
+  clearRoomGuest,
+  addRoom,
 };
 

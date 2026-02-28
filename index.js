@@ -36,7 +36,7 @@ app.use("/api/banquet", require("./routes/banquetRoutes"));
 app.use("/api/attendance", require("./routes/attendanceRoutes"));
 app.use("/api/reports", require("./routes/reportsRoutes"));
 app.use("/api/assignments", require("./routes/assignmentRoute"));
-
+app.use("/api/dashboard", require("./routes/dashboardRoutes"));
 const kitchenRoutes = require("./routes/kitchenRoutes");
 app.use("/api/kitchen", kitchenRoutes);
 // TEST
@@ -46,7 +46,7 @@ app.get("/", (req, res) => {
 
 
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
