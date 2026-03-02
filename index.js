@@ -37,12 +37,16 @@ app.use("/api/attendance", require("./routes/attendanceRoutes"));
 app.use("/api/reports", require("./routes/reportsRoutes"));
 app.use("/api/assignments", require("./routes/assignmentRoute"));
 app.use("/api/dashboard", require("./routes/dashboardRoutes"));
+const invoiceRoutes = require("./routes/InvoiceRoutes");
+app.use("/api/invoices", invoiceRoutes);
 const kitchenRoutes = require("./routes/kitchenRoutes");
 app.use("/api/kitchen", kitchenRoutes);
 // TEST
 app.get("/", (req, res) => {
   res.send("Backend Running 🚀");
-});
+})
+
+
 
 
 
