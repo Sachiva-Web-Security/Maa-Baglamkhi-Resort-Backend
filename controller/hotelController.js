@@ -19,7 +19,7 @@ exports.getRoomsAndBookings = (req, res) => {
 };
 
 exports.createBooking = (req, res) => {
-  const { guestName, room, checkIn, checkOut } = req.body;
+  const { guestName, room, checkIn, checkOut, pricePerDay, phone } = req.body;
 
   if (!guestName || !room || !checkIn || !checkOut) {
     return res.status(400).json({ message: "Missing booking fields" });
@@ -31,6 +31,8 @@ exports.createBooking = (req, res) => {
     checkIn,
     checkOut,
     status: "Occupied",
+    pricePerDay: pricePerDay || null,
+    phone: phone || null,
   };
 
   HotelModel.createBooking(bookingData, (err, result) => {

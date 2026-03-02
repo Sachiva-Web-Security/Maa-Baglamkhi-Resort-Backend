@@ -15,13 +15,13 @@ const addRoom = (roomNumber, callback) => {
 // Bookings
 const getBookings = (callback) => {
   const sql =
-    "SELECT id, guest_name AS guestName, room_number AS room, check_in, check_out, status FROM hotel_bookings ORDER BY id DESC";
+    "SELECT id, guest_name AS guestName, room_number AS room, check_in AS checkIn, check_out AS checkOut, status, bill_generated AS billGenerated, price_per_day AS pricePerDay, phone FROM hotel_bookings ORDER BY id DESC";
   db.query(sql, callback);
 };
 
 const createBooking = (data, callback) => {
   const sql =
-    "INSERT INTO hotel_bookings (guest_name, room_number, check_in, check_out, status) VALUES (?, ?, ?, ?, ?)";
+    "INSERT INTO hotel_bookings (guest_name, room_number, check_in, check_out, status, price_per_day, phone) VALUES (?, ?, ?, ?, ?, ?, ?)";
   db.query(
     sql,
     [
@@ -30,6 +30,8 @@ const createBooking = (data, callback) => {
       data.checkIn,
       data.checkOut,
       data.status || "Occupied",
+      data.pricePerDay || null,
+      data.phone || null,
     ],
     callback
   );
@@ -76,6 +78,11 @@ const clearRoomGuest = (roomNumber, callback) => {
   db.query(sql, [roomNumber], callback);
 };
 
+const markBillGenerated = (bookingId, callback) => {
+  const sql = "UPDATE hotel_bookings SET bill_generated = 1 WHERE id = ?";
+  db.query(sql, [bookingId], callback);
+};
+
 module.exports = {
   getRooms,
   getBookings,
@@ -88,5 +95,5 @@ module.exports = {
   updateRoomStatus,
   clearRoomGuest,
   addRoom,
+  markBillGenerated,
 };
-
