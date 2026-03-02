@@ -2,11 +2,13 @@ const router = require("express").Router();
 const {
   createInvoice,
   getAllInvoices,
-  getInvoiceByBookingId
+  getInvoiceByBookingId,
+  updateInvoice,
 } = require("../controller/InvoiceController");
 
 router.post("/create", createInvoice);
 router.get("/all", getAllInvoices);
- // new route
+router.get("/by-booking/:bookingId", getInvoiceByBookingId);
+router.put("/update/:id", updateInvoice);
 
 module.exports = router;
