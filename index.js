@@ -41,6 +41,11 @@ const invoiceRoutes = require("./routes/InvoiceRoutes");
 app.use("/api/invoices", invoiceRoutes);
 const kitchenRoutes = require("./routes/kitchenRoutes");
 app.use("/api/kitchen", kitchenRoutes);
+// HEALTH CHECK
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", message: "Backend is reachable" });
+});
+
 // TEST
 app.get("/", (req, res) => {
   res.send("Backend Running 🚀");
