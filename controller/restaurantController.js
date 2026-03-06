@@ -1,146 +1,89 @@
-const RestaurantModel = require("../models/RestaurantModel");
+const Restaurant = require("../models/RestaurantModel");
 
-// ------------------- TABLES -------------------
+// TABLE
 exports.addTable = (req, res) => {
-  const { number, status, guestCount } = req.body;
-  if (!number || !guestCount)
-    return res.status(400).json({ message: "Missing table fields" });
-
-  // validate status
-  const validStatus = ["Available", "Occupied", "Reserved"];
-  if (!validStatus.includes(status)) return res.status(400).json({ message: "Invalid table status" });
-
-  RestaurantModel.addTable({ number, status, guestCount }, (err, result) => {
-    if (err) return res.status(500).json({ message: err.message });
-    res.status(201).json({ 
-      message: "Table added successfully", 
-      table: { id: result.insertId, number, status, guestCount } 
+    Restaurant.addTable(req.body, (err, result) => {
+        if (err) return res.status(500).json(err);
+        res.json({ message: "Table added", id: result.insertId });
     });
-  });
 };
 
 exports.getTables = (req, res) => {
-  RestaurantModel.getTables((err, result) => {
-    if (err) return res.status(500).json({ message: err.message });
-    res.json(result);
-  });
+    Restaurant.getTables((err, data) => {
+        if (err) return res.status(500).json(err);
+        res.json(data);
+    });
 };
 
-// ------------------- ORDERS -------------------
-exports.addItem = (req, res) => {
-  const { tableNumber, item } = req.body;
-  if (!tableNumber || !item || !item.name || !item.price)
-    return res.status(400).json({ message: "Missing fields" });
+// MENU
+exports.addMenuItem = (req, res) => {
+    Restaurant.addMenuItem(req.body, (err, result) => {
+        if (err) return res.status(500).json(err);
+        res.json({ message: "Menu item added", id: result.insertId });
+    });
+};
 
-  // Ensure tableNumber has "T" prefix
-  let tableNum = tableNumber.toString();
-  if (!tableNum.startsWith("T")) tableNum = `T${tableNum}`;
+exports.getMenuItems = (req, res) => {
+    Restaurant.getMenuItems((err, data) => {
+        if (err) return res.status(500).json(err);
+        res.json(data);
+    });
+};
 
-  RestaurantModel.getPendingOrder(tableNum, (err, order) => {
-    if (err) return res.status(500).json({ message: err.message });
+// ORDER ADD
+exports.addOrderItem = (req, res) => {
+    const { tableNumber, item } = req.body;
 
-    const addItemCallback = (orderId) => {
-      RestaurantModel.addItemToOrder(orderId, { ...item, quantity: item.quantity || 1 }, (err2, result) => {
-        if (err2) return res.status(500).json({ message: err2.message });
-        res.json({ 
-          message: "Item added", 
-          orderId,
-          item: { id: result.insertId, ...item, quantity: item.quantity || 1 } // send DB id to frontend
+    Restaurant.getPendingOrder(tableNumber, (err, order) => {
+        if (err) return res.status(500).json(err);
+
+        if (!order) {
+            Restaurant.createOrder(tableNumber, (err2, result) => {
+                if (err2) return res.status(500).json(err2);
+
+                const orderId = result.insertId;
+
+                Restaurant.addItemToOrder(orderId, item, (err3) => {
+                    if (err3) return res.status(500).json(err3);
+
+                    res.json({
+                        message: "New order created",
+                        orderId: orderId,
+                    });
+                });
+            });
+        } else {
+            Restaurant.addItemToOrder(order.id, item, (err4) => {
+                if (err4) return res.status(500).json(err4);
+
+                res.json({
+                    message: "Item added to existing order",
+                    orderId: order.id,
+                });
+            });
+        }
+    });
+};
+
+// GET ORDER
+exports.getOrder = (req, res) => {
+    const tableNumber = req.params.tableNumber;
+
+    Restaurant.getPendingOrder(tableNumber, (err, order) => {
+        if (err) return res.status(500).json(err);
+
+        res.json(order);
+    });
+};
+
+// BILL
+exports.createBill = (req, res) => {
+    Restaurant.createBill(req.body, (err, result) => {
+        if (err) return res.status(500).json(err);
+
+        res.json({
+            message: "Bill created",
+            id: result.insertId,
         });
-      });
-    };
-
-    if (!order) {
-      RestaurantModel.createOrder(tableNum, (err3, newOrder) => {
-        if (err3) return res.status(500).json({ message: err3.message });
-        addItemCallback(newOrder.id);
-      });
-    } else {
-      addItemCallback(order.id);
-    }
-  });
-};
-
-exports.getPendingOrder = (req, res) => {
-  let { tableNumber } = req.params;
-  if (!tableNumber) return res.status(400).json({ message: "Table number required" });
-
-  // Ensure tableNumber has "T" prefix
-  if (!tableNumber.toString().startsWith("T")) tableNumber = `T${tableNumber}`;
-
-  RestaurantModel.getPendingOrder(tableNumber, (err, order) => {
-    if (err) {
-      console.error("DB Error:", err);
-      return res.status(500).json({ message: "Database error" });
-    }
-
-    if (!order) {
-      // No pending order, return empty response
-      return res.json({ items: [], subtotal: 0, gst: 0, total: 0, billId: null });
-    }
-
-    const subtotal = order.items.reduce((acc, i) => acc + i.price * i.quantity, 0);
-    const gst = subtotal * 0.05;
-    const total = subtotal + gst;
-
-    res.json({ orderId: order.id, items: order.items, subtotal, gst, total });
-  });
-};
-
-// ------------------- BILLING -------------------
-exports.generateBill = (req, res) => {
-  let { tableNumber, paymentMethod, items, subtotal, gst, total } = req.body;
-  if (!tableNumber || !paymentMethod) return res.status(400).json({ message: "Missing fields" });
-
-  // Ensure tableNumber has "T" prefix
-  if (!tableNumber.toString().startsWith("T")) {
-    tableNumber = `T${tableNumber}`;
-  }
-
-  // If frontend provides items directly, skip the pending DB order check
-  if (items && items.length > 0) {
-    if (subtotal === undefined) subtotal = items.reduce((acc, i) => acc + i.price * i.quantity, 0);
-    if (gst === undefined) gst = subtotal * 0.05;
-    if (total === undefined) total = subtotal + gst;
-
-    const tableNumInt = parseInt(tableNumber.toString().replace("T", ""));
-
-    RestaurantModel.createBill(
-      { table: tableNumInt, items, subtotal, gst, total, paymentMethod },
-      (err2, result) => {
-        if (err2) return res.status(500).json({ message: err2.message });
-
-        res.json({ message: "Bill generated", billId: result.insertId, subtotal, gst, total });
-      }
-    );
-    return;
-  }
-
-  // Legacy behavior: query pending order
-  RestaurantModel.getPendingOrder(tableNumber, (err, order) => {
-    if (err) {
-      console.error("DB Error:", err);
-      return res.status(500).json({ message: "Database error" });
-    }
-    if (!order) return res.status(400).json({ message: "No pending order" });
-
-    const orderSubtotal = order.items.reduce((acc, i) => acc + i.price * i.quantity, 0);
-    const orderGst = orderSubtotal * 0.05;
-    const orderTotal = orderSubtotal + orderGst;
-
-    const tableNumInt = parseInt(tableNumber.toString().replace("T", ""));
-
-    RestaurantModel.createBill(
-      { table: tableNumInt, items: order.items, subtotal: orderSubtotal, gst: orderGst, total: orderTotal, paymentMethod },
-      (err2, result) => {
-        if (err2) return res.status(500).json({ message: err2.message });
-
-        RestaurantModel.markOrderPaid(order.id, (err3) => {
-          if (err3) console.error("Mark order paid failed", err3.message);
-        });
-
-        res.json({ message: "Bill generated", billId: result.insertId, subtotal: orderSubtotal, gst: orderGst, total: orderTotal });
-      }
-    );
-  });
+    });
 };

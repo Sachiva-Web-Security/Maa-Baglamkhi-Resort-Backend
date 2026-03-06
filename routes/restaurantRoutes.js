@@ -1,13 +1,20 @@
-const router = require("express").Router();
-const RestaurantController = require("../controller/restaurantController"); // import full controller
+const express = require("express");
+const router = express.Router();
+const controller = require("../controller/restaurantController");
 
-// Tables
-router.post("/add-table", RestaurantController.addTable);
-router.get("/tables", RestaurantController.getTables);
+// TABLES
+router.post("/tables", controller.addTable);
+router.get("/tables", controller.getTables);
 
-// Orders / Billing
-router.post("/add-item", RestaurantController.addItem);                     // menu item add
-router.get("/orders/:tableNumber", RestaurantController.getPendingOrder);   // pending order fetch
-router.post("/bill", RestaurantController.generateBill);                     // generate final bill
+// MENU
+router.post("/menu", controller.addMenuItem);
+router.get("/menu", controller.getMenuItems);
+
+// ORDER
+router.post("/order/add", controller.addOrderItem);
+router.get("/order/:tableNumber", controller.getOrder);
+
+// BILL
+router.post("/bill", controller.createBill);
 
 module.exports = router;
