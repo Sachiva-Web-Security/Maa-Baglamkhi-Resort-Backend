@@ -1,36 +1,94 @@
 const db = require("../config/db");
 
+const tableExists = (tableName, cb) => {
+  db.query("SHOW TABLES LIKE ?", [tableName], (err, rows) => {
+    if (err) return cb(err);
+    cb(null, Array.isArray(rows) && rows.length > 0);
+  });
+};
+
+const columnExists = (tableName, columnName, cb) => {
+  db.query(`SHOW COLUMNS FROM \`${tableName}\` LIKE ?`, [columnName], (err, rows) => {
+    if (err) return cb(err);
+    cb(null, Array.isArray(rows) && rows.length > 0);
+  });
+};
+
 // Existing summary logic
 exports.summary = (req, res) => {
-  const queries = {
-    totalRooms: "SELECT COUNT(*) as c FROM rooms",
-    hotelBookings: "SELECT COUNT(*) as c FROM hotel_bookings",
-    restaurantBills: "SELECT COUNT(*) as c FROM restaurant_bills",
-    accountsTransactions: "SELECT COUNT(*) as c FROM accounts_transactions",
-    banquetBookings: "SELECT COUNT(*) as c FROM banquet_bookings",
-    attendanceRecords: "SELECT COUNT(*) as c FROM attendance",
-  };
-
   const results = {};
-  let pending = Object.keys(queries).length;
+
+  const tasks = [
+    { key: "totalRooms", sql: "SELECT COUNT(*) as c FROM rooms" },
+    { key: "hotelBookings", sql: "SELECT COUNT(*) as c FROM hotel_bookings" },
+    { key: "accountsTransactions", sql: "SELECT COUNT(*) as c FROM accounts_transactions" },
+    { key: "banquetBookings", sql: "SELECT COUNT(*) as c FROM banquet_bookings" },
+    // restaurant bills: prefer restaurant_bills, fallback to bills
+    {
+      key: "restaurantBills",
+      choose: (done) => {
+        tableExists("restaurant_bills", (e, ok) => {
+          if (e) return done(e);
+          done(null, ok ? "restaurant_bills" : "bills");
+        });
+      },
+      makeSql: (table) => `SELECT COUNT(*) as c FROM \`${table}\``,
+    },
+    // attendance: prefer attendance, fallback to attendance_records
+    {
+      key: "attendanceRecords",
+      choose: (done) => {
+        tableExists("attendance", (e, ok) => {
+          if (e) return done(e);
+          done(null, ok ? "attendance" : "attendance_records");
+        });
+      },
+      makeSql: (table) => `SELECT COUNT(*) as c FROM \`${table}\``,
+    },
+  ];
+
+  let pending = tasks.length;
   let hasError = false;
 
-  Object.entries(queries).forEach(([key, query]) => {
-    db.query(query, (err, rows) => {
-      if (hasError) return;
+  const finishOne = () => {
+    pending--;
+    if (pending === 0 && !hasError) res.json(results);
+  };
 
-      if (err) {
-        console.error(`Error executing query: ${key}`, err);
+  tasks.forEach((t) => {
+    if (t.sql) {
+      db.query(t.sql, (err, rows) => {
+        if (hasError) return;
+        if (err) {
+          console.error(`Error executing query: ${t.key}`, err);
+          hasError = true;
+          return res.status(500).json({ message: "Error fetching report summary" });
+        }
+        results[t.key] = rows?.[0]?.c || 0;
+        finishOne();
+      });
+      return;
+    }
+
+    t.choose((chooseErr, table) => {
+      if (hasError) return;
+      if (chooseErr) {
+        console.error(`Error checking table for query: ${t.key}`, chooseErr);
         hasError = true;
         return res.status(500).json({ message: "Error fetching report summary" });
       }
 
-      results[key] = rows[0].c || 0;
-      pending--;
-
-      if (pending === 0 && !hasError) {
-        res.json(results);
-      }
+      const sql = t.makeSql(table);
+      db.query(sql, (err, rows) => {
+        if (hasError) return;
+        if (err) {
+          console.error(`Error executing query: ${t.key}`, err);
+          hasError = true;
+          return res.status(500).json({ message: "Error fetching report summary" });
+        }
+        results[t.key] = rows?.[0]?.c || 0;
+        finishOne();
+      });
     });
   });
 };
@@ -74,12 +132,62 @@ exports.getReportData = (req, res) => {
     }
     sql += " ORDER BY id DESC";
   } else if (type === "restaurant") {
-    sql = "SELECT id, DATE(created_at) as date, status, table_number as `table_number`, total as amount, payment_method as paymentMode FROM restaurant_bills WHERE 1=1";
-    addDateFilter("created_at");
-    if (paymentMode && paymentMode !== "All") {
-      sql += " AND payment_method = ?"; params.push(paymentMode);
-    }
-    sql += " ORDER BY id DESC";
+    // Support both schemas:
+    // - restaurant_bills(created_at, table_number, total, payment_method, status)
+    // - bills(tableNumber, subtotal, gst, total, paymentMethod, [created_at?])
+    tableExists("restaurant_bills", (tblErr, hasRestaurantBills) => {
+      if (tblErr) {
+        console.error("Error checking restaurant tables:", tblErr);
+        return res.status(500).json({ message: "Failed to fetch report data" });
+      }
+
+      if (hasRestaurantBills) {
+        sql =
+          "SELECT id, DATE(created_at) as date, status, table_number as `table_number`, total as amount, payment_method as paymentMode FROM restaurant_bills WHERE 1=1";
+        addDateFilter("created_at");
+        if (paymentMode && paymentMode !== "All") {
+          sql += " AND payment_method = ?"; params.push(paymentMode);
+        }
+        sql += " ORDER BY id DESC";
+
+        return db.query(sql, params, (err, rows) => {
+          if (err) {
+            console.error("Error fetching restaurant report:", err);
+            return res.status(500).json({ message: "Failed to fetch report data" });
+          }
+          return res.json(rows);
+        });
+      }
+
+      // Fallback to `bills`
+      columnExists("bills", "created_at", (colErr, hasCreatedAt) => {
+        if (colErr) {
+          console.error("Error checking bills columns:", colErr);
+          return res.status(500).json({ message: "Failed to fetch report data" });
+        }
+
+        sql =
+          `SELECT id, ${hasCreatedAt ? "DATE(created_at)" : "NULL"} as date, ` +
+          "tableNumber as `table_number`, total as amount, paymentMethod as paymentMode FROM bills WHERE 1=1";
+
+        if (hasCreatedAt) {
+          addDateFilter("created_at");
+        }
+        if (paymentMode && paymentMode !== "All") {
+          sql += " AND paymentMethod = ?"; params.push(paymentMode);
+        }
+        sql += " ORDER BY id DESC";
+
+        db.query(sql, params, (err, rows) => {
+          if (err) {
+            console.error("Error fetching bills report:", err);
+            return res.status(500).json({ message: "Failed to fetch report data" });
+          }
+          return res.json(rows);
+        });
+      });
+    });
+    return;
   } else if (type === "housekeeping") {
     sql = "SELECT id, room_number as roomType, status FROM rooms WHERE 1=1";
     if (status && status !== "All") {

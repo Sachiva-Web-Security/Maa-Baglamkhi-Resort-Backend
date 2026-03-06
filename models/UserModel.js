@@ -11,6 +11,25 @@ const findUserByEmail = (email, callback) => {
   db.query(sql, [email], callback);
 };
 
+const countUsers = (callback) => {
+  const sql = "SELECT COUNT(*) AS c FROM register";
+  db.query(sql, (err, rows) => {
+    if (err) return callback(err);
+    callback(null, rows?.[0]?.c ?? 0);
+  });
+};
+
+const updatePasswordByEmail = (email, hashedPassword, callback) => {
+  const sql = "UPDATE register SET password = ? WHERE email = ?";
+  db.query(sql, [hashedPassword, email], callback);
+};
+
+const updateAvatarUrlByEmail = (email, avatarUrl, callback) => {
+  // Note: this requires an `avatar_url` column in `register`. If missing, controller should handle error gracefully.
+  const sql = "UPDATE register SET avatar_url = ? WHERE email = ?";
+  db.query(sql, [avatarUrl, email], callback);
+};
+
 const getAllUsers = (callback) => {
   const sql = "SELECT id, name, email, role FROM register";
   db.query(sql, callback);
@@ -19,5 +38,8 @@ const getAllUsers = (callback) => {
 module.exports = {
   createUser,
   findUserByEmail,
+  countUsers,
+  updatePasswordByEmail,
+  updateAvatarUrlByEmail,
   getAllUsers,
 };

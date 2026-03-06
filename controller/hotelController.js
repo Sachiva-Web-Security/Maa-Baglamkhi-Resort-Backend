@@ -18,6 +18,27 @@ exports.getRoomsAndBookings = (req, res) => {
   });
 };
 
+// Compatibility endpoints for frontend calls
+exports.getRooms = (req, res) => {
+  HotelModel.getRooms((err, rooms) => {
+    if (err) {
+      console.error("Error fetching rooms:", err);
+      return res.status(500).json({ message: "Error fetching rooms" });
+    }
+    res.json(rooms);
+  });
+};
+
+exports.getBookings = (req, res) => {
+  HotelModel.getBookings((err, bookings) => {
+    if (err) {
+      console.error("Error fetching bookings:", err);
+      return res.status(500).json({ message: "Error fetching bookings" });
+    }
+    res.json(bookings);
+  });
+};
+
 exports.createBooking = (req, res) => {
   const { guestName, room, checkIn, checkOut, pricePerDay, phone } = req.body;
 
