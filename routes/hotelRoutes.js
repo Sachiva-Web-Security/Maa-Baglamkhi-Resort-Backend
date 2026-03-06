@@ -1,6 +1,8 @@
 const router = require("express").Router();
 const {
   getRoomsAndBookings,
+  getRooms,
+  getBookings,
   createBooking,
   checkout,
   extendBooking,
@@ -11,6 +13,8 @@ const {
 } = require("../controller/hotelController");
 
 router.get("/", getRoomsAndBookings);
+router.get("/rooms", getRooms);
+router.get("/bookings", getBookings);
 router.post("/book", createBooking);
 router.post("/checkout", checkout);
 router.post("/extend", extendBooking);
