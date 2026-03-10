@@ -2,30 +2,67 @@ const Restaurant = require("../models/RestaurantModel");
 
 // TABLE
 exports.addTable = (req, res) => {
-    Restaurant.addTable(req.body, (err, result) => {
-        if (err) return res.status(500).json(err);
+    const number = String(req.body?.number || "").trim();
+    if (!number) {
+        return res.status(400).json({ message: "Table number is required" });
+    }
+
+    Restaurant.addTable({ number }, (err, result) => {
+        if (err) {
+            if (err.code === "ER_DUP_ENTRY") {
+                return res.status(400).json({ message: `Table ${number} already exists` });
+            }
+            console.error("Error adding table:", err);
+            return res.status(500).json({ message: "Failed to add table" });
+        }
+
         res.json({ message: "Table added", id: result.insertId });
     });
 };
 
 exports.getTables = (req, res) => {
     Restaurant.getTables((err, data) => {
-        if (err) return res.status(500).json(err);
+        if (err) {
+            console.error("Error fetching restaurant tables:", err);
+            return res.json([]);
+        }
         res.json(data);
     });
 };
 
 // MENU
 exports.addMenuItem = (req, res) => {
-    Restaurant.addMenuItem(req.body, (err, result) => {
-        if (err) return res.status(500).json(err);
+    const name = String(req.body?.name || "").trim();
+    const category = String(req.body?.category || "").trim() || "Others";
+    const tableNumber = String(req.body?.tableNumber || "").trim() || null;
+    const price = Number(req.body?.price);
+
+    if (!name) {
+        return res.status(400).json({ message: "Dish name is required" });
+    }
+    if (!Number.isFinite(price) || price < 0) {
+        return res.status(400).json({ message: "Valid dish price is required" });
+    }
+
+    Restaurant.addMenuItem({ name, price, category, tableNumber }, (err, result) => {
+        if (err) {
+            console.error("Error adding menu item:", err);
+            return res.status(500).json({
+                message: "Failed to save dish",
+                detail: err.sqlMessage || err.message || null
+            });
+        }
         res.json({ message: "Menu item added", id: result.insertId });
     });
 };
 
 exports.getMenuItems = (req, res) => {
-    Restaurant.getMenuItems((err, data) => {
-        if (err) return res.status(500).json(err);
+    const tableNumber = String(req.query?.tableNumber || "").trim() || null;
+    Restaurant.getMenuItems({ tableNumber }, (err, data) => {
+        if (err) {
+            console.error("Error fetching menu items:", err);
+            return res.json([]);
+        }
         res.json(data);
     });
 };

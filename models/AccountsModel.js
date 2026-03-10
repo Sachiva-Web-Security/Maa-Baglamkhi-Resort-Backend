@@ -16,5 +16,19 @@ const createTransaction = (data, callback) => {
   );
 };
 
-module.exports = { getTransactions, createTransaction };
+// ✅ NEW
+const getSummary = (callback) => {
+  const sql = `
+    SELECT
+      SUM(CASE WHEN type='Income' THEN amount ELSE 0 END) AS totalIncome,
+      SUM(CASE WHEN type='Expense' THEN amount ELSE 0 END) AS totalExpense
+    FROM accounts_transactions
+  `;
+  db.query(sql, callback);
+};
 
+module.exports = {
+  getTransactions,
+  createTransaction,
+  getSummary, // ✅ NEW
+};
