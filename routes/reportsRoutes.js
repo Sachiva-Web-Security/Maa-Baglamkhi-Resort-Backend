@@ -5,4 +5,3 @@ router.get("/summary", summary);
 router.get("/data", getReportData);
 
 module.exports = router;
-

@@ -47,7 +47,11 @@ app.use("/api/dashboard", authMiddleware, require("./routes/dashboardRoutes"));
 const invoiceRoutes = require("./routes/InvoiceRoutes");
 app.use("/api/invoices", authMiddleware, invoiceRoutes);
 const kitchenRoutes = require("./routes/kitchenRoutes");
+const inventoryRoutes = require("./routes/inventoryRoutes");
+app.use("/api/inventory", authMiddleware, inventoryRoutes);
+
 app.use("/api/kitchen", authMiddleware, kitchenRoutes);
+app.use("/api/housekeeping", authMiddleware, require("./routes/housekeepingRoutes"));
 // HEALTH CHECK
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", message: "Backend is reachable" });
@@ -85,7 +89,7 @@ app.get("/", (req, res) => {
 
 
 
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 5002;
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

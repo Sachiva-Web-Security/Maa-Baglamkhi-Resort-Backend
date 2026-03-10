@@ -46,3 +46,18 @@ exports.addExpense = (req, res) => {
   );
 };
 
+exports.getSummary = (req, res) => {
+  AccountsModel.getSummary((err, results) => {
+    if (err) {
+      console.error("Error fetching summary:", err);
+      return res.status(500).json({ message: "Error fetching summary" });
+    }
+
+    const income = Number(results[0].totalIncome) || 0;
+    const expense = Number(results[0].totalExpense) || 0;
+    const net = income - expense;
+    const gstPayable = Math.round(income * 0.05);
+
+    res.json({ income, expense, net, gstPayable });
+  });
+};

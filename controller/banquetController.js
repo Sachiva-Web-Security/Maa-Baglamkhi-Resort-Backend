@@ -54,3 +54,32 @@ exports.billBooking = (req, res) => {
   });
 };
 
+exports.createHall = (req, res) => {
+  const { name, code, capacity, ratePerHour, is_ac } = req.body;
+
+  if (!name || !capacity || !ratePerHour) {
+    return res.status(400).json({ message: "Name, capacity and rate are required" });
+  }
+
+  const hallData = {
+    name,
+    code: code || name.toLowerCase().replace(/\s+/g, "_"),
+    capacity: Number(capacity),
+    ratePerHour: Number(ratePerHour),
+    is_ac: is_ac === "true" || is_ac === true ? 1 : 0,
+    image: req.file ? req.file.filename : null,
+    status: "Available",
+  };
+
+  BanquetModel.createHall(hallData, (err, result) => {
+    if (err) {
+      console.error("Error creating hall:", err);
+      return res.status(500).json({ message: "Error creating hall: " + err.message });
+    }
+    res.json({
+      message: "Hall created",
+      hall: { id: result.insertId, ...hallData },
+    });
+  });
+};
+

@@ -1,84 +1,48 @@
-const InvoiceModel = require("../models/InvoiceModel");
-const AccountsModel = require("../models/AccountsModel");
-const HotelModel = require("../models/HotelModel");
+const Invoice = require("../models/InvoiceModel");
 
 exports.createInvoice = (req, res) => {
-  const invoice = req.body;
-
-  if (!invoice.invoiceNo || !invoice.customerName || !invoice.finalTotal) {
-    return res.status(400).json({ message: "Missing required fields" });
-  }
-
-  InvoiceModel.createInvoice(invoice, (err, result) => {
+  Invoice.createInvoice(req.body, (err, result) => {
     if (err) {
-      console.error("Error creating invoice:", err);
-      return res.status(500).json({ message: "Error creating invoice" });
+      console.log("❌ DB ERROR while creating invoice:", err);
+      return res.status(500).json({ error: "Failed to create invoice", details: err });
     }
-
-    const invoiceId = result.insertId;
-
-    // Mark booking as billed if bookingId is provided
-    if (invoice.bookingId) {
-      HotelModel.markBillGenerated(invoice.bookingId, (err2) => {
-        if (err2) console.error("Error marking bill generated:", err2);
-      });
-    }
-
-    // ALSO SAVE AS INCOME (automatic entry)
-    AccountsModel.createTransaction(
-      {
-        date: invoice.date,
-        type: "Income",
-        description: `Invoice ${invoice.invoiceNo} - ${invoice.customerName}`,
-        amount: invoice.finalTotal,
-        paymentMode: invoice.paymentMode,
-      },
-      (err3) => {
-        if (err3) {
-          console.error("Error adding invoice to accounts:", err3);
-        }
-
-        res.json({
-          message: "Invoice created successfully",
-          id: invoiceId,
-        });
-      }
-    );
+    res.json({
+      message: "Invoice created successfully",
+      id: result.insertId,
+    });
   });
 };
 
 exports.getAllInvoices = (req, res) => {
-  InvoiceModel.getAllInvoices((err, results) => {
+  Invoice.getAllInvoices((err, results) => {
     if (err) {
-      console.error("Error fetching invoices:", err);
-      return res.status(500).json({ message: "Error fetching invoices" });
+      console.log("❌ DB ERROR while fetching invoices:", err);
+      return res.status(500).json({ error: "Failed to fetch invoices", details: err });
     }
     res.json(results);
   });
 };
 
 exports.getInvoiceByBookingId = (req, res) => {
-  const { bookingId } = req.params;
-  InvoiceModel.getInvoiceByBookingId(bookingId, (err, results) => {
+  const bookingId = req.params.bookingId;
+  Invoice.getInvoiceByBookingId(bookingId, (err, results) => {
     if (err) {
-      console.error("Error fetching invoice:", err);
-      return res.status(500).json({ message: "Error fetching invoice" });
+      console.log("❌ DB ERROR while fetching invoice by booking ID:", err);
+      return res.status(500).json({ error: "Failed to fetch invoice", details: err });
     }
-    if (!results || results.length === 0) {
-      return res.status(404).json({ message: "Invoice not found" });
-    }
-    res.json(results[0]);
+    res.json(results);
   });
 };
 
 exports.updateInvoice = (req, res) => {
-  const { id } = req.params;
-  const invoice = req.body;
-  InvoiceModel.updateInvoice(id, invoice, (err) => {
+  const id = req.params.id;
+  Invoice.updateInvoice(id, req.body, (err, result) => {
     if (err) {
-      console.error("Error updating invoice:", err);
-      return res.status(500).json({ message: "Error updating invoice" });
+      console.log("❌ DB ERROR while updating invoice:", err);
+      return res.status(500).json({ error: "Failed to update invoice", details: err });
     }
-    res.json({ message: "Invoice updated successfully" });
+    res.json({
+      message: "Invoice updated successfully",
+    });
   });
 };
