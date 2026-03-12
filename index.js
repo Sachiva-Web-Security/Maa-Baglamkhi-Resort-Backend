@@ -36,7 +36,7 @@ app.use("/api/auth", require("./routes/authRoutes"));
 
 // Protected routes – require valid JWT
 app.use("/api/users", authMiddleware, require("./routes/userRoutes"));
-app.use("/api/hotel", authMiddleware, require("./routes/hotelRoutes"));
+app.use("/api/hotel", require("./routes/bookingRoutes"));
 app.use("/api/restaurant", authMiddleware, require("./routes/restaurantRoutes"));
 app.use("/api/accounts", authMiddleware, require("./routes/accountsRoutes"));
 app.use("/api/banquet", authMiddleware, require("./routes/banquetRoutes"));
