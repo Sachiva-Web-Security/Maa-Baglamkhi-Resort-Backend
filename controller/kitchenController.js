@@ -18,16 +18,36 @@ exports.createOrder = (req, res) => {
 };
 
 exports.getOrders = (req, res) => {
+
   Kitchen.getOrders((err, data) => {
+
     if (err) return res.status(500).json(err);
 
-    const orders = data.map((o) => ({
-      ...o,
-      items: JSON.parse(o.items),
-    }));
+    const orders = data.map((o)=>{
+
+      const parsedItems = JSON.parse(o.items || "[]");
+
+      const items = parsedItems.map(item => ({
+        name: item.name || item.item_name,
+        qty: item.quantity,
+        price: item.price
+      }));
+
+      return {
+        id: o.id,
+        table: o.table_number,
+        waiter: o.waiter_name,
+        status: o.status,
+        created_at: o.created_at,
+        items
+      };
+
+    });
 
     res.json(orders);
+
   });
+
 };
 
 exports.updateOrderStatus = (req, res) => {
