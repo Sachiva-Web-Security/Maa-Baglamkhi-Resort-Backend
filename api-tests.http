@@ -1,0 +1,119 @@
+### College Admission Portal API Tests
+### Requires VS Code "REST Client" Extension
+
+@baseUrl = http://localhost:8080/api
+@authToken = {{login.response.body.token}}
+@collegeId = 1
+@applicationId = 1
+
+### ==================== AUTH APIs ====================
+
+### Register Student
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "Jane Doe",
+  "email": "student@example.com",
+  "password": "password123"
+}
+
+### Verify OTP
+POST {{baseUrl}}/auth/verify-otp
+Content-Type: application/json
+
+{
+  "email": "student@example.com",
+  "otp": "123456"
+}
+
+### Login Student
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "student@example.com",
+  "password": "password123"
+}
+
+### ==================== ADMIN APIs ====================
+
+### Create College Account
+POST {{baseUrl}}/admin/create-college-account
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "Admin User",
+  "email": "college1@test.com",
+  "college_name": "Test Engineering College"
+}
+
+### Get Colleges (Admin)
+GET {{baseUrl}}/admin/colleges?status=pending
+Authorization: Bearer {{authToken}}
+
+### Approve College
+PUT {{baseUrl}}/admin/approve-college/{{collegeId}}
+Authorization: Bearer {{authToken}}
+
+### Get All Students
+GET {{baseUrl}}/admin/students
+Authorization: Bearer {{authToken}}
+
+### Get All Applications
+GET {{baseUrl}}/admin/applications
+Authorization: Bearer {{authToken}}
+
+### ==================== COLLEGE APIs ====================
+
+### Get College Profile
+GET {{baseUrl}}/college/profile
+Authorization: Bearer {{authToken}}
+
+### Update College Profile
+PUT {{baseUrl}}/college/profile
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "description": "A premier engineering college.",
+  "location": "New York, USA",
+  "courses": "Computer Science, Mechanical Engineering"
+}
+
+### Get College's Applications
+GET {{baseUrl}}/college/applications
+Authorization: Bearer {{authToken}}
+
+### Update Application Status
+PUT {{baseUrl}}/college/application-status/{{applicationId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "status": "approved",
+  "remarks": "Congratulations, you are approved!"
+}
+
+### ==================== STUDENT APIs ====================
+
+### Get Approved Colleges
+GET {{baseUrl}}/colleges
+
+### Get College Details
+GET {{baseUrl}}/colleges/{{collegeId}}
+
+### Create Application
+POST {{baseUrl}}/student/applications
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "college_id": 1
+}
+
+### Get My Applications
+GET {{baseUrl}}/student/applications
+Authorization: Bearer {{authToken}}
