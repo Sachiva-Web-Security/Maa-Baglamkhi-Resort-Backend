@@ -14,7 +14,7 @@ router.get("/menu", controller.getMenuItems);
 router.post("/order/add", controller.addOrderItem);
 router.get("/order/:tableNumber", controller.getOrder);
 
-// BILL
+router.get("/order-items/:orderId", controller.getOrderItems);
 router.post("/bill", controller.createBill);
 
 module.exports = router;
