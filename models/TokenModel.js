@@ -55,3 +55,11 @@ exports.updateTokenItem = (data, callback) => {
 exports.deleteTokenItem = (id, callback) => {
   db.query("DELETE FROM token_items WHERE id=?", [id], callback);
 };
+
+exports.closeTokenByTable = (tableNumber, callback) => {
+  db.query(
+    "UPDATE tokens SET status='closed' WHERE tableNumber=? AND status='active'",
+    [tableNumber],
+    callback
+  );
+};
