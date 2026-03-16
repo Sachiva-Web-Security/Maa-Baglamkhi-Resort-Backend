@@ -123,6 +123,24 @@ exports.getOrder = (req, res) => {
   });
 };
 
+exports.markOrderPaid = (req, res) => {
+  const tableNumber = req.params.tableNumber;
+
+  Restaurant.getPendingOrder(tableNumber, (err, order) => {
+    if (err) return res.status(500).json(err);
+    if (!order) return res.json({ message: "No pending order found" });
+
+    Restaurant.markOrderPaid(order.id, (updateErr) => {
+      if (updateErr) return res.status(500).json(updateErr);
+
+      res.json({
+        message: "Order marked as paid",
+        orderId: order.id,
+      });
+    });
+  });
+};
+
 /* ================= BILL ================= */
 
 exports.createBill = (req, res) => {

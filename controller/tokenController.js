@@ -70,3 +70,13 @@ exports.deleteItem = (req, res) => {
     res.json({ message: "Item deleted" });
   });
 };
+
+exports.closeTokenByTable = (req, res) => {
+  const table = req.params.table;
+
+  Token.closeTokenByTable(table, (err) => {
+    if (err) return res.status(500).json(err);
+
+    res.json({ message: "Token closed" });
+  });
+};
