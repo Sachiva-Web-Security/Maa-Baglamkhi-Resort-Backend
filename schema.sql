@@ -65,7 +65,47 @@ CREATE TABLE IF NOT EXISTS bills (
 );
 
 -- ===============================
--- 6. Table Menu Mapping
+-- 6. Tokens
+-- ===============================
+
+CREATE TABLE IF NOT EXISTS tokens (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    tableNumber VARCHAR(50) NOT NULL,
+    waiter VARCHAR(100),
+    status ENUM('active','closed') DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ===============================
+-- 7. Token Items
+-- ===============================
+
+CREATE TABLE IF NOT EXISTS token_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    token_id INT NOT NULL,
+    item_name VARCHAR(255) NOT NULL,
+    qty INT DEFAULT 1,
+    rate DECIMAL(10,2) NOT NULL,
+
+    FOREIGN KEY (token_id)
+    REFERENCES tokens(id)
+    ON DELETE CASCADE
+);
+
+-- ===============================
+-- 8. Payments
+-- ===============================
+
+CREATE TABLE IF NOT EXISTS payments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    tableNumber VARCHAR(50) NOT NULL,
+    total DECIMAL(10,2) NOT NULL,
+    paymentMethod VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ===============================
+-- 9. Table Menu Mapping
 -- (optional table specific menu)
 -- ===============================
 
@@ -75,6 +115,7 @@ CREATE TABLE IF NOT EXISTS table_menu_map (
 
     PRIMARY KEY(menu_item_id, table_number)
 );
+<<<<<<< HEAD
 
 -- ===============================
 -- 7. Rooms (Room Service)
@@ -136,3 +177,5 @@ CREATE TABLE IF NOT EXISTS room_bills (
     paymentMethod VARCHAR(50),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+=======
+>>>>>>> 2994ccb5939ed685554f10c56a93c692fe41af51
