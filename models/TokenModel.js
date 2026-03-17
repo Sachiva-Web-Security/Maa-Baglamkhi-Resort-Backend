@@ -55,3 +55,13 @@ exports.updateTokenItem = (data, callback) => {
 exports.deleteTokenItem = (id, callback) => {
   db.query("DELETE FROM token_items WHERE id=?", [id], callback);
 };
+
+// CLOSE ACTIVE TOKEN FOR TABLE
+exports.closeActiveToken = (tableNumber, callback) => {
+  const sql = `
+    UPDATE tokens
+    SET status='closed'
+    WHERE tableNumber=? AND status='active'
+  `;
+  db.query(sql, [tableNumber], callback);
+};

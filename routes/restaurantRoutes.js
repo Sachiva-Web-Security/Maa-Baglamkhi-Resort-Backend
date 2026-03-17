@@ -13,6 +13,7 @@ router.get("/menu", controller.getMenuItems);
 // ORDER
 router.post("/order/add", controller.addOrderItem);
 router.get("/order/:tableNumber", controller.getOrder);
+router.put("/order/:tableNumber/pay", controller.payOrder);
 
 router.get("/order-items/:orderId", controller.getOrderItems);
 router.post("/bill", controller.createBill);

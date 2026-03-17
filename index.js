@@ -27,6 +27,7 @@ io.on("connection", (socket) => {
 
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // serve uploads
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
@@ -45,6 +46,9 @@ app.use("/api/hotel", require("./routes/bookingRoutes"));
 
 // Restaurant
 app.use("/api/restaurant", require("./routes/restaurantRoutes"));
+
+// Room Service (uses restaurant POS style flow)
+app.use("/api/room-service", require("./routes/roomServiceRoutes"));
 
 // Accounts
 app.use("/api/accounts", require("./routes/accountsRoutes"));
