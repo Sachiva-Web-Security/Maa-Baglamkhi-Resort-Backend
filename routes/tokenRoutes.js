@@ -11,5 +11,6 @@ router.get("/items/:tokenId", controller.getItems);
 
 router.put("/item", controller.updateItem);
 router.delete("/item/:id", controller.deleteItem);
+router.put("/close/:table", controller.closeTokenByTable);
 
 module.exports = router;
