@@ -1,17 +1,18 @@
-const router = require("express").Router();
-const upload = require("../utils/upload");
+const express = require("express");
+const router = express.Router();
+
 const {
-  getHallsAndBookings,
-  createBooking,
-  completeBooking,
-  billBooking,
-  createHall,
+  getBanquetDashboard,
+  createBanquetBooking,
+  completeBanquetBooking,
+  generateBanquetBill,
+  addBanquetHall,
 } = require("../controller/banquetController");
 
-router.get("/", getHallsAndBookings);
-router.post("/", createBooking);
-router.post("/halls", upload.single("image"), createHall);
-router.put("/:id/complete", completeBooking);
-router.put("/:id/bill", billBooking);
+router.get("/", getBanquetDashboard);
+router.post("/", createBanquetBooking);
+router.put("/:id/complete", completeBanquetBooking);
+router.put("/:id/bill", generateBanquetBill);
+router.post("/halls", addBanquetHall);
 
 module.exports = router;

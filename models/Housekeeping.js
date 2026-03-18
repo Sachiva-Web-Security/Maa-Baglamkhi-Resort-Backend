@@ -63,21 +63,35 @@ const Housekeeping = {
                 `;
             }
 
+            const housekeepingJoin = hasHousekeeping
+              ? "LEFT JOIN housekeeping hk ON CAST(hk.roomNo AS CHAR) = CAST(r.room_number AS CHAR)"
+              : "";
+            const housekeepingIdSelect = hasHousekeeping ? "COALESCE(hk.id, 0)" : "0";
+            const housekeepingStatusSelect = hasHousekeeping
+              ? `COALESCE(NULLIF(hk.status, ''), CASE
+                  WHEN LOWER(r.status) = 'occupied' THEN 'Occupied Dirty'
+                  ELSE 'Vacant Dirty'
+                END)`
+              : `CASE
+                  WHEN LOWER(r.status) = 'occupied' THEN 'Occupied Dirty'
+                  ELSE 'Vacant Dirty'
+                END`;
+            const housekeepingAssigneeSelect = hasHousekeeping
+              ? "NULLIF(hk.assignee, '')"
+              : "NULL";
+
             const rows = await runQuery(`
               SELECT
-                COALESCE(hk.id, 0) AS housekeepingId,
+                ${housekeepingIdSelect} AS housekeepingId,
                 CAST(r.room_number AS CHAR) AS roomNo,
                 r.status AS hotelStatus,
                 r.guest,
                 DATE(r.check_in) AS checkIn,
                 DATE(r.check_out) AS checkOut,
-                COALESCE(NULLIF(hk.status, ''), CASE
-                  WHEN LOWER(r.status) = 'occupied' THEN 'Occupied Dirty'
-                  ELSE 'Vacant Dirty'
-                END) AS status,
-                COALESCE(NULLIF(${hasAssignments ? "a.staff_name" : "NULL"}, ''), NULLIF(hk.assignee, ''), 'No Housekeeper') AS assignee
+                ${housekeepingStatusSelect} AS status,
+                COALESCE(NULLIF(${hasAssignments ? "a.staff_name" : "NULL"}, ''), ${housekeepingAssigneeSelect}, 'No Housekeeper') AS assignee
               FROM rooms r
-              LEFT JOIN housekeeping hk ON CAST(hk.roomNo AS CHAR) = CAST(r.room_number AS CHAR)
+              ${housekeepingJoin}
               ${assignmentJoin}
               ORDER BY CAST(r.room_number AS UNSIGNED), r.room_number
             `);

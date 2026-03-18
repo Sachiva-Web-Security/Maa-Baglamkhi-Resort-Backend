@@ -1,98 +1,206 @@
 const db = require("../config/db");
 
-/* ---- Auto-migrate: add missing columns if needed ---- */
-(function migrate() {
-  db.query("SHOW COLUMNS FROM banquet_halls LIKE 'image'", (err, rows) => {
-    if (!err && rows.length === 0) {
-      db.query("ALTER TABLE banquet_halls ADD COLUMN image VARCHAR(255) DEFAULT NULL", (e) => {
-        if (e) console.log("Migration (image):", e.message);
-        else console.log("Migration: added 'image' column to banquet_halls");
-      });
-    }
+const runQuery = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.query(sql, params, (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows);
+    });
   });
-  db.query("SHOW COLUMNS FROM banquet_halls LIKE 'is_ac'", (err, rows) => {
-    if (!err && rows.length === 0) {
-      db.query("ALTER TABLE banquet_halls ADD COLUMN is_ac BOOLEAN DEFAULT TRUE", (e) => {
-        if (e) console.log("Migration (is_ac):", e.message);
-        else console.log("Migration: added 'is_ac' column to banquet_halls");
-      });
-    }
-  });
-})();
-const getHalls = (callback) => {
-  db.query(
-    "SELECT id, code, name, capacity, rate_per_hour AS ratePerHour, status, image, is_ac FROM banquet_halls",
-    callback
+
+// =========================
+// HALLS
+// =========================
+
+const getAllHalls = async () => {
+  const rows = await runQuery(`
+    SELECT 
+      id,
+      name,
+      capacity,
+      ratePerHour,
+      is_ac,
+      image,
+      status
+    FROM banquet_halls
+    ORDER BY id DESC
+  `);
+
+  return rows;
+};
+
+const createHall = async ({ name, capacity, ratePerHour, is_ac, image }) => {
+  const result = await runQuery(
+    `
+    INSERT INTO banquet_halls (
+      name,
+      capacity,
+      ratePerHour,
+      is_ac,
+      image,
+      status
+    ) VALUES (?, ?, ?, ?, ?, ?)
+    `,
+    [
+      name,
+      Number(capacity),
+      Number(ratePerHour),
+      is_ac ? 1 : 0,
+      image || null,
+      "Available",
+    ]
   );
+
+  const rows = await runQuery(
+    `SELECT * FROM banquet_halls WHERE id = ?`,
+    [result.insertId]
+  );
+
+  return rows[0];
 };
 
-const getBookings = (callback) => {
-  const sql =
-    "SELECT b.*, h.name AS hallName, h.code AS hallCode FROM banquet_bookings b JOIN banquet_halls h ON b.hall_id = h.id ORDER BY b.date DESC, b.id DESC";
-  db.query(sql, callback);
+// =========================
+// BOOKINGS
+// =========================
+
+const getAllBookings = async () => {
+  const rows = await runQuery(`
+    SELECT
+      b.id,
+      b.hall_id,
+      h.name AS hallName,
+      b.customer_name,
+      b.phone,
+      b.guest_email,
+      b.event_title,
+      b.event_type,
+      b.guests,
+      b.menu_package_id,
+      b.meal_section,
+      b.custom_menu_items,
+      b.lighting_system,
+      b.decoration_fee,
+      b.notes,
+      b.date,
+      b.start_time,
+      b.end_time,
+      b.discount,
+      b.gst_percent,
+      b.invoice_no,
+      b.status,
+      b.advance
+    FROM banquet_bookings b
+    JOIN banquet_halls h ON b.hall_id = h.id
+    ORDER BY b.id DESC
+  `);
+
+  return rows;
 };
 
-const createBooking = (data, callback) => {
-  const sql =
-    "INSERT INTO banquet_bookings (hall_id, customer_name, phone, event_type, guests, menu_package_id, decoration_fee, notes, date, start_time, end_time, discount, gst_percent, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-  db.query(
-    sql,
+const checkHallBookingConflict = async ({
+  hallId,
+  date,
+  startTime,
+  endTime,
+}) => {
+  const rows = await runQuery(
+    `
+    SELECT id
+    FROM banquet_bookings
+    WHERE hall_id = ?
+      AND date = ?
+      AND status IN ('Confirmed', 'Completed', 'Billed')
+      AND (start_time < ? AND end_time > ?)
+    `,
+    [hallId, date, endTime, startTime]
+  );
+
+  return rows;
+};
+
+const createBooking = async (data) => {
+  const result = await runQuery(
+    `
+    INSERT INTO banquet_bookings (
+      hall_id,
+      customer_name,
+      phone,
+      guest_email,
+      event_title,
+      event_type,
+      guests,
+      menu_package_id,
+      meal_section,
+      custom_menu_items,
+      lighting_system,
+      decoration_fee,
+      notes,
+      date,
+      start_time,
+      end_time,
+      discount,
+      gst_percent,
+      invoice_no,
+      status,
+      advance
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
     [
       data.hallId,
       data.customerName,
-      data.phone,
+      data.phone || "",
+      data.guestEmail || "",
+      data.eventTitle || "",
       data.eventType,
-      data.guests,
-      data.menuPackageId,
-      data.decorationFee,
+      Number(data.guests || 0),
+      data.menuPackageId || "standard",
+      data.mealSection || "",
+      data.customMenuItems || "",
+      data.lightingSystem || "classic",
+      Number(data.decorationFee || 0),
       data.notes || "",
       data.date,
       data.startTime,
       data.endTime,
-      data.discount || 0,
-      data.gstPercent || 5,
+      Number(data.discount || 0),
+      Number(data.gstPercent || 5),
+      data.invoiceNo || "",
       "Confirmed",
-    ],
-    callback
+      Number(data.advance || 0),
+    ]
   );
+
+  return result.insertId;
 };
 
-const createHall = (data, callback) => {
-  const sql =
-    "INSERT INTO banquet_halls (code, name, capacity, rate_per_hour, image, is_ac, status) VALUES (?, ?, ?, ?, ?, ?, ?)";
-  db.query(
-    sql,
-    [
-      data.code,
-      data.name,
-      data.capacity,
-      data.ratePerHour,
-      data.image || null,
-      data.is_ac !== undefined ? data.is_ac : true,
-      data.status || "Available",
-    ],
-    callback
+const updateBookingStatus = async (id, status) => {
+  const result = await runQuery(
+    `UPDATE banquet_bookings SET status = ? WHERE id = ?`,
+    [status, id]
   );
+
+  return result;
 };
 
-const markCompleted = (id, callback) => {
-  db.query("UPDATE banquet_bookings SET status='Completed' WHERE id=?", [id], callback);
-};
-
-const markBilled = (id, invoiceNo, callback) => {
-  db.query(
-    "UPDATE banquet_bookings SET status='Billed', invoice_no=? WHERE id=?",
-    [invoiceNo, id],
-    callback
+const updateBookingBill = async (id, invoiceNo) => {
+  const result = await runQuery(
+    `
+    UPDATE banquet_bookings
+    SET invoice_no = ?, status = 'Billed'
+    WHERE id = ?
+    `,
+    [invoiceNo, id]
   );
+
+  return result;
 };
 
 module.exports = {
-  getHalls,
-  getBookings,
-  createBooking,
+  getAllHalls,
   createHall,
-  markCompleted,
-  markBilled,
+  getAllBookings,
+  checkHallBookingConflict,
+  createBooking,
+  updateBookingStatus,
+  updateBookingBill,
 };
-
