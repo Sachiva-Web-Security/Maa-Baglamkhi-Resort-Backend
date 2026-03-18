@@ -9,7 +9,7 @@ VALUES (?,?,?,?,?,?,?,?,?)
 `;
 
 db.query(sql,[
-data.booking_id,
+data.guest_id,
 data.bookingType,
 data.bookingSource,
 data.bookingReference,
