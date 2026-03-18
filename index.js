@@ -54,7 +54,7 @@ app.use("/api/room-service", require("./routes/roomServiceRoutes"));
 app.use("/api/accounts", require("./routes/accountsRoutes"));
 
 // Banquet
-app.use("/api/banquet", require("./routes/banquetRoutes"));
+
 
 // Attendance
 app.use("/api/attendance", require("./routes/attendanceRoutes"));
