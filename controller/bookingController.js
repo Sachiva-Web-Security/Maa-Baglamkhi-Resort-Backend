@@ -168,31 +168,77 @@ exports.updateBooking = (req, res) => {
 exports.getFullBooking = (req, res) => {
   const id = req.params.id;
 
-  const sql = `
+  const summarySql = `
     SELECT 
+      g.id AS bookingId,
       g.guest_name,
+      g.guest_email,
       g.mobile,
+      g.check_in,
+      g.check_out,
+      g.arrival,
+      g.departure,
+      g.booking_status,
       c.company_name,
       p.adults,
       p.children,
-      rt.room_number,
-      rt.tariff,
-      rt.gst_percent AS gst,
-      a.amount AS paidAmount
-
+      p.meal_plan,
+      a.amount AS paidAmount,
+      a.payment_mode,
+      a.remarks,
+      a.transaction_details,
+      a.receipt_account,
+      a.refund_amount AS refundAmount
     FROM guests g
     LEFT JOIN companies c ON g.id = c.guest_id
-    LEFT JOIN pax p ON g.id = p.booking_id
-    LEFT JOIN room_tariff rt ON g.id = rt.guest_id
+    LEFT JOIN pax p ON g.id = p.guest_id
     LEFT JOIN advance_payment a ON g.id = a.guest_id
-
     WHERE g.id = ?
     LIMIT 1
   `;
 
-  db.query(sql, [id], (err, result) => {
-    if (err) return res.status(500).json(err);
-    res.json(result[0] || {});
+  const roomsSql = `
+    SELECT
+      room_number,
+      quantity,
+      tariff,
+      gst,
+      total,
+      date
+    FROM room_tariff
+    WHERE guest_id = ?
+    ORDER BY id ASC
+  `;
+
+  db.query(summarySql, [id], (summaryErr, summaryResult) => {
+    if (summaryErr) {
+      return res.status(500).json(summaryErr);
+    }
+
+    db.query(roomsSql, [id], (roomsErr, roomsResult) => {
+      if (roomsErr) {
+        return res.status(500).json(roomsErr);
+      }
+
+      const summary = summaryResult[0] || {};
+      const rooms = Array.isArray(roomsResult) ? roomsResult : [];
+      const totalAmount = rooms.reduce(
+        (sum, room) => sum + Number(room.total || 0),
+        0,
+      );
+      const paidAmount = Number(summary.paidAmount || 0);
+      const refundAmount = Number(summary.refundAmount || 0);
+      const remainingAmount = totalAmount - (paidAmount - refundAmount);
+
+      res.json({
+        ...summary,
+        rooms,
+        totalAmount,
+        paidAmount,
+        refundAmount,
+        remainingAmount,
+      });
+    });
   });
 };
 
