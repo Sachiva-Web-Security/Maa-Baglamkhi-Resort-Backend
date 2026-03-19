@@ -2,6 +2,9 @@ const express = require("express");
 const router = express.Router();
 
 const bookingController = require("../controller/bookingController");
+const hotelRoomInventoryController = require("../controller/hotelRoomInventoryController");
+
+router.use(hotelRoomInventoryController.bootstrap);
 
 // CREATE
 router.post("/guest", bookingController.createGuest);
@@ -15,15 +18,18 @@ router.post("/advance/:id", bookingController.updateAdvance);
 // GET
 router.get("/all-bookings", bookingController.getAllBookings);
 router.get("/booking/:id", bookingController.getBookingById);
+router.get("/rooms/setup", hotelRoomInventoryController.getRoomSetup);
 
 // UPDATE
 router.put("/booking/:id", bookingController.updateBooking);
 router.put("/full-booking/:id", bookingController.updateFullBooking);
+router.put("/rooms/category/:id/price", hotelRoomInventoryController.updateCategoryPrice);
 
 // FULL GET
 router.get("/full-booking/:id", bookingController.getFullBooking);
 
 // DELETE + REFUND
+router.post("/rooms", hotelRoomInventoryController.addRoom);
 
 router.post("/refund/:id", bookingController.refundBooking);
 

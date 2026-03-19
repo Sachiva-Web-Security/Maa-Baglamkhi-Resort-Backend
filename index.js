@@ -3,6 +3,9 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const db = require("./config/db");
+const {
+  ensureSchema: ensureHotelRoomInventorySchema,
+} = require("./models/hotelRoomInventoryModel");
 
 const http = require("http");
 const { Server } = require("socket.io");
@@ -124,6 +127,10 @@ app.get("/", (req, res) => {
 // ================= SERVER =================
 
 const PORT = process.env.PORT || 5002;
+
+ensureHotelRoomInventorySchema().catch((error) => {
+  console.error("Hotel room inventory schema init failed:", error);
+});
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
