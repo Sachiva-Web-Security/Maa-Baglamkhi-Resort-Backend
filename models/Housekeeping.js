@@ -83,7 +83,9 @@ const Housekeeping = {
             const rows = await runQuery(`
               SELECT
                 ${housekeepingIdSelect} AS housekeepingId,
+                hri.id AS roomId,
                 CAST(r.room_number AS CHAR) AS roomNo,
+                hrc.name AS categoryName,
                 r.status AS hotelStatus,
                 r.guest,
                 DATE(r.check_in) AS checkIn,
@@ -91,6 +93,8 @@ const Housekeeping = {
                 ${housekeepingStatusSelect} AS status,
                 COALESCE(NULLIF(${hasAssignments ? "a.staff_name" : "NULL"}, ''), ${housekeepingAssigneeSelect}, 'No Housekeeper') AS assignee
               FROM rooms r
+              LEFT JOIN hotel_room_inventory hri ON CAST(hri.room_number AS CHAR) = CAST(r.room_number AS CHAR)
+              LEFT JOIN hotel_room_categories hrc ON hrc.id = hri.category_id
               ${housekeepingJoin}
               ${assignmentJoin}
               ORDER BY CAST(r.room_number AS UNSIGNED), r.room_number
@@ -98,7 +102,9 @@ const Housekeeping = {
 
             const mapped = rows.map((r) => ({
                 id: r.housekeepingId || r.roomNo,
+                roomId: r.roomId || r.roomNo,
                 roomNo: r.roomNo,
+                categoryName: r.categoryName || "Hotel Room",
                 status: r.status || mapHotelStatusToHousekeeping(r.hotelStatus),
                 assignee: r.assignee || "No Housekeeper",
                 hotelStatus: r.hotelStatus || "Available",

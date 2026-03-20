@@ -6,6 +6,18 @@ const db = require("./config/db");
 const {
   ensureSchema: ensureHotelRoomInventorySchema,
 } = require("./models/hotelRoomInventoryModel");
+const {
+  ensureSchema: ensureAdvancePaymentSchema,
+} = require("./models/advanceModel");
+const {
+  ensureSchema: ensurePaymentHistorySchema,
+} = require("./models/Paymentadvance");
+const {
+  ensureSchema: ensureItemConsumptionSchema,
+} = require("./models/ItemConsumptionModel");
+const {
+  ensureSchema: ensureTokenSchema,
+} = require("./models/TokenModel");
 
 const http = require("http");
 const { Server } = require("socket.io");
@@ -49,6 +61,7 @@ app.use("/api/hotel", require("./routes/bookingRoutes"));
 
 // Restaurant
 app.use("/api/restaurant", require("./routes/restaurantRoutes"));
+app.use("/api/restaurant/consumption", require("./routes/itemConsumptionRoutes"));
 
 // Room Service (uses restaurant POS style flow)
 app.use("/api/room-service", require("./routes/roomServiceRoutes"));
@@ -130,6 +143,18 @@ const PORT = process.env.PORT || 5002;
 
 ensureHotelRoomInventorySchema().catch((error) => {
   console.error("Hotel room inventory schema init failed:", error);
+});
+ensureAdvancePaymentSchema().catch((error) => {
+  console.error("Advance payment schema init failed:", error);
+});
+ensurePaymentHistorySchema().catch((error) => {
+  console.error("Payment history schema init failed:", error);
+});
+ensureItemConsumptionSchema().catch((error) => {
+  console.error("Item consumption schema init failed:", error);
+});
+ensureTokenSchema().catch((error) => {
+  console.error("Token schema init failed:", error);
 });
 
 server.listen(PORT, () => {

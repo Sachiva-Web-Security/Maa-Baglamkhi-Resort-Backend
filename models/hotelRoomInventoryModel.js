@@ -113,9 +113,22 @@ const updateCategoryPrice = async ({ categoryId, defaultPrice }) => {
   );
 };
 
+const updateRoomOperationalState = async ({ roomNumber, guestName = null, status, checkIn = null, checkOut = null }) => {
+  await ensureSchema();
+  await runQuery(
+    `
+      UPDATE rooms
+      SET guest = ?, status = ?, check_in = ?, check_out = ?
+      WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)
+    `,
+    [guestName, status, checkIn, checkOut, roomNumber],
+  );
+};
+
 module.exports = {
   ensureSchema,
   getRoomSetup,
   addRoom,
   updateCategoryPrice,
+  updateRoomOperationalState,
 };

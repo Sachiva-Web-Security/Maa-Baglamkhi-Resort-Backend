@@ -39,7 +39,10 @@ exports.dailyRoomFood = (req, res) => {
   const target = date || new Date().toISOString().slice(0, 10);
 
   Report.dailyRoomFood(target, (err, data) => {
-    if (err) return res.status(500).json(err);
+    if (err) {
+      console.error("dailyRoomFood report error:", err);
+      return res.json([]);
+    }
     res.json(data || []);
   });
 };
