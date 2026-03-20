@@ -33,4 +33,6 @@ router.post("/rooms", hotelRoomInventoryController.addRoom);
 
 router.post("/refund/:id", bookingController.refundBooking);
 
+router.get("/payment-history/:id", bookingController.getPaymentHistory);
+
 module.exports = router;
