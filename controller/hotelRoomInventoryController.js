@@ -44,3 +44,20 @@ exports.updateCategoryPrice = async (req, res) => {
     res.status(500).json({ message: "Failed to update category price" });
   }
 };
+
+exports.updateRoomOperationalState = async (req, res) => {
+  try {
+    await roomInventoryModel.updateRoomOperationalState({
+      roomNumber: req.params.roomNumber,
+      guestName: req.body.guestName ?? null,
+      status: req.body.status,
+      checkIn: req.body.checkIn ?? null,
+      checkOut: req.body.checkOut ?? null,
+    });
+
+    res.json({ message: "Room operational state updated" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to update room operational state" });
+  }
+};
