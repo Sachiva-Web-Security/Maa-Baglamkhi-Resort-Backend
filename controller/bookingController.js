@@ -7,7 +7,7 @@ const PaxModel = require("../models/paxModel");
 const AdvanceModel = require("../models/advanceModel");
 const ReferenceModel = require("../models/referenceModel");
 const RoomTariffModel = require("../models/roomTariffModel");
-
+const Paymentadvance = require("../models/Paymentadvance");
 
 // ================= CREATE GUEST =================
 exports.createGuest = (req, res) => {
@@ -47,13 +47,27 @@ exports.updateReference = (req, res) => {
 
 
 // ================= COMPANY =================
+// controller/bookingController.js
+
 exports.updateCompany = (req, res) => {
   const data = { booking_id: req.params.id, ...req.body };
 
-  CompanyModel.addCompany(data, (err) => {
-    if (err) return res.status(500).json({ message: "Company save failed" });
+  console.log("📦 COMPANY DATA:", data); // debug
 
-    res.json({ message: "Company Added" });
+  CompanyModel.addCompany(data, (err, result) => {
+    if (err) {
+      console.error("❌ COMPANY ERROR:", err);
+
+      return res.status(500).json({
+        message: "Company save failed",
+        error: err.message
+      });
+    }
+
+    res.json({
+      message: "Company Added ✅",
+      id: result.insertId
+    });
   });
 };
 
@@ -82,17 +96,6 @@ exports.updateTariff = (req, res) => {
 };
 
 
-// ================= ADVANCE =================
-exports.updateAdvance = (req, res) => {
-  const data = { booking_id: req.params.id, ...req.body };
-
-  AdvanceModel.addAdvance(data, (err) => {
-    if (err) return res.status(500).json({ message: "Advance save failed" });
-
-    res.json({ message: "Advance Added" });
-  });
-};
-
 
 // ================= ALL BOOKINGS (🔥 FINAL) =================
 exports.getAllBookings = (req, res) => {
@@ -118,9 +121,9 @@ exports.getAllBookings = (req, res) => {
       GROUP_CONCAT(rt.room_number) AS rooms
 
     FROM guests g
-    LEFT JOIN companies c ON g.id = c.guest_id
-    LEFT JOIN advance_payment a ON g.id = a.guest_id
-    LEFT JOIN room_tariff rt ON g.id = rt.guest_id
+    LEFT JOIN companies c ON g.id = c.booking_id
+    LEFT JOIN advance_payment a ON g.id = a.booking_id
+    LEFT JOIN room_tariff rt ON g.id = rt.booking_id
 
     GROUP BY g.id
     ORDER BY g.id DESC
@@ -134,7 +137,6 @@ exports.getAllBookings = (req, res) => {
     res.json(result);
   });
 };
-
 
 // ================= GET SINGLE =================
 exports.getBookingById = (req, res) => {
@@ -172,124 +174,97 @@ exports.getFullBooking = (req, res) => {
     SELECT 
       g.id AS bookingId,
       g.guest_name,
-      g.guest_email,
       g.mobile,
-      g.check_in,
-      g.check_out,
-      g.arrival,
-      g.departure,
-      g.booking_status,
       c.company_name,
-      p.adults,
-      p.children,
-      p.meal_plan,
       a.amount AS paidAmount,
-      a.payment_mode,
-      a.remarks,
-      a.transaction_details,
-      a.receipt_account,
       a.refund_amount AS refundAmount
     FROM guests g
-    LEFT JOIN companies c ON g.id = c.guest_id
-    LEFT JOIN pax p ON g.id = p.guest_id
-    LEFT JOIN advance_payment a ON g.id = a.guest_id
+    LEFT JOIN companies c ON g.id = c.booking_id
+    LEFT JOIN advance_payment a ON g.id = a.booking_id
     WHERE g.id = ?
     LIMIT 1
   `;
 
   const roomsSql = `
-    SELECT
-      room_number,
-      quantity,
-      tariff,
-      gst,
-      total,
-      date
-    FROM room_tariff
-    WHERE guest_id = ?
-    ORDER BY id ASC
+    SELECT 
+      rt.room_number,
+      rt.tariff,
+      rt.gst,
+      rt.total,
+      p.adults,
+      p.children
+    FROM room_tariff rt
+    LEFT JOIN pax p 
+      ON rt.booking_id = p.booking_id 
+      AND rt.room_number = p.room_number
+    WHERE rt.booking_id = ?
   `;
 
-  db.query(summarySql, [id], (summaryErr, summaryResult) => {
-    if (summaryErr) {
-      return res.status(500).json(summaryErr);
-    }
+  db.query(summarySql, [id], (err1, summaryResult) => {
+    if (err1) return res.status(500).json(err1);
 
-    db.query(roomsSql, [id], (roomsErr, roomsResult) => {
-      if (roomsErr) {
-        return res.status(500).json(roomsErr);
-      }
-
-      const summary = summaryResult[0] || {};
-      const rooms = Array.isArray(roomsResult) ? roomsResult : [];
-      const totalAmount = rooms.reduce(
-        (sum, room) => sum + Number(room.total || 0),
-        0,
-      );
-      const paidAmount = Number(summary.paidAmount || 0);
-      const refundAmount = Number(summary.refundAmount || 0);
-      const remainingAmount = totalAmount - (paidAmount - refundAmount);
+    db.query(roomsSql, [id], (err2, roomsResult) => {
+      if (err2) return res.status(500).json(err2);
 
       res.json({
-        ...summary,
-        rooms,
-        totalAmount,
-        paidAmount,
-        refundAmount,
-        remainingAmount,
+        ...summaryResult[0],
+        rooms: roomsResult,
       });
     });
   });
 };
-
-
 // ================= FULL BOOKING UPDATE =================
 exports.updateFullBooking = (req, res) => {
   const id = req.params.id;
+  const { guest_name, mobile, company_name, rooms, paidAmount } = req.body;
 
-  const {
+  db.query("UPDATE guests SET guest_name=?, mobile=? WHERE id=?", [
     guest_name,
     mobile,
+    id,
+  ]);
+
+  db.query("UPDATE companies SET company_name=? WHERE booking_id=?", [
     company_name,
-    adults,
-    children,
-    room_number,
-    tariff,
-    gst,
-    total,
-    paidAmount
-  } = req.body;
+    id,
+  ]);
 
-  db.query("UPDATE guests SET guest_name=?, mobile=? WHERE id=?", [guest_name, mobile, id]);
-  db.query("UPDATE companies SET company_name=? WHERE guest_id=?", [company_name, id]);
-  db.query("UPDATE pax SET adults=?, children=? WHERE booking_id=?", [adults, children, id]);
+  db.query("UPDATE advance_payment SET amount=? WHERE booking_id=?", [
+    paidAmount,
+    id,
+  ]);
 
-  db.query(`
-    UPDATE room_tariff 
-    SET room_number=?, tariff=?, gst_percent=?, total=? 
-    WHERE guest_id=?`,
-    [room_number, tariff, gst, total, id]
-  );
+  // 🔥 MULTIPLE ROOMS UPDATE
+  for (const room of rooms) {
+    db.query(
+      `UPDATE room_tariff 
+       SET tariff=?, gst=?, total=? 
+       WHERE booking_id=? AND room_number=?`,
+      [room.tariff, room.gst, room.total, id, room.room_number]
+    );
 
-  db.query("UPDATE advance_payment SET amount=? WHERE guest_id=?", [paidAmount, id]);
+    db.query(
+      `UPDATE pax 
+       SET adults=?, children=? 
+       WHERE booking_id=? AND room_number=?`,
+      [room.adults, room.children, id, room.room_number]
+    );
+  }
 
   res.json({ message: "Full Booking Updated ✅" });
 };
-
-
 // ================= DELETE =================
 exports.deleteBooking = (req, res) => {
   const id = req.params.id;
 
   db.query("DELETE FROM guests WHERE id=?", [id]);
-  db.query("DELETE FROM companies WHERE guest_id=?", [id]);
+  db.query("DELETE FROM companies WHERE booking_id=?", [id]);
   db.query("DELETE FROM pax WHERE booking_id=?", [id]);
-  db.query("DELETE FROM room_tariff WHERE guest_id=?", [id]);
-  db.query("DELETE FROM advance_payment WHERE guest_id=?", [id]);
+  db.query("DELETE FROM room_tariff WHERE booking_id=?", [id]);
+  db.query("DELETE FROM advance_payment WHERE booking_id=?", [id]);
 
   res.json({ message: "Booking Deleted" });
 };
-
 
 // ================= REFUND =================
 exports.refundBooking = (req, res) => {
@@ -300,7 +275,7 @@ exports.refundBooking = (req, res) => {
     `
     UPDATE advance_payment 
     SET refund_amount = IFNULL(refund_amount,0) + ?
-    WHERE guest_id=?
+   WHERE booking_id=? 
     `,
     [amount, id],
     (err) => {
@@ -309,4 +284,74 @@ exports.refundBooking = (req, res) => {
       res.json({ message: "Refund Done" });
     }
   );
+};
+
+
+
+
+
+exports.updateAdvance = (req, res) => {
+  const data = { booking_id: req.params.id, ...req.body };
+
+  // 1️⃣ Save payment history
+  Paymentadvance.addPayment(data, (err) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ message: "Payment history failed" });
+    }
+
+    // 2️⃣ Update advance total
+    AdvanceModel.addAdvance(data, (err) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ message: "Advance save failed" });
+      }
+
+      res.json({
+        message: "Payment Added + History Saved ✅"
+      });
+    });
+  });
+};
+
+
+
+// ================= PAYMENT HISTORY =================
+exports.getPaymentHistory = (req, res) => {
+  const bookingId = req.params.id;
+
+  const sql = `
+    SELECT 
+      ph.id,
+      ph.amount,
+      ph.payment_mode,
+      ph.created_at,
+
+      g.guest_name,
+
+      GROUP_CONCAT(DISTINCT rt.room_number ORDER BY rt.room_number) AS rooms
+
+    FROM payment_history ph
+
+    LEFT JOIN guests g 
+      ON ph.booking_id = g.id
+
+    LEFT JOIN room_tariff rt 
+      ON ph.booking_id = rt.booking_id
+
+    WHERE ph.booking_id = ?
+
+    GROUP BY 
+      ph.id, ph.amount, ph.payment_mode, ph.created_at, g.guest_name
+
+    ORDER BY ph.id DESC
+  `;
+
+  db.query(sql, [bookingId], (err, result) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json(err);
+    }
+    res.json(result);
+  });
 };
