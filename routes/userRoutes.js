@@ -7,14 +7,17 @@ const {
   updateMyAvatar,
   avatarUpload,
 } = require("../controller/userController");
+
+const authMiddleware = require("../middleware/authMiddleware");
 const roleMiddleware = require("../middleware/roleMiddleware");
 
-// Only admin can create users; any authenticated user can list (admin/managers)
-router.get("/me", getMe);
-router.post("/change-password", changePassword);
-router.put("/me/avatar", avatarUpload.single("avatar"), updateMyAvatar);
+// Protected routes
+router.get("/me", authMiddleware, getMe);
+router.post("/change-password", authMiddleware, changePassword);
+router.put("/me/avatar", authMiddleware, avatarUpload.single("avatar"), updateMyAvatar);
 
-router.post("/", roleMiddleware(["admin"]), createUser);
-router.get("/", getUsers);
+// ✅ FIXED
+router.post("/", authMiddleware, roleMiddleware(["admin"]), createUser);
+router.get("/", authMiddleware, getUsers);
 
 module.exports = router;
