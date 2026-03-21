@@ -27,18 +27,22 @@ exports.login = (req, res) => {
       return res.status(400).json({ message: "Invalid Password" });
     }
 
-    const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    );
+  const token = jwt.sign(
+  {
+    id: user.id,
+    email: user.email,
+    role: user.role.toLowerCase(), // ✅ fix
+  },
+  JWT_SECRET,
+  { expiresIn: JWT_EXPIRES_IN }
+);
 
-    res.json({
-      token,
-      name: user.name,
-      role: user.role,
-      email: user.email,
-    });
+res.json({
+  token,
+  name: user.name,
+  role: user.role.toLowerCase(), // ✅ fix
+  email: user.email,
+});
   });
 };
 
