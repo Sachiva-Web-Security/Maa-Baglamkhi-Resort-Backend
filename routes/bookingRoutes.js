@@ -23,10 +23,14 @@ router.get("/rooms/setup", hotelRoomInventoryController.getRoomSetup);
 // UPDATE
 router.put("/booking/:id", bookingController.updateBooking);
 router.put("/full-booking/:id", bookingController.updateFullBooking);
+router.put("/check-in/:id", bookingController.checkInBooking);
+router.put("/check-out/:id", bookingController.checkOutBooking);
 router.put("/rooms/category/:id/price", hotelRoomInventoryController.updateCategoryPrice);
+router.put("/rooms/state/:roomNumber", hotelRoomInventoryController.updateRoomOperationalState);
 
 // FULL GET
 router.get("/full-booking/:id", bookingController.getFullBooking);
+router.get("/booking-history", bookingController.getBookingHistory);
 
 // DELETE + REFUND
 router.post("/rooms", hotelRoomInventoryController.addRoom);

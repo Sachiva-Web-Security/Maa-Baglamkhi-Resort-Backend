@@ -6,6 +6,21 @@ const db = require("./config/db");
 const {
   ensureSchema: ensureHotelRoomInventorySchema,
 } = require("./models/hotelRoomInventoryModel");
+const {
+  ensureSchema: ensureGuestSchema,
+} = require("./models/guestModel");
+const {
+  ensureSchema: ensureAdvancePaymentSchema,
+} = require("./models/advanceModel");
+const {
+  ensureSchema: ensurePaymentHistorySchema,
+} = require("./models/Paymentadvance");
+const {
+  ensureSchema: ensureItemConsumptionSchema,
+} = require("./models/ItemConsumptionModel");
+const {
+  ensureSchema: ensureTokenSchema,
+} = require("./models/TokenModel");
 
 const http = require("http");
 const { Server } = require("socket.io");
@@ -49,6 +64,7 @@ app.use("/api/hotel", require("./routes/bookingRoutes"));
 
 // Restaurant
 app.use("/api/restaurant", require("./routes/restaurantRoutes"));
+app.use("/api/restaurant/consumption", require("./routes/itemConsumptionRoutes"));
 
 // Room Service (uses restaurant POS style flow)
 app.use("/api/room-service", require("./routes/roomServiceRoutes"));
@@ -128,13 +144,10 @@ app.get("/", (req, res) => {
 
 const PORT = process.env.PORT || 5002;
 
-ensureHotelRoomInventorySchema().catch((error) => {
-  console.error("Hotel room inventory schema init failed:", error);
-});
-
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+initializeDatabase();
 
 
 // ================= GRACEFUL SHUTDOWN =================
@@ -147,6 +160,31 @@ function shutdown(signal) {
     setTimeout(() => process.exit(0), 2000).unref();
   } catch (e) {
     process.exit(0);
+  }
+}
+
+async function bootstrapSchema(label, task) {
+  try {
+    await task();
+  } catch (error) {
+    console.error(`${label} failed:`, error.message || error);
+  }
+}
+
+async function initializeDatabase() {
+  try {
+    await db.promise().query("SELECT 1");
+    console.log("MySQL Connected");
+
+    await bootstrapSchema("Hotel room inventory schema init", ensureHotelRoomInventorySchema);
+    await bootstrapSchema("Guest schema init", ensureGuestSchema);
+    await bootstrapSchema("Advance payment schema init", ensureAdvancePaymentSchema);
+    await bootstrapSchema("Payment history schema init", ensurePaymentHistorySchema);
+    await bootstrapSchema("Item consumption schema init", ensureItemConsumptionSchema);
+    await bootstrapSchema("Token schema init", ensureTokenSchema);
+  } catch (error) {
+    console.error("Database connection failed:", error.code || error.message || error);
+    console.error("Skipping schema bootstrap until MySQL is available.");
   }
 }
 

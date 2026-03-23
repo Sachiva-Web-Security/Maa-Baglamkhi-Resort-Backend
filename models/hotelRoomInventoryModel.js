@@ -20,6 +20,16 @@ const runQuery = (sql, params = []) =>
     });
   });
 
+const tableExists = async (tableName) => {
+  const rows = await runQuery("SHOW TABLES LIKE ?", [tableName]);
+  return Array.isArray(rows) && rows.length > 0;
+};
+
+const columnExists = async (tableName, columnName) => {
+  const rows = await runQuery(`SHOW COLUMNS FROM ${tableName} LIKE ?`, [columnName]);
+  return Array.isArray(rows) && rows.length > 0;
+};
+
 const ensureSchema = async () => {
   await runQuery(`
     CREATE TABLE IF NOT EXISTS hotel_room_categories (
@@ -37,12 +47,28 @@ const ensureSchema = async () => {
       id INT AUTO_INCREMENT PRIMARY KEY,
       category_id INT NOT NULL,
       room_number VARCHAR(50) NOT NULL UNIQUE,
+      guest VARCHAR(200) DEFAULT NULL,
+      status VARCHAR(60) DEFAULT 'Available',
+      check_in DATE DEFAULT NULL,
+      check_out DATE DEFAULT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT fk_hotel_room_inventory_category
       FOREIGN KEY (category_id) REFERENCES hotel_room_categories(id)
       ON DELETE CASCADE
     )
   `);
+
+  for (const [column, definition] of [
+    ["guest", "VARCHAR(200) DEFAULT NULL"],
+    ["status", "VARCHAR(60) DEFAULT 'Available'"],
+    ["check_in", "DATE DEFAULT NULL"],
+    ["check_out", "DATE DEFAULT NULL"],
+  ]) {
+    const exists = await columnExists("hotel_room_inventory", column);
+    if (!exists) {
+      await runQuery(`ALTER TABLE hotel_room_inventory ADD COLUMN ${column} ${definition}`);
+    }
+  }
 
   const categoryCount = await runQuery(
     "SELECT COUNT(*) AS count FROM hotel_room_categories",
@@ -113,9 +139,43 @@ const updateCategoryPrice = async ({ categoryId, defaultPrice }) => {
   );
 };
 
+const updateRoomOperationalState = async ({ roomNumber, guestName = null, status, checkIn = null, checkOut = null }) => {
+  await ensureSchema();
+  const updates = [];
+
+  if (await tableExists("hotel_room_inventory")) {
+    updates.push(
+      runQuery(
+        `
+          UPDATE hotel_room_inventory
+          SET guest = ?, status = ?, check_in = ?, check_out = ?
+          WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)
+        `,
+        [guestName, status, checkIn, checkOut, roomNumber],
+      ),
+    );
+  }
+
+  if (await tableExists("rooms")) {
+    updates.push(
+      runQuery(
+        `
+          UPDATE rooms
+          SET guest = ?, status = ?, check_in = ?, check_out = ?
+          WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)
+        `,
+        [guestName, status, checkIn, checkOut, roomNumber],
+      ),
+    );
+  }
+
+  await Promise.all(updates);
+};
+
 module.exports = {
   ensureSchema,
   getRoomSetup,
   addRoom,
   updateCategoryPrice,
+  updateRoomOperationalState,
 };
