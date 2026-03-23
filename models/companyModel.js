@@ -8,26 +8,50 @@ const addCompany = (data, callback) => {
     return callback(new Error("Company name is required"));
   }
 
-  const sql = `
-    INSERT INTO companies
-    (booking_id, company_name, gstin)
-    VALUES (?,?,?)
-  `;
+  const bookingId = Number(data.booking_id);
+  const companyName = String(data.companyName).trim();
+  const gstin = String(data.gst || "").trim() || null;
 
   db.query(
-    sql,
-    [
-      data.booking_id,
-      data.companyName, // ✅ matches frontend
-      data.gst || null  // ✅ optional GST
-    ],
-    (err, result) => {
-      if (err) {
-        console.error("❌ DB ERROR (Company):", err);
-        return callback(err);
+    "SELECT id FROM companies WHERE booking_id = ? LIMIT 1",
+    [bookingId],
+    (findErr, rows) => {
+      if (findErr) {
+        console.error("❌ DB ERROR (Company lookup):", findErr);
+        return callback(findErr);
       }
-      callback(null, result);
-    }
+
+      if (rows.length) {
+        db.query(
+          "UPDATE companies SET company_name = ?, gstin = ? WHERE booking_id = ?",
+          [companyName, gstin, bookingId],
+          (updateErr, result) => {
+            if (updateErr) {
+              console.error("❌ DB ERROR (Company update):", updateErr);
+              return callback(updateErr);
+            }
+            callback(null, result);
+          },
+        );
+        return;
+      }
+
+      db.query(
+        `
+          INSERT INTO companies
+          (booking_id, company_name, gstin)
+          VALUES (?,?,?)
+        `,
+        [bookingId, companyName, gstin],
+        (insertErr, result) => {
+          if (insertErr) {
+            console.error("❌ DB ERROR (Company insert):", insertErr);
+            return callback(insertErr);
+          }
+          callback(null, result);
+        },
+      );
+    },
   );
 };
 

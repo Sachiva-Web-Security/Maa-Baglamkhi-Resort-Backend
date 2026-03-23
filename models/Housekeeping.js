@@ -10,6 +10,11 @@ const tableExists = async (tableName) => {
   return Array.isArray(rows) && rows.length > 0;
 };
 
+const rowCount = async (tableName) => {
+  const rows = await runQuery(`SELECT COUNT(*) AS count FROM ${tableName}`);
+  return Number(rows?.[0]?.count || 0);
+};
+
 const mapHotelStatusToHousekeeping = (status) => {
   const s = String(status || "").toLowerCase();
   if (s === "occupied") return "Occupied Dirty";
@@ -22,11 +27,15 @@ const Housekeeping = {
 
     getAllRooms: async (callback) => {
         try {
+            const hasInventory = await tableExists("hotel_room_inventory");
             const hasRooms = await tableExists("rooms");
             const hasHousekeeping = await tableExists("housekeeping");
             const hasAssignments = await tableExists("assignments");
+            const useInventory = hasInventory && (await rowCount("hotel_room_inventory")) > 0;
+            const baseTable = useInventory ? "hotel_room_inventory" : "rooms";
+            const baseAlias = "r";
 
-            if (!hasRooms) {
+            if (!hasInventory && !hasRooms) {
                 return callback(null, []);
             }
 
@@ -34,14 +43,14 @@ const Housekeeping = {
                 await runQuery(`
                   INSERT INTO housekeeping (roomNo, status, assignee)
                   SELECT 
-                    CAST(r.room_number AS CHAR),
+                    CAST(src.room_number AS CHAR),
                     CASE
-                      WHEN LOWER(r.status) = 'occupied' THEN 'Occupied Dirty'
+                      WHEN LOWER(src.status) = 'occupied' THEN 'Occupied Dirty'
                       ELSE 'Vacant Dirty'
                     END,
                     'No Housekeeper'
-                  FROM rooms r
-                  LEFT JOIN housekeeping hk ON CAST(hk.roomNo AS CHAR) = CAST(r.room_number AS CHAR)
+                  FROM ${baseTable} src
+                  LEFT JOIN housekeeping hk ON CAST(hk.roomNo AS CHAR) = CAST(src.room_number AS CHAR)
                   WHERE hk.id IS NULL
                 `);
             }
@@ -64,16 +73,16 @@ const Housekeeping = {
             }
 
             const housekeepingJoin = hasHousekeeping
-              ? "LEFT JOIN housekeeping hk ON CAST(hk.roomNo AS CHAR) = CAST(r.room_number AS CHAR)"
+              ? `LEFT JOIN housekeeping hk ON CAST(hk.roomNo AS CHAR) = CAST(${baseAlias}.room_number AS CHAR)`
               : "";
             const housekeepingIdSelect = hasHousekeeping ? "COALESCE(hk.id, 0)" : "0";
             const housekeepingStatusSelect = hasHousekeeping
               ? `COALESCE(NULLIF(hk.status, ''), CASE
-                  WHEN LOWER(r.status) = 'occupied' THEN 'Occupied Dirty'
+                  WHEN LOWER(${baseAlias}.status) = 'occupied' THEN 'Occupied Dirty'
                   ELSE 'Vacant Dirty'
                 END)`
               : `CASE
-                  WHEN LOWER(r.status) = 'occupied' THEN 'Occupied Dirty'
+                  WHEN LOWER(${baseAlias}.status) = 'occupied' THEN 'Occupied Dirty'
                   ELSE 'Vacant Dirty'
                 END`;
             const housekeepingAssigneeSelect = hasHousekeeping
@@ -83,22 +92,28 @@ const Housekeeping = {
             const rows = await runQuery(`
               SELECT
                 ${housekeepingIdSelect} AS housekeepingId,
-                CAST(r.room_number AS CHAR) AS roomNo,
-                r.status AS hotelStatus,
-                r.guest,
-                DATE(r.check_in) AS checkIn,
-                DATE(r.check_out) AS checkOut,
+                COALESCE(hri.id, ${baseAlias}.id) AS roomId,
+                CAST(${baseAlias}.room_number AS CHAR) AS roomNo,
+                hrc.name AS categoryName,
+                ${baseAlias}.status AS hotelStatus,
+                ${baseAlias}.guest,
+                DATE(${baseAlias}.check_in) AS checkIn,
+                DATE(${baseAlias}.check_out) AS checkOut,
                 ${housekeepingStatusSelect} AS status,
                 COALESCE(NULLIF(${hasAssignments ? "a.staff_name" : "NULL"}, ''), ${housekeepingAssigneeSelect}, 'No Housekeeper') AS assignee
-              FROM rooms r
+              FROM ${baseTable} ${baseAlias}
+              LEFT JOIN hotel_room_inventory hri ON CAST(hri.room_number AS CHAR) = CAST(${baseAlias}.room_number AS CHAR)
+              LEFT JOIN hotel_room_categories hrc ON hrc.id = hri.category_id
               ${housekeepingJoin}
               ${assignmentJoin}
-              ORDER BY CAST(r.room_number AS UNSIGNED), r.room_number
+              ORDER BY CAST(${baseAlias}.room_number AS UNSIGNED), ${baseAlias}.room_number
             `);
 
             const mapped = rows.map((r) => ({
                 id: r.housekeepingId || r.roomNo,
+                roomId: r.roomId || r.roomNo,
                 roomNo: r.roomNo,
+                categoryName: r.categoryName || "Hotel Room",
                 status: r.status || mapHotelStatusToHousekeeping(r.hotelStatus),
                 assignee: r.assignee || "No Housekeeper",
                 hotelStatus: r.hotelStatus || "Available",

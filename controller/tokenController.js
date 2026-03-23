@@ -80,3 +80,55 @@ exports.closeTokenByTable = (req, res) => {
     res.json({ message: "Token closed" });
   });
 };
+
+exports.getActiveTokens = async (req, res) => {
+  try {
+    const data = await Token.getActiveTokens();
+    res.json(data || []);
+  } catch (error) {
+    console.error("getActiveTokens error:", error);
+    res.status(500).json({ message: "Active tokens fetch failed" });
+  }
+};
+
+exports.getTransferHistory = async (req, res) => {
+  try {
+    const data = await Token.getTransferHistory(req.query || {});
+    res.json(data || []);
+  } catch (error) {
+    console.error("getTransferHistory error:", error);
+    res.status(500).json({ message: "Transfer history fetch failed" });
+  }
+};
+
+exports.transferToken = async (req, res) => {
+  try {
+    const { tokenId, sourceType, sourceRef, targetType, targetRef, transferredBy, notes } = req.body;
+
+    if (!tokenId || !sourceRef || !targetRef || !sourceType || !targetType) {
+      return res.status(400).json({ message: "Token, source and target are required" });
+    }
+
+    if (String(sourceRef) === String(targetRef)) {
+      return res.status(400).json({ message: "Source and target cannot be same" });
+    }
+
+    const result = await Token.transferToken({
+      tokenId,
+      sourceType,
+      sourceRef,
+      targetType,
+      targetRef,
+      transferredBy,
+      notes,
+    });
+
+    res.json({
+      message: "Token transferred successfully",
+      data: result,
+    });
+  } catch (error) {
+    console.error("transferToken error:", error);
+    res.status(500).json({ message: error.message || "Token transfer failed" });
+  }
+};
