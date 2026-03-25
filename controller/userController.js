@@ -42,10 +42,35 @@ exports.avatarUpload = multer({
 exports.createUser = async (req, res) => {
   const { name, email, password, role } = req.body;
 
-  if (!name || !email || !password || !role) {
-    return res.status(400).json({
-      message: "All fields are required",
-    });
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    UserModel.createUser(
+      { name, email, password: hashedPassword, role },
+      (err, result) => {
+        if (err) {
+          console.error("Error creating user:", err);
+          return res
+            .status(500)
+            .json({ message: "User creation failed", error: err.message });
+        }
+
+        res.json({
+          message: "User created successfully",
+          user: {
+            id: result?.insertId,
+            name,
+            email,
+            role,
+          },
+        });
+      }
+    );
+  } catch (err) {
+    console.error("Error hashing password:", err);
+    return res
+      .status(500)
+      .json({ message: "Internal server error", error: err.message });
   }
 
   // 🔴 Duplicate email check
@@ -107,7 +132,70 @@ exports.getUsers = (req, res) => {
   });
 };
 
-// ================= GET ME =================
+exports.deleteUser = (req, res) => {
+  const { id } = req.params;
+
+  if (!id) {
+    return res.status(400).json({ message: "User id required" });
+  }
+
+  UserModel.deleteUserById(id, (err, result) => {
+    if (err) {
+      console.error("Error deleting user:", err);
+      return res.status(500).json({ message: "User delete failed" });
+    }
+
+    if (!result?.affectedRows) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.json({ message: "User deleted successfully" });
+  });
+};
+
+exports.updateUser = async (req, res) => {
+  const { id } = req.params;
+  const { name, email, role, password } = req.body || {};
+
+  if (!id) {
+    return res.status(400).json({ message: "User id required" });
+  }
+
+  if (!name || !email || !role) {
+    return res.status(400).json({ message: "name, email and role required" });
+  }
+
+  try {
+    const hashedPassword = password ? await bcrypt.hash(password, 10) : "";
+
+    UserModel.updateUserById(
+      id,
+      { name, email, role, password: hashedPassword },
+      (err, result) => {
+        if (err) {
+          console.error("Error updating user:", err);
+          return res
+            .status(500)
+            .json({ message: "User update failed", error: err.message });
+        }
+
+        if (!result?.affectedRows) {
+          return res.status(404).json({ message: "User not found" });
+        }
+
+        return res.json({
+          message: "User updated successfully",
+          user: { id: Number(id), name, email, role },
+        });
+      }
+    );
+  } catch (err) {
+    console.error("Error updating user:", err);
+    return res
+      .status(500)
+      .json({ message: "Internal server error", error: err.message });
+  }
+};
 
 exports.getMe = (req, res) => {
   const email = req.user?.email;
