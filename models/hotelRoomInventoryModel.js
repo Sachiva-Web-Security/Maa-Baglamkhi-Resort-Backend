@@ -1,21 +1,19 @@
+// models/hotelRoomInventoryModel.js
 const db = require("../config/db");
 
 const DEFAULT_CATEGORIES = [
-  { id: 1, name: "AC ROOM", defaultPrice: 2000, unitLabel: "PER NIGHT" },
-  { id: 2, name: "NON-AC ROOM", defaultPrice: 1500, unitLabel: "PER NIGHT" },
-  { id: 3, name: "DELUXE ROOM", defaultPrice: 3000, unitLabel: "PER NIGHT" },
+  { id: 1, name: "AC ROOM",           defaultPrice: 2000, unitLabel: "PER NIGHT" },
+  { id: 2, name: "NON-AC ROOM",       defaultPrice: 1500, unitLabel: "PER NIGHT" },
+  { id: 3, name: "DELUXE ROOM",       defaultPrice: 3000, unitLabel: "PER NIGHT" },
   { id: 4, name: "SUPER DELUXE ROOM", defaultPrice: 4000, unitLabel: "PER NIGHT" },
-  { id: 5, name: "SUITE ROOM", defaultPrice: 5000, unitLabel: "PER NIGHT" },
-  { id: 6, name: "DELUXE DORMITORY", defaultPrice: 800, unitLabel: "PER BED" },
+  { id: 5, name: "SUITE ROOM",        defaultPrice: 5000, unitLabel: "PER NIGHT" },
+  { id: 6, name: "DELUXE DORMITORY",  defaultPrice: 800,  unitLabel: "PER BED"   },
 ];
 
 const runQuery = (sql, params = []) =>
   new Promise((resolve, reject) => {
     db.query(sql, params, (error, rows) => {
-      if (error) {
-        reject(error);
-        return;
-      }
+      if (error) { reject(error); return; }
       resolve(rows);
     });
   });
@@ -30,49 +28,41 @@ const columnExists = async (tableName, columnName) => {
   return Array.isArray(rows) && rows.length > 0;
 };
 
+// ─── Schema bootstrap ──────────────────────────────────────────────────────────
 const ensureSchema = async () => {
   await runQuery(`
     CREATE TABLE IF NOT EXISTS hotel_room_categories (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      name VARCHAR(120) NOT NULL UNIQUE,
+      id           INT AUTO_INCREMENT PRIMARY KEY,
+      name         VARCHAR(120) NOT NULL UNIQUE,
       default_price DECIMAL(10,2) NOT NULL DEFAULT 0,
-      unit_label VARCHAR(40) NOT NULL DEFAULT 'PER NIGHT',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      unit_label   VARCHAR(40)  NOT NULL DEFAULT 'PER NIGHT',
+      created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
 
   await runQuery(`
     CREATE TABLE IF NOT EXISTS hotel_room_inventory (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id          INT AUTO_INCREMENT PRIMARY KEY,
       category_id INT NOT NULL,
       room_number VARCHAR(50) NOT NULL UNIQUE,
-      guest VARCHAR(200) DEFAULT NULL,
-      status VARCHAR(60) DEFAULT 'Available',
-      check_in DATE DEFAULT NULL,
-      check_out DATE DEFAULT NULL,
-      block_reason VARCHAR(255) DEFAULT NULL,
-      block_from DATE DEFAULT NULL,
-      block_to DATE DEFAULT NULL,
-      block_notes TEXT DEFAULT NULL,
-      blocked_by VARCHAR(120) DEFAULT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      guest       VARCHAR(200) DEFAULT NULL,
+      status      VARCHAR(60)  DEFAULT 'Available',
+      check_in    DATE DEFAULT NULL,
+      check_out   DATE DEFAULT NULL,
+      created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT fk_hotel_room_inventory_category
-      FOREIGN KEY (category_id) REFERENCES hotel_room_categories(id)
-      ON DELETE CASCADE
+        FOREIGN KEY (category_id) REFERENCES hotel_room_categories(id)
+        ON DELETE CASCADE
     )
   `);
 
+  // Add missing columns if needed
   for (const [column, definition] of [
-    ["guest", "VARCHAR(200) DEFAULT NULL"],
-    ["status", "VARCHAR(60) DEFAULT 'Available'"],
-    ["check_in", "DATE DEFAULT NULL"],
+    ["guest",     "VARCHAR(200) DEFAULT NULL"],
+    ["status",    "VARCHAR(60) DEFAULT 'Available'"],
+    ["check_in",  "DATE DEFAULT NULL"],
     ["check_out", "DATE DEFAULT NULL"],
-    ["block_reason", "VARCHAR(255) DEFAULT NULL"],
-    ["block_from", "DATE DEFAULT NULL"],
-    ["block_to", "DATE DEFAULT NULL"],
-    ["block_notes", "TEXT DEFAULT NULL"],
-    ["blocked_by", "VARCHAR(120) DEFAULT NULL"],
   ]) {
     const exists = await columnExists("hotel_room_inventory", column);
     if (!exists) {
@@ -80,23 +70,22 @@ const ensureSchema = async () => {
     }
   }
 
-  const categoryCount = await runQuery(
-    "SELECT COUNT(*) AS count FROM hotel_room_categories",
-  );
-
+  // Seed default categories if table is empty
+  const categoryCount = await runQuery("SELECT COUNT(*) AS count FROM hotel_room_categories");
   if (!categoryCount[0]?.count) {
     for (const category of DEFAULT_CATEGORIES) {
       await runQuery(
-        `
-          INSERT INTO hotel_room_categories (id, name, default_price, unit_label)
-          VALUES (?, ?, ?, ?)
-        `,
+        `INSERT INTO hotel_room_categories (id, name, default_price, unit_label)
+         VALUES (?, ?, ?, ?)`,
         [category.id, category.name, category.defaultPrice, category.unitLabel],
       );
     }
   }
 };
 
+// ─── getRoomSetup — returns categories with rooms + status ────────────────────
+// BUG FIX: now returns room status, guest, checkIn, checkOut for each room
+// so Room.jsx can correctly mark Occupied/Blocked rooms as unavailable.
 const getRoomSetup = async () => {
   await ensureSchema();
 
@@ -105,49 +94,63 @@ const getRoomSetup = async () => {
       id,
       name,
       default_price AS defaultPrice,
-      unit_label AS unitLabel
+      unit_label    AS unitLabel
     FROM hotel_room_categories
     ORDER BY id
   `);
 
+  // FIX: include status, guest, check_in, check_out so frontend knows room state
   const rooms = await runQuery(`
     SELECT
       id,
-      category_id AS categoryId,
-      room_number AS roomNumber,
-      status,
-      block_reason AS blockReason,
-      DATE(block_from) AS blockFrom,
-      DATE(block_to) AS blockTo,
-      block_notes AS blockNotes,
-      blocked_by AS blockedBy
+      category_id                           AS categoryId,
+      room_number                           AS roomNumber,
+      COALESCE(status, 'Available')         AS status,
+      guest,
+      check_in                              AS checkIn,
+      check_out                             AS checkOut
     FROM hotel_room_inventory
     ORDER BY CAST(room_number AS UNSIGNED), room_number
   `);
 
-  return categories.map((category) => ({
-    ...category,
-    rooms: rooms
-      .filter((room) => Number(room.categoryId) === Number(category.id))
-      .map((room) => room.roomNumber),
-    roomDetails: rooms.filter((room) => Number(room.categoryId) === Number(category.id)),
-  }));
+  return categories.map((category) => {
+    const categoryRooms = rooms.filter(
+      (room) => Number(room.categoryId) === Number(category.id),
+    );
+
+    return {
+      ...category,
+      // Backward-compatible: keep as string array for any existing code that uses it
+      rooms: categoryRooms.map((room) => room.roomNumber),
+
+      // NEW: full room objects with status — used by Room.jsx availability logic
+      roomDetails: categoryRooms.map((room) => ({
+        roomNumber: room.roomNumber,
+        status:     room.status   || "Available",
+        guest:      room.guest    || null,
+        checkIn:    room.checkIn  || null,
+        checkOut:   room.checkOut || null,
+      })),
+    };
+  });
 };
 
+// ─── addRoom ──────────────────────────────────────────────────────────────────
 const addRoom = async ({ categoryId, roomNumber }) => {
   await ensureSchema();
   const result = await runQuery(
     "INSERT INTO hotel_room_inventory (category_id, room_number) VALUES (?, ?)",
     [categoryId, String(roomNumber || "").trim()],
   );
-
   return {
-    id: result.insertId,
-    categoryId: Number(categoryId),
-    roomNumber: String(roomNumber || "").trim(),
+    id:          result.insertId,
+    categoryId:  Number(categoryId),
+    roomNumber:  String(roomNumber || "").trim(),
+    status:      "Available",
   };
 };
 
+// ─── updateCategoryPrice ──────────────────────────────────────────────────────
 const updateCategoryPrice = async ({ categoryId, defaultPrice }) => {
   await ensureSchema();
   await runQuery(
@@ -156,64 +159,37 @@ const updateCategoryPrice = async ({ categoryId, defaultPrice }) => {
   );
 };
 
+// ─── updateRoomOperationalState ───────────────────────────────────────────────
+// Called on check-in, check-out, and maintenance block/release.
 const updateRoomOperationalState = async ({
   roomNumber,
   guestName = null,
   status,
-  checkIn = null,
-  checkOut = null,
-  blockReason = null,
-  blockFrom = null,
-  blockTo = null,
-  blockNotes = null,
-  blockedBy = null,
+  checkIn   = null,
+  checkOut  = null,
 }) => {
   await ensureSchema();
+
   const updates = [];
-  const nextStatus = String(status || "").trim();
-  const isBlocked = nextStatus.toLowerCase().includes("blocked") || nextStatus.toLowerCase().includes("out of service");
-  const nextGuest = isBlocked ? null : guestName;
-  const nextCheckIn = isBlocked ? null : checkIn;
-  const nextCheckOut = isBlocked ? null : checkOut;
-  const nextBlockReason = isBlocked ? blockReason : null;
-  const nextBlockFrom = isBlocked ? blockFrom : null;
-  const nextBlockTo = isBlocked ? blockTo : null;
-  const nextBlockNotes = isBlocked ? blockNotes : null;
-  const nextBlockedBy = isBlocked ? blockedBy : null;
 
   if (await tableExists("hotel_room_inventory")) {
     updates.push(
       runQuery(
-        `
-          UPDATE hotel_room_inventory
-          SET guest = ?, status = ?, check_in = ?, check_out = ?,
-              block_reason = ?, block_from = ?, block_to = ?, block_notes = ?, blocked_by = ?
-          WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)
-        `,
-        [
-          nextGuest,
-          nextStatus,
-          nextCheckIn,
-          nextCheckOut,
-          nextBlockReason,
-          nextBlockFrom,
-          nextBlockTo,
-          nextBlockNotes,
-          nextBlockedBy,
-          roomNumber,
-        ],
+        `UPDATE hotel_room_inventory
+         SET guest = ?, status = ?, check_in = ?, check_out = ?
+         WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)`,
+        [guestName, status, checkIn, checkOut, roomNumber],
       ),
     );
   }
 
+  // Also update legacy `rooms` table if it exists
   if (await tableExists("rooms")) {
     updates.push(
       runQuery(
-        `
-          UPDATE rooms
-          SET guest = ?, status = ?, check_in = ?, check_out = ?
-          WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)
-        `,
+        `UPDATE rooms
+         SET guest = ?, status = ?, check_in = ?, check_out = ?
+         WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)`,
         [guestName, status, checkIn, checkOut, roomNumber],
       ),
     );
