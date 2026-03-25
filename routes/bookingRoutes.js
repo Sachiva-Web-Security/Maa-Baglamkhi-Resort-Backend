@@ -3,6 +3,10 @@ const router = express.Router();
 
 const bookingController = require("../controller/bookingController");
 const hotelRoomInventoryController = require("../controller/hotelRoomInventoryController");
+const folioController        = require("../controller/folioController");
+const roomBlockController    = require("../controller/roomBlockController");
+const guestProfileController = require("../controller/guestProfileController");
+const groupBookingController = require("../controller/groupBookingController");
 
 router.use(hotelRoomInventoryController.bootstrap);
 
@@ -39,4 +43,22 @@ router.post("/refund/:id", bookingController.refundBooking);
 
 router.get("/payment-history/:id", bookingController.getPaymentHistory);
 
+// Guest Folio / Night Audit
+router.get("/folio/:bookingId",        folioController.getByBooking);
+router.post("/folio/:bookingId",       folioController.addEntry);
+router.delete("/folio/entry/:entryId", folioController.deleteEntry);
+router.get("/folio/:bookingId/totals", folioController.getTotals);
+
+// Room Blocking / Maintenance
+router.get("/room-blocks",             roomBlockController.getAll);
+router.post("/room-block",             roomBlockController.create);
+router.put("/room-block/:id",          roomBlockController.updateStatus);
+
+// Guest Profile / History
+router.get("/guest-profile",           guestProfileController.search);
+
+// Group Booking
+router.post("/group-booking",          groupBookingController.create);
+
 module.exports = router;
+

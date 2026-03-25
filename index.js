@@ -16,11 +16,14 @@ const {
   ensureSchema: ensurePaymentHistorySchema,
 } = require("./models/Paymentadvance");
 const {
-  ensureSchema: ensureItemConsumptionSchema,
-} = require("./models/ItemConsumptionModel");
-const {
   ensureSchema: ensureTokenSchema,
 } = require("./models/TokenModel");
+const {
+  ensureSchema: ensureRestaurantSchema,
+} = require("./models/RestaurantModel");
+const {
+  ensureSchema: ensureKitchenSchema,
+} = require("./models/kitchen");
 
 const http = require("http");
 const { Server } = require("socket.io");
@@ -64,7 +67,6 @@ app.use("/api/hotel", require("./routes/bookingRoutes"));
 
 // Restaurant
 app.use("/api/restaurant", require("./routes/restaurantRoutes"));
-app.use("/api/restaurant/consumption", require("./routes/itemConsumptionRoutes"));
 
 // Room Service (uses restaurant POS style flow)
 app.use("/api/room-service", require("./routes/roomServiceRoutes"));
@@ -180,8 +182,9 @@ async function initializeDatabase() {
     await bootstrapSchema("Guest schema init", ensureGuestSchema);
     await bootstrapSchema("Advance payment schema init", ensureAdvancePaymentSchema);
     await bootstrapSchema("Payment history schema init", ensurePaymentHistorySchema);
-    await bootstrapSchema("Item consumption schema init", ensureItemConsumptionSchema);
     await bootstrapSchema("Token schema init", ensureTokenSchema);
+    await bootstrapSchema("Restaurant schema init", ensureRestaurantSchema);
+    await bootstrapSchema("Kitchen schema init", ensureKitchenSchema);
   } catch (error) {
     console.error("Database connection failed:", error.code || error.message || error);
     console.error("Skipping schema bootstrap until MySQL is available.");

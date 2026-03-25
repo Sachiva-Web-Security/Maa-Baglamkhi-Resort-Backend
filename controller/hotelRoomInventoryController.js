@@ -53,6 +53,11 @@ exports.updateRoomOperationalState = async (req, res) => {
       status: req.body.status,
       checkIn: req.body.checkIn ?? null,
       checkOut: req.body.checkOut ?? null,
+      blockReason: req.body.blockReason ?? null,
+      blockFrom: req.body.blockFrom ?? null,
+      blockTo: req.body.blockTo ?? null,
+      blockNotes: req.body.blockNotes ?? null,
+      blockedBy: req.body.blockedBy ?? null,
     });
 
     res.json({ message: "Room operational state updated" });

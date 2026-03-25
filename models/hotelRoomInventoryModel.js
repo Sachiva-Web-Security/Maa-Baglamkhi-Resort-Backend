@@ -51,6 +51,11 @@ const ensureSchema = async () => {
       status VARCHAR(60) DEFAULT 'Available',
       check_in DATE DEFAULT NULL,
       check_out DATE DEFAULT NULL,
+      block_reason VARCHAR(255) DEFAULT NULL,
+      block_from DATE DEFAULT NULL,
+      block_to DATE DEFAULT NULL,
+      block_notes TEXT DEFAULT NULL,
+      blocked_by VARCHAR(120) DEFAULT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT fk_hotel_room_inventory_category
       FOREIGN KEY (category_id) REFERENCES hotel_room_categories(id)
@@ -63,6 +68,11 @@ const ensureSchema = async () => {
     ["status", "VARCHAR(60) DEFAULT 'Available'"],
     ["check_in", "DATE DEFAULT NULL"],
     ["check_out", "DATE DEFAULT NULL"],
+    ["block_reason", "VARCHAR(255) DEFAULT NULL"],
+    ["block_from", "DATE DEFAULT NULL"],
+    ["block_to", "DATE DEFAULT NULL"],
+    ["block_notes", "TEXT DEFAULT NULL"],
+    ["blocked_by", "VARCHAR(120) DEFAULT NULL"],
   ]) {
     const exists = await columnExists("hotel_room_inventory", column);
     if (!exists) {
@@ -104,7 +114,13 @@ const getRoomSetup = async () => {
     SELECT
       id,
       category_id AS categoryId,
-      room_number AS roomNumber
+      room_number AS roomNumber,
+      status,
+      block_reason AS blockReason,
+      DATE(block_from) AS blockFrom,
+      DATE(block_to) AS blockTo,
+      block_notes AS blockNotes,
+      blocked_by AS blockedBy
     FROM hotel_room_inventory
     ORDER BY CAST(room_number AS UNSIGNED), room_number
   `);
@@ -114,6 +130,7 @@ const getRoomSetup = async () => {
     rooms: rooms
       .filter((room) => Number(room.categoryId) === Number(category.id))
       .map((room) => room.roomNumber),
+    roomDetails: rooms.filter((room) => Number(room.categoryId) === Number(category.id)),
   }));
 };
 
@@ -139,19 +156,52 @@ const updateCategoryPrice = async ({ categoryId, defaultPrice }) => {
   );
 };
 
-const updateRoomOperationalState = async ({ roomNumber, guestName = null, status, checkIn = null, checkOut = null }) => {
+const updateRoomOperationalState = async ({
+  roomNumber,
+  guestName = null,
+  status,
+  checkIn = null,
+  checkOut = null,
+  blockReason = null,
+  blockFrom = null,
+  blockTo = null,
+  blockNotes = null,
+  blockedBy = null,
+}) => {
   await ensureSchema();
   const updates = [];
+  const nextStatus = String(status || "").trim();
+  const isBlocked = nextStatus.toLowerCase().includes("blocked") || nextStatus.toLowerCase().includes("out of service");
+  const nextGuest = isBlocked ? null : guestName;
+  const nextCheckIn = isBlocked ? null : checkIn;
+  const nextCheckOut = isBlocked ? null : checkOut;
+  const nextBlockReason = isBlocked ? blockReason : null;
+  const nextBlockFrom = isBlocked ? blockFrom : null;
+  const nextBlockTo = isBlocked ? blockTo : null;
+  const nextBlockNotes = isBlocked ? blockNotes : null;
+  const nextBlockedBy = isBlocked ? blockedBy : null;
 
   if (await tableExists("hotel_room_inventory")) {
     updates.push(
       runQuery(
         `
           UPDATE hotel_room_inventory
-          SET guest = ?, status = ?, check_in = ?, check_out = ?
+          SET guest = ?, status = ?, check_in = ?, check_out = ?,
+              block_reason = ?, block_from = ?, block_to = ?, block_notes = ?, blocked_by = ?
           WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)
         `,
-        [guestName, status, checkIn, checkOut, roomNumber],
+        [
+          nextGuest,
+          nextStatus,
+          nextCheckIn,
+          nextCheckOut,
+          nextBlockReason,
+          nextBlockFrom,
+          nextBlockTo,
+          nextBlockNotes,
+          nextBlockedBy,
+          roomNumber,
+        ],
       ),
     );
   }
