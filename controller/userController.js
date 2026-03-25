@@ -47,7 +47,15 @@ exports.createUser = async (req, res) => {
             .json({ message: "User creation failed", error: err.message });
         }
 
-        res.json({ message: "User created successfully" });
+        res.json({
+          message: "User created successfully",
+          user: {
+            id: result?.insertId,
+            name,
+            email,
+            role,
+          },
+        });
       }
     );
   } catch (err) {
@@ -67,6 +75,71 @@ exports.getUsers = (req, res) => {
 
     res.json(result);
   });
+};
+
+exports.deleteUser = (req, res) => {
+  const { id } = req.params;
+
+  if (!id) {
+    return res.status(400).json({ message: "User id required" });
+  }
+
+  UserModel.deleteUserById(id, (err, result) => {
+    if (err) {
+      console.error("Error deleting user:", err);
+      return res.status(500).json({ message: "User delete failed" });
+    }
+
+    if (!result?.affectedRows) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.json({ message: "User deleted successfully" });
+  });
+};
+
+exports.updateUser = async (req, res) => {
+  const { id } = req.params;
+  const { name, email, role, password } = req.body || {};
+
+  if (!id) {
+    return res.status(400).json({ message: "User id required" });
+  }
+
+  if (!name || !email || !role) {
+    return res.status(400).json({ message: "name, email and role required" });
+  }
+
+  try {
+    const hashedPassword = password ? await bcrypt.hash(password, 10) : "";
+
+    UserModel.updateUserById(
+      id,
+      { name, email, role, password: hashedPassword },
+      (err, result) => {
+        if (err) {
+          console.error("Error updating user:", err);
+          return res
+            .status(500)
+            .json({ message: "User update failed", error: err.message });
+        }
+
+        if (!result?.affectedRows) {
+          return res.status(404).json({ message: "User not found" });
+        }
+
+        return res.json({
+          message: "User updated successfully",
+          user: { id: Number(id), name, email, role },
+        });
+      }
+    );
+  } catch (err) {
+    console.error("Error updating user:", err);
+    return res
+      .status(500)
+      .json({ message: "Internal server error", error: err.message });
+  }
 };
 
 exports.getMe = (req, res) => {

@@ -35,6 +35,25 @@ const getAllUsers = (callback) => {
   db.query(sql, callback);
 };
 
+const deleteUserById = (id, callback) => {
+  const sql = "DELETE FROM register WHERE id = ?";
+  db.query(sql, [id], callback);
+};
+
+const updateUserById = (id, data, callback) => {
+  const fields = ["name = ?", "email = ?", "role = ?"];
+  const values = [data.name, data.email, data.role];
+
+  if (data.password) {
+    fields.push("password = ?");
+    values.push(data.password);
+  }
+
+  values.push(id);
+  const sql = `UPDATE register SET ${fields.join(", ")} WHERE id = ?`;
+  db.query(sql, values, callback);
+};
+
 module.exports = {
   createUser,
   findUserByEmail,
@@ -42,4 +61,6 @@ module.exports = {
   updatePasswordByEmail,
   updateAvatarUrlByEmail,
   getAllUsers,
+  deleteUserById,
+  updateUserById,
 };
