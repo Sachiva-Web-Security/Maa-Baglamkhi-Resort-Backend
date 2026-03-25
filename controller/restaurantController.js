@@ -33,23 +33,33 @@ exports.getTables = (req, res) => {
 
 /* ================= MENU ================= */
 
-exports.addMenuItem = (req, res) => {
+exports.addMenuItem = async (req, res) => {
   const { name, price, category, tableNumber } = req.body;
+  const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
 
-  if (!name || !price)
+  if (!name || !price) {
     return res.status(400).json({ message: "Name and price required" });
+  }
 
-  Restaurant.addMenuItem(
-    { name, price, category, tableNumber },
-    (err, result) => {
-      if (err) return res.status(500).json(err);
+  try {
+    await Restaurant.ensureSchema();
 
-      res.json({
-        message: "Menu item added",
-        id: result.insertId,
-      });
-    }
-  );
+    Restaurant.addMenuItem(
+      { name, price, category, tableNumber, imageUrl },
+      (err, result) => {
+        if (err) return res.status(500).json(err);
+
+        res.json({
+          message: "Menu item added",
+          id: result.insertId,
+        });
+      },
+    );
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to prepare restaurant schema",
+    });
+  }
 };
 
 exports.getMenuItems = (req, res) => {
@@ -147,5 +157,13 @@ exports.createBill = (req, res) => {
       message: "Bill created",
       id: result.insertId,
     });
+  });
+};
+
+exports.getBills = (req, res) => {
+  Restaurant.getBills((err, data) => {
+    if (err) return res.status(500).json(err);
+
+    res.json(data || []);
   });
 };
