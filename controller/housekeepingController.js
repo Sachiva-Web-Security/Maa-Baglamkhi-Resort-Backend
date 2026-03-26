@@ -1,4 +1,8 @@
 const db = require("../config/db");
+const Housekeeping = require("../models/Housekeeping");
+const {
+  ensureSchema: ensureCompletedCleaningLogSchema,
+} = require("../models/CompletedCleaningLogModel");
 
 // =============================================
 // HELPERS
@@ -13,8 +17,12 @@ const query = (sql, params = []) =>
 // =============================================
 exports.getAllRooms = async (req, res) => {
   try {
-    const results = await query("SELECT * FROM housekeeping ORDER BY id ASC");
-    res.json(results);
+    Housekeeping.getAllRooms((err, results) => {
+      if (err) {
+        return res.status(500).json({ message: "Database error", error: err });
+      }
+      return res.json(results);
+    });
   } catch (err) {
     res.status(500).json({ message: "Database error", error: err });
   }
@@ -43,7 +51,7 @@ exports.updateStatus = async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
   try {
-    await query("UPDATE housekeeping SET status = ? WHERE id = ?", [status, id]);
+    await query("UPDATE housekeeping SET status = ? WHERE id = ? OR CAST(roomNo AS CHAR) = CAST(? AS CHAR)", [status, id, id]);
     res.json({ message: "Status updated" });
   } catch (err) {
     res.status(500).json({ message: "Update failed", error: err });
@@ -57,7 +65,7 @@ exports.updateAssignee = async (req, res) => {
   const { id } = req.params;
   const { assignee } = req.body;
   try {
-    await query("UPDATE housekeeping SET assignee = ? WHERE id = ?", [assignee, id]);
+    await query("UPDATE housekeeping SET assignee = ? WHERE id = ? OR CAST(roomNo AS CHAR) = CAST(? AS CHAR)", [assignee, id, id]);
     res.json({ message: "Assignee updated" });
   } catch (err) {
     res.status(500).json({ message: "Update failed", error: err });
@@ -415,5 +423,61 @@ exports.getCheckoutReport = async (req, res) => {
     } catch (err2) {
       res.status(500).json({ message: "Database error", error: err2 });
     }
+  }
+};
+
+// =============================================
+// COMPLETED CLEANING LOGS
+// =============================================
+exports.getCompletedCleaningLogs = async (req, res) => {
+  const { date } = req.query;
+  try {
+    await ensureCompletedCleaningLogSchema();
+    let sql = "SELECT * FROM hk_completed_cleaning_logs";
+    const params = [];
+    if (date) {
+      sql += " WHERE DATE(completed_at) = ?";
+      params.push(date);
+    }
+    sql += " ORDER BY completed_at DESC, id DESC";
+    const results = await query(sql, params);
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch completed cleaning logs", error: err });
+  }
+};
+
+exports.createCompletedCleaningLog = async (req, res) => {
+  const {
+    roomId,
+    roomNo,
+    assignee,
+    guestStatus,
+    finalStatus,
+    completedAt,
+  } = req.body;
+
+  if (!roomNo) {
+    return res.status(400).json({ message: "roomNo is required" });
+  }
+
+  try {
+    await ensureCompletedCleaningLogSchema();
+    const result = await query(
+      `INSERT INTO hk_completed_cleaning_logs
+        (room_id, room_no, assignee, guest_status, final_status, completed_at)
+        VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        roomId || null,
+        roomNo,
+        assignee || null,
+        guestStatus || null,
+        finalStatus || "Vacant Clean",
+        completedAt || new Date(),
+      ]
+    );
+    res.json({ message: "Completed cleaning log saved", id: result.insertId });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to save completed cleaning log", error: err });
   }
 };

@@ -24,6 +24,23 @@ const columnExists = (tableName, columnName) => {
   });
 };
 
+let banquetHallRateColumnPromise = null;
+const getBanquetHallRateColumn = async () => {
+  if (!banquetHallRateColumnPromise) {
+    banquetHallRateColumnPromise = (async () => {
+      const snake = await columnExists("banquet_halls", "rate_per_hour");
+      if (snake) return "rate_per_hour";
+
+      const camel = await columnExists("banquet_halls", "ratePerHour");
+      if (camel) return "ratePerHour";
+
+      return null;
+    })();
+  }
+
+  return banquetHallRateColumnPromise;
+};
+
 const toISODate = (value) => {
   if (!value) return null;
   if (typeof value === "string") return value.slice(0, 10);
@@ -91,30 +108,41 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
   });
 
   const hotelRows = await runQuery(
-    `SELECT id, DATE(check_out) AS billDate, guest_name, room_number, status, bill_generated, 
-      COALESCE(price_per_day, 0) * GREATEST(1, DATEDIFF(COALESCE(check_out, check_in), check_in)) AS amount
-     FROM hotel_bookings`
+    `SELECT
+      g.id,
+      DATE(COALESCE(g.check_out, g.check_in)) AS billDate,
+      g.guest_name,
+      g.booking_status,
+      GROUP_CONCAT(rt.room_number ORDER BY rt.room_number) AS rooms,
+      COALESCE(SUM(rt.total), 0) AS amount
+     FROM guests g
+     LEFT JOIN room_tariff rt ON g.id = rt.booking_id
+     GROUP BY g.id, g.guest_name, g.booking_status, g.check_in, g.check_out`
   );
   hotelRows
-    .filter((r) => Number(r.bill_generated) === 1 || Number(r.amount) > 0)
+    .filter((r) => Number(r.amount) > 0)
     .forEach((r) => {
       rows.push({
         id: `hotel-${r.id}`,
         date: toISODate(r.billDate),
         source: "Hotel",
         billNo: `HOT-${String(r.id).padStart(6, "0")}`,
-        description: `${r.guest_name || "Guest"} / Room ${r.room_number || "-"}`,
+        description: `${r.guest_name || "Guest"} / Room ${r.rooms || "-"}`,
         amount: Number(r.amount) || 0,
         paymentMode: "N/A",
-        status: r.status || "Billed",
+        status: r.booking_status || "Billed",
         type: "Income",
       });
     });
 
+  const banquetHallRateColumn = await getBanquetHallRateColumn();
+  const banquetRateExpr = banquetHallRateColumn
+    ? `COALESCE(h.${banquetHallRateColumn}, 0)`
+    : "0";
   const banquetRows = await runQuery(
     `SELECT b.id, DATE(b.date) AS billDate, COALESCE(h.name, CONCAT('Hall #', b.hall_id)) AS hall, b.status,
       COALESCE(
-        (COALESCE(h.rate_per_hour, 0) * GREATEST(1, CEIL(TIMESTAMPDIFF(MINUTE, b.start_time, b.end_time) / 60)))
+        ((${banquetRateExpr}) * GREATEST(1, CEIL(TIMESTAMPDIFF(MINUTE, b.start_time, b.end_time) / 60)))
         + COALESCE(b.decoration_fee, 0),
         COALESCE(b.decoration_fee, 0)
       ) AS amount
@@ -166,8 +194,23 @@ const getSummaryCounts = async () => {
   const results = {};
 
   const tasks = [
-    { key: "totalRooms", sql: "SELECT COUNT(*) as c FROM rooms" },
-    { key: "hotelBookings", sql: "SELECT COUNT(*) as c FROM hotel_bookings" },
+    {
+      key: "totalRooms",
+      choose: async () => {
+        if (await tableExists("hotel_room_inventory")) return "hotel_room_inventory";
+        if (await tableExists("housekeeping")) return "housekeeping";
+        return "rooms";
+      },
+      makeSql: (table) => `SELECT COUNT(*) as c FROM \`${table}\``,
+    },
+    {
+      key: "hotelBookings",
+      choose: async () => {
+        if (await tableExists("guests")) return "guests";
+        return "hotel_bookings";
+      },
+      makeSql: (table) => `SELECT COUNT(*) as c FROM \`${table}\``,
+    },
     { key: "accountsTransactions", sql: "SELECT COUNT(*) as c FROM accounts_transactions" },
     { key: "banquetBookings", sql: "SELECT COUNT(*) as c FROM banquet_bookings" },
     {
@@ -221,19 +264,31 @@ const getReportData = async ({ type, dateFrom, dateTo, status, hall, roomType, p
   };
 
   if (type === "room") {
-    sql = `SELECT id, DATE(check_in) as date, room_number as roomType, status, guest_name as guest, check_out as checkOut,
-      COALESCE(price_per_day, 0) * GREATEST(1, DATEDIFF(COALESCE(check_out, check_in), check_in)) as revenue,
+    sql = `SELECT
+      CONCAT(g.id, '-', rt.id) as id,
+      DATE(g.check_in) as date,
+      rt.room_number as roomType,
+      g.booking_status as status,
+      g.guest_name as guest,
+      DATE(g.check_out) as checkOut,
+      COALESCE(rt.total, 0) as revenue,
       'N/A' as paymentMode
-      FROM hotel_bookings WHERE 1=1`;
-    addDateFilter("check_in");
-    if (status && status !== "All") { sql += " AND status = ?"; params.push(status); }
-    if (roomType && roomType !== "All") { sql += " AND room_number = ?"; params.push(roomType); }
-    sql += " ORDER BY id DESC";
+      FROM guests g
+      LEFT JOIN room_tariff rt ON g.id = rt.booking_id
+      WHERE rt.room_number IS NOT NULL`;
+    addDateFilter("g.check_in");
+    if (status && status !== "All") { sql += " AND g.booking_status = ?"; params.push(status); }
+    if (roomType && roomType !== "All") { sql += " AND rt.room_number = ?"; params.push(roomType); }
+    sql += " ORDER BY g.id DESC, rt.room_number";
 
   } else if (type === "banquet") {
+    const banquetHallRateColumn = await getBanquetHallRateColumn();
+    const banquetRateExpr = banquetHallRateColumn
+      ? `COALESCE(h.${banquetHallRateColumn}, 0)`
+      : "0";
     sql = `SELECT b.id, DATE(b.date) as date, COALESCE(h.name, CONCAT('Hall #', b.hall_id)) as hall, b.status, b.event_type as eventType, b.guests,
       COALESCE(
-        (COALESCE(h.rate_per_hour, 0) * GREATEST(1, CEIL(TIMESTAMPDIFF(MINUTE, b.start_time, b.end_time) / 60)))
+        ((${banquetRateExpr}) * GREATEST(1, CEIL(TIMESTAMPDIFF(MINUTE, b.start_time, b.end_time) / 60)))
         + COALESCE(b.decoration_fee, 0),
         COALESCE(b.decoration_fee, 0)
       ) as amount,
@@ -264,10 +319,17 @@ const getReportData = async ({ type, dateFrom, dateTo, status, hall, roomType, p
     }
 
   } else if (type === "housekeeping") {
-    sql = "SELECT id, DATE(COALESCE(check_in, NOW())) as date, room_number as roomType, status, guest as assignee, 1 as rooms FROM rooms WHERE 1=1";
+    sql = `SELECT
+      id,
+      DATE(NOW()) as date,
+      CAST(roomNo AS CHAR) as roomType,
+      status,
+      assignee,
+      1 as rooms
+      FROM housekeeping WHERE 1=1`;
     if (status && status !== "All") { sql += " AND status = ?"; params.push(status); }
-    if (roomType && roomType !== "All") { sql += " AND room_number = ?"; params.push(roomType); }
-    sql += " ORDER BY room_number";
+    if (roomType && roomType !== "All") { sql += " AND CAST(roomNo AS CHAR) = ?"; params.push(roomType); }
+    sql += " ORDER BY CAST(roomNo AS UNSIGNED), roomNo";
 
   } else if (type === "accounts") {
     sql = "SELECT id, DATE(date) as date, type, description, amount, payment_mode as paymentMode, 'Posted' as status FROM accounts_transactions WHERE 1=1";

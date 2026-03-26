@@ -203,7 +203,7 @@ exports.getAllBookings = (req, res) => {
     LEFT JOIN companies c ON g.id = c.booking_id
     LEFT JOIN advance_payment a ON g.id = a.booking_id
     LEFT JOIN room_tariff rt ON g.id = rt.booking_id
-    WHERE LOWER(IFNULL(g.booking_status, 'confirmed')) <> 'checked out'
+    WHERE LOWER(IFNULL(g.booking_status, 'confirmed')) NOT IN ('checked out', 'cancelled')
 
     GROUP BY
       g.id,
@@ -636,6 +636,63 @@ exports.checkOutBooking = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Check-out failed" });
+  }
+};
+
+exports.cancelBooking = async (req, res) => {
+  try {
+    const booking = await getBookingSummaryById(req.params.id);
+    const cancelReason = String(req.body?.reason || "").trim();
+
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    if (!cancelReason) {
+      return res.status(400).json({ message: "Cancellation reason is required" });
+    }
+
+    if (String(booking.booking_status || "").toLowerCase().includes("checked in")) {
+      return res.status(400).json({ message: "Checked-in booking cannot be cancelled from this flow" });
+    }
+
+    await new Promise((resolve, reject) => {
+      db.query(
+        "UPDATE guests SET booking_status = ?, cancel_reason = ? WHERE id = ?",
+        ["Cancelled", cancelReason, req.params.id],
+        (error) => (error ? reject(error) : resolve()),
+      );
+    });
+
+    const roomNumbers = String(booking?.rooms || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    await Promise.all(
+      roomNumbers.map(async (roomNumber) => {
+        await roomInventoryModel.updateRoomOperationalState({
+          roomNumber,
+          guestName: null,
+          status: "Available",
+          checkIn: null,
+          checkOut: null,
+        });
+
+        await new Promise((resolve, reject) => {
+          db.query(
+            "UPDATE housekeeping SET status = ? WHERE CAST(roomNo AS CHAR) = CAST(? AS CHAR)",
+            ["Vacant Clean", roomNumber],
+            (error) => (error ? reject(error) : resolve()),
+          );
+        });
+      }),
+    );
+
+    res.json({ message: "Booking cancelled successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Booking cancellation failed" });
   }
 };
 

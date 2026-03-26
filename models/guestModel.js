@@ -25,13 +25,19 @@ const ensureSchema = async () => {
       check_out DATE DEFAULT NULL,
       arrival VARCHAR(20) DEFAULT NULL,
       departure VARCHAR(20) DEFAULT NULL,
-      booking_status VARCHAR(50) DEFAULT 'Confirmed'
+      booking_status VARCHAR(50) DEFAULT 'Confirmed',
+      cancel_reason TEXT DEFAULT NULL
     )
   `);
 
   const bookingCodeColumn = await runQuery("SHOW COLUMNS FROM guests LIKE 'booking_code'");
   if (!bookingCodeColumn.length) {
     await runQuery("ALTER TABLE guests ADD COLUMN booking_code VARCHAR(40) NULL UNIQUE AFTER id");
+  }
+
+  const cancelReasonColumn = await runQuery("SHOW COLUMNS FROM guests LIKE 'cancel_reason'");
+  if (!cancelReasonColumn.length) {
+    await runQuery("ALTER TABLE guests ADD COLUMN cancel_reason TEXT DEFAULT NULL AFTER booking_status");
   }
 
   const missingCodes = await runQuery(
