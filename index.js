@@ -27,6 +27,12 @@ const {
 const {
   ensureSchema: ensureAuditLogSchema,
 } = require("./models/AuditLogModel");
+const {
+  ensureSchema: ensureCompletedCleaningLogSchema,
+} = require("./models/CompletedCleaningLogModel");
+const {
+  ensureSchema: ensureAccountsExpansionSchema,
+} = require("./models/AccountsExpansionModel");
 const auditLogger = require("./middleware/auditLogger");
 
 const http = require("http");
@@ -80,6 +86,7 @@ app.use("/api/room-service", require("./routes/roomServiceRoutes"));
 app.use("/api/accounts", require("./routes/accountsRoutes"));
 
 // Banquet
+app.use("/api/banquet", require("./routes/banquetRoutes"));
 
 
 // Attendance
@@ -194,6 +201,8 @@ async function initializeDatabase() {
     await bootstrapSchema("Restaurant schema init", ensureRestaurantSchema);
     await bootstrapSchema("Kitchen schema init", ensureKitchenSchema);
     await bootstrapSchema("Audit log schema init", ensureAuditLogSchema);
+    await bootstrapSchema("Completed cleaning log schema init", ensureCompletedCleaningLogSchema);
+    await bootstrapSchema("Accounts expansion schema init", ensureAccountsExpansionSchema);
   } catch (error) {
     console.error("Database connection failed:", error.code || error.message || error);
     console.error("Skipping schema bootstrap until MySQL is available.");

@@ -73,7 +73,16 @@ const Housekeeping = {
             }
 
             const housekeepingJoin = hasHousekeeping
-              ? `LEFT JOIN housekeeping hk ON CAST(hk.roomNo AS CHAR) = CAST(${baseAlias}.room_number AS CHAR)`
+              ? `LEFT JOIN (
+                  SELECT hk1.*
+                  FROM housekeeping hk1
+                  INNER JOIN (
+                    SELECT CAST(roomNo AS CHAR) AS roomNo, MAX(id) AS max_id
+                    FROM housekeeping
+                    GROUP BY CAST(roomNo AS CHAR)
+                  ) latest_hk
+                    ON latest_hk.max_id = hk1.id
+                ) hk ON CAST(hk.roomNo AS CHAR) = CAST(${baseAlias}.room_number AS CHAR)`
               : "";
             const housekeepingIdSelect = hasHousekeeping ? "COALESCE(hk.id, 0)" : "0";
             const housekeepingStatusSelect = hasHousekeeping

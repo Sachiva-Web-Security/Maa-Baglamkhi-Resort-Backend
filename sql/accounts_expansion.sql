@@ -1,0 +1,94 @@
+CREATE TABLE IF NOT EXISTS account_bank_ledgers (
+  id INT NOT NULL AUTO_INCREMENT,
+  entry_date DATE NOT NULL,
+  bank_name VARCHAR(255) NOT NULL,
+  reference_no VARCHAR(120) DEFAULT NULL,
+  description VARCHAR(255) NOT NULL,
+  debit DECIMAL(12,2) NOT NULL DEFAULT 0,
+  credit DECIMAL(12,2) NOT NULL DEFAULT 0,
+  reconciliation_status VARCHAR(50) NOT NULL DEFAULT 'Pending',
+  notes TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS petty_cash_entries (
+  id INT NOT NULL AUTO_INCREMENT,
+  entry_date DATE NOT NULL,
+  entry_type VARCHAR(20) NOT NULL,
+  category VARCHAR(120) NOT NULL,
+  description VARCHAR(255) NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  approved_by VARCHAR(255) DEFAULT NULL,
+  notes TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS gst_return_records (
+  id INT NOT NULL AUTO_INCREMENT,
+  filing_period VARCHAR(20) NOT NULL,
+  return_type VARCHAR(50) NOT NULL,
+  taxable_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  gst_collected DECIMAL(12,2) NOT NULL DEFAULT 0,
+  gst_paid DECIMAL(12,2) NOT NULL DEFAULT 0,
+  net_payable DECIMAL(12,2) NOT NULL DEFAULT 0,
+  status VARCHAR(50) NOT NULL DEFAULT 'Draft',
+  filed_on DATE DEFAULT NULL,
+  notes TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS vendor_payment_records (
+  id INT NOT NULL AUTO_INCREMENT,
+  vendor_name VARCHAR(255) NOT NULL,
+  invoice_ref VARCHAR(120) DEFAULT NULL,
+  payment_date DATE NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  payment_mode VARCHAR(50) NOT NULL DEFAULT 'Bank Transfer',
+  status VARCHAR(50) NOT NULL DEFAULT 'Scheduled',
+  notes TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS purchase_orders (
+  id INT NOT NULL AUTO_INCREMENT,
+  po_number VARCHAR(100) NOT NULL,
+  vendor_name VARCHAR(255) NOT NULL,
+  order_date DATE NOT NULL,
+  expected_date DATE DEFAULT NULL,
+  total_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  status VARCHAR(50) NOT NULL DEFAULT 'Draft',
+  notes TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_purchase_order_number (po_number)
+);
+
+CREATE TABLE IF NOT EXISTS payroll_records (
+  id INT NOT NULL AUTO_INCREMENT,
+  staff_name VARCHAR(255) NOT NULL,
+  payroll_month VARCHAR(20) NOT NULL,
+  attendance_days INT NOT NULL DEFAULT 0,
+  base_salary DECIMAL(12,2) NOT NULL DEFAULT 0,
+  allowance DECIMAL(12,2) NOT NULL DEFAULT 0,
+  deduction DECIMAL(12,2) NOT NULL DEFAULT 0,
+  net_salary DECIMAL(12,2) NOT NULL DEFAULT 0,
+  status VARCHAR(50) NOT NULL DEFAULT 'Draft',
+  notes TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS profit_center_entries (
+  id INT NOT NULL AUTO_INCREMENT,
+  center_name VARCHAR(100) NOT NULL,
+  entry_date DATE NOT NULL,
+  income_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  expense_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  notes TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+);

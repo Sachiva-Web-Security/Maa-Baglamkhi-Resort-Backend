@@ -29,6 +29,7 @@ router.put("/booking/:id", bookingController.updateBooking);
 router.put("/full-booking/:id", bookingController.updateFullBooking);
 router.put("/check-in/:id", bookingController.checkInBooking);
 router.put("/check-out/:id", bookingController.checkOutBooking);
+router.put("/cancel/:id", bookingController.cancelBooking);
 router.put("/rooms/category/:id/price", hotelRoomInventoryController.updateCategoryPrice);
 router.put("/rooms/state/:roomNumber", hotelRoomInventoryController.updateRoomOperationalState);
 

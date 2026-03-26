@@ -61,4 +61,10 @@ router.post("/costing",          ctrl.logCost);
 // =============================================
 router.get("/checkout-report",   ctrl.getCheckoutReport);
 
+// =============================================
+// COMPLETED CLEANING LOGS
+// =============================================
+router.get("/completed-cleaning", ctrl.getCompletedCleaningLogs);
+router.post("/completed-cleaning", ctrl.createCompletedCleaningLog);
+
 module.exports = router;
