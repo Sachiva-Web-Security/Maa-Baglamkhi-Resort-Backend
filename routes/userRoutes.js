@@ -5,6 +5,7 @@ const {
   deleteUser,
   updateUser,
   getMe,
+  updateMe,
   changePassword,
   updateMyAvatar,
   avatarUpload,
@@ -14,6 +15,7 @@ const roleMiddleware = require("../middleware/roleMiddleware");
 
 // Only admin can create users; any authenticated user can list (admin/managers)
 router.get("/me", authMiddleware, getMe);
+router.put("/me", authMiddleware, updateMe);
 router.post("/change-password", authMiddleware, changePassword);
 router.put("/me/avatar", authMiddleware, avatarUpload.single("avatar"), updateMyAvatar);
 

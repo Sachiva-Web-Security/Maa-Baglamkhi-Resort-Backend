@@ -11,6 +11,11 @@ const findUserByEmail = (email, callback) => {
   db.query(sql, [email], callback);
 };
 
+const findUserById = (id, callback) => {
+  const sql = "SELECT * FROM register WHERE id = ?";
+  db.query(sql, [id], callback);
+};
+
 const countUsers = (callback) => {
   const sql = "SELECT COUNT(*) AS c FROM register";
   db.query(sql, (err, rows) => {
@@ -57,6 +62,7 @@ const updateUserById = (id, data, callback) => {
 module.exports = {
   createUser,
   findUserByEmail,
+  findUserById,
   countUsers,
   updatePasswordByEmail,
   updateAvatarUrlByEmail,

@@ -9,6 +9,11 @@ const ALLOW_REGISTER = String(process.env.ALLOW_REGISTER || "").toLowerCase() ==
 exports.login = (req, res) => {
   const { email, password } = req.body;
 
+  req.setAuditContext?.({
+    action: "login",
+    newValue: email ? { email } : null,
+  });
+
   if (!email || !password) {
     return res.status(400).json({ message: "Email and password required" });
   }
@@ -24,8 +29,22 @@ exports.login = (req, res) => {
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
+      req.setAuditContext?.({
+        action: "login_failed",
+        userId: user.id,
+      });
       return res.status(400).json({ message: "Invalid Password" });
     }
+
+    req.setAuditContext?.({
+      userId: user.id,
+      action: "login",
+      newValue: {
+        id: user.id,
+        email: user.email,
+        role: String(user.role || "").toLowerCase(),
+      },
+    });
 
   const token = jwt.sign(
   {
