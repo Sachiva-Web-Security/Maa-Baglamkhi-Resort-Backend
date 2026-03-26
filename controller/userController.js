@@ -4,6 +4,18 @@ const path = require("path");
 const multer = require("multer");
 const UserModel = require("../models/UserModel");
 
+function sanitizeUser(user) {
+  if (!user) return null;
+
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    avatar_url: user.avatar_url || null,
+  };
+}
+
 // ================= UPLOAD SETUP =================
 
 const uploadsDir = path.join(__dirname, "..", "uploads");
@@ -139,17 +151,36 @@ exports.deleteUser = (req, res) => {
     return res.status(400).json({ message: "User id required" });
   }
 
-  UserModel.deleteUserById(id, (err, result) => {
-    if (err) {
-      console.error("Error deleting user:", err);
+  UserModel.findUserById(id, (findErr, rows) => {
+    if (findErr) {
+      console.error("Error loading user before delete:", findErr);
       return res.status(500).json({ message: "User delete failed" });
     }
 
-    if (!result?.affectedRows) {
+    const existingUser = rows?.[0];
+    if (!existingUser) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    return res.json({ message: "User deleted successfully" });
+    req.setAuditContext?.({
+      action: "delete_user",
+      oldValue: sanitizeUser(existingUser),
+      newValue: null,
+      userId: req.user?.id || existingUser.id,
+    });
+
+    UserModel.deleteUserById(id, (err, result) => {
+      if (err) {
+        console.error("Error deleting user:", err);
+        return res.status(500).json({ message: "User delete failed" });
+      }
+
+      if (!result?.affectedRows) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      return res.json({ message: "User deleted successfully" });
+    });
   });
 };
 
@@ -165,36 +196,64 @@ exports.updateUser = async (req, res) => {
     return res.status(400).json({ message: "name, email and role required" });
   }
 
-  try {
-    const hashedPassword = password ? await bcrypt.hash(password, 10) : "";
+  UserModel.findUserById(id, async (findErr, rows) => {
+    if (findErr) {
+      console.error("Error loading user before update:", findErr);
+      return res
+        .status(500)
+        .json({ message: "User update failed", error: findErr.message });
+    }
 
-    UserModel.updateUserById(
-      id,
-      { name, email, role, password: hashedPassword },
-      (err, result) => {
-        if (err) {
-          console.error("Error updating user:", err);
-          return res
-            .status(500)
-            .json({ message: "User update failed", error: err.message });
+    const existingUser = rows?.[0];
+    if (!existingUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    try {
+      const hashedPassword = password ? await bcrypt.hash(password, 10) : "";
+      const nextUser = {
+        ...sanitizeUser(existingUser),
+        id: Number(id),
+        name,
+        email,
+        role,
+      };
+
+      req.setAuditContext?.({
+        action: "update_user",
+        oldValue: sanitizeUser(existingUser),
+        newValue: nextUser,
+        userId: req.user?.id || existingUser.id,
+      });
+
+      UserModel.updateUserById(
+        id,
+        { name, email, role, password: hashedPassword },
+        (err, result) => {
+          if (err) {
+            console.error("Error updating user:", err);
+            return res
+              .status(500)
+              .json({ message: "User update failed", error: err.message });
+          }
+
+          if (!result?.affectedRows) {
+            return res.status(404).json({ message: "User not found" });
+          }
+
+          return res.json({
+            message: "User updated successfully",
+            user: nextUser,
+          });
         }
-
-        if (!result?.affectedRows) {
-          return res.status(404).json({ message: "User not found" });
-        }
-
-        return res.json({
-          message: "User updated successfully",
-          user: { id: Number(id), name, email, role },
-        });
-      }
-    );
-  } catch (err) {
-    console.error("Error updating user:", err);
-    return res
-      .status(500)
-      .json({ message: "Internal server error", error: err.message });
-  }
+      );
+    } catch (err) {
+      console.error("Error updating user:", err);
+      return res
+        .status(500)
+        .json({ message: "Internal server error", error: err.message });
+    }
+  });
 };
 
 exports.getMe = (req, res) => {
@@ -267,6 +326,13 @@ exports.changePassword = async (req, res) => {
 
     const hashed = await bcrypt.hash(newPassword, 10);
 
+    req.setAuditContext?.({
+      action: "change_password",
+      userId: user.id,
+      oldValue: { id: user.id, email: user.email, password: "[REDACTED]" },
+      newValue: { id: user.id, email: user.email, password: "[REDACTED]" },
+    });
+
     UserModel.updatePasswordByEmail(targetEmail, hashed, (uErr) => {
       if (uErr) {
         return res.status(500).json({
@@ -302,19 +368,95 @@ exports.updateMyAvatar = (req, res) => {
 
   const avatarUrl = `/uploads/${req.file.filename}`;
 
-  UserModel.updateAvatarUrlByEmail(email, avatarUrl, (err) => {
-    if (err) {
-      return res.json({
-        message: "Avatar uploaded (not persisted in DB)",
-        avatarUrl,
-        persisted: false,
+  UserModel.findUserByEmail(email, (findErr, result) => {
+    if (findErr) {
+      return res.status(500).json({
+        message: "DB Error",
       });
     }
 
-    return res.json({
-      message: "Avatar updated",
-      avatarUrl,
-      persisted: true,
+    const existingUser = result?.[0] || null;
+
+    req.setAuditContext?.({
+      action: "update_profile_avatar",
+      userId: req.user?.id || existingUser?.id || null,
+      oldValue: sanitizeUser(existingUser),
+      newValue: {
+        ...sanitizeUser(existingUser),
+        avatar_url: avatarUrl,
+      },
     });
+
+    UserModel.updateAvatarUrlByEmail(email, avatarUrl, (err) => {
+      if (err) {
+        return res.json({
+          message: "Avatar uploaded (not persisted in DB)",
+          avatarUrl,
+          persisted: false,
+        });
+      }
+
+      return res.json({
+        message: "Avatar updated",
+        avatarUrl,
+        persisted: true,
+      });
+    });
+  });
+};
+
+exports.updateMe = (req, res) => {
+  const id = req.user?.id;
+  const { name, email } = req.body || {};
+
+  if (!id) {
+    return res.status(401).json({ message: "Missing authenticated user" });
+  }
+
+  if (!name || !email) {
+    return res.status(400).json({ message: "name and email required" });
+  }
+
+  UserModel.findUserById(id, (findErr, rows) => {
+    if (findErr) {
+      return res.status(500).json({ message: "DB Error" });
+    }
+
+    const existingUser = rows?.[0];
+    if (!existingUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const nextUser = {
+      ...sanitizeUser(existingUser),
+      name,
+      email,
+    };
+
+    req.setAuditContext?.({
+      action: "update_profile",
+      userId: id,
+      oldValue: sanitizeUser(existingUser),
+      newValue: nextUser,
+    });
+
+    UserModel.updateUserById(
+      id,
+      { name, email, role: existingUser.role, password: "" },
+      (updateErr, result) => {
+        if (updateErr) {
+          return res.status(500).json({ message: "Profile update failed" });
+        }
+
+        if (!result?.affectedRows) {
+          return res.status(404).json({ message: "User not found" });
+        }
+
+        return res.json({
+          message: "Profile updated successfully",
+          user: nextUser,
+        });
+      }
+    );
   });
 };

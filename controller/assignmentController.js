@@ -1,118 +1,66 @@
 const db = require("../config/db");
 
-// CREATE
-exports.createAssignment = (req, res) => {
-  const { staff_name, room_number, task, assigned_by } = req.body;
-
-  if (!staff_name || !room_number || !task || !assigned_by) {
-    return res.status(400).json({ message: "All fields required" });
-  }
-
-  const sql = `
-    INSERT INTO assignments 
-    (staff_name, room_number, task, assigned_by, status) 
-    VALUES (?, ?, ?, ?, 'Pending')
-  `;
-
-  db.query(
-    sql,
-    [staff_name, room_number, task, assigned_by],
-    (err, result) => {
-      if (err) return res.status(500).json(err);
-
-      const newTask = {
-        id: result.insertId,
-        staff_name,
-        room_number,
-        task,
-        assigned_by,
-        status: "Pending",
-      };
-
-      // 🔔 SOCKET NOTIFICATION
-      if (global.io) {
-        global.io.emit("newTask", newTask);
-      }
-
-      res.status(201).json(newTask);
-    }
+const query = (sql, params = []) =>
+  new Promise((resolve, reject) =>
+    db.query(sql, params, (err, results) => (err ? reject(err) : resolve(results)))
   );
-};
 
-// GET ALL
-exports.getAssignments = (req, res) => {
-  const { role, name } = req.query;
-
-  let sql = "SELECT * FROM assignments";
-  let values = [];
-
-  if (role === "Staff") {
-    sql += " WHERE staff_name = ?";
-    values.push(name);
-  }
-
-  sql += " ORDER BY id DESC";
-
-  db.query(sql, values, (err, results) => {
-    if (err) return res.status(500).json(err);
+exports.getAll = async (req, res) => {
+  try {
+    const results = await query(
+      "SELECT * FROM assignments ORDER BY FIELD(priority,'Urgent','High','Normal','Low'), created_at DESC"
+    );
     res.json(results);
-  });
+  } catch {
+    try {
+      const results = await query("SELECT * FROM assignments ORDER BY created_at DESC");
+      res.json(results);
+    } catch (err2) {
+      res.status(500).json({ message: "Database error", error: err2 });
+    }
+  }
 };
 
-// UPDATE STATUS
-exports.updateAssignment = (req, res) => {
+exports.create = async (req, res) => {
+  const { staffName, roomNumber, task, priority, assignedBy, dueTime, notes } = req.body;
+  try {
+    const result = await query(
+      `INSERT INTO assignments (staff_name, room_number, task, priority, assigned_by, due_time, notes, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending')`,
+      [staffName, roomNumber || null, task, priority || "Normal", assignedBy || null, dueTime || null, notes || null]
+    );
+    res.json({ message: "Assignment created", id: result.insertId });
+  } catch (err) {
+    res.status(500).json({ message: "Insert failed", error: err });
+  }
+};
+
+exports.update = async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body;
-
-  const sql = "UPDATE assignments SET status=? WHERE id=?";
-
-  db.query(sql, [status, id], (err) => {
-    if (err) return res.status(500).json(err);
-    res.json({ message: "Updated successfully" });
-  });
+  const { status, priority, task, staffName, roomNumber, dueTime, notes } = req.body;
+  const fields = [], values = [];
+  if (status !== undefined)     { fields.push("status = ?");      values.push(status); }
+  if (priority !== undefined)   { fields.push("priority = ?");    values.push(priority); }
+  if (task !== undefined)       { fields.push("task = ?");        values.push(task); }
+  if (staffName !== undefined)  { fields.push("staff_name = ?");  values.push(staffName); }
+  if (roomNumber !== undefined) { fields.push("room_number = ?"); values.push(roomNumber); }
+  if (dueTime !== undefined)    { fields.push("due_time = ?");    values.push(dueTime); }
+  if (notes !== undefined)      { fields.push("notes = ?");       values.push(notes); }
+  if (!fields.length) return res.status(400).json({ message: "No fields to update" });
+  values.push(id);
+  try {
+    await query(`UPDATE assignments SET ${fields.join(", ")} WHERE id = ?`, values);
+    res.json({ message: "Assignment updated" });
+  } catch (err) {
+    res.status(500).json({ message: "Update failed", error: err });
+  }
 };
 
-// DELETE
-exports.deleteAssignment = (req, res) => {
-  const { id } = req.params;
-
-  const sql = "DELETE FROM assignments WHERE id=?";
-
-  db.query(sql, [id], (err) => {
-    if (err) return res.status(500).json(err);
-    res.json({ message: "Deleted successfully" });
-  });
-};
-
-// EDIT
-exports.editAssignment = (req, res) => {
-  const { id } = req.params;
-  const { staff_name, room_number, task } = req.body;
-
-  const sql = `
-    UPDATE assignments 
-    SET staff_name=?, room_number=?, task=? 
-    WHERE id=?
-  `;
-
-  db.query(sql, [staff_name, room_number, task, id], (err) => {
-    if (err) return res.status(500).json(err);
-    res.json({ message: "Updated successfully" });
-  });
-};
-
-// STATS
-exports.getStats = (req, res) => {
-  const sql = `
-    SELECT 
-      COUNT(*) as total,
-      SUM(CASE WHEN status='Completed' THEN 1 ELSE 0 END) as completed,
-      SUM(CASE WHEN status='Pending' THEN 1 ELSE 0 END) as pending
-    FROM assignments
-  `;
-
-  db.query(sql, (err, result) => {
-    if (err) return res.status(500).json(err);
-    res.json(result[0]);
-  });
+exports.remove = async (req, res) => {
+  try {
+    await query("DELETE FROM assignments WHERE id = ?", [req.params.id]);
+    res.json({ message: "Assignment deleted" });
+  } catch (err) {
+    res.status(500).json({ message: "Delete failed", error: err });
+  }
 };
