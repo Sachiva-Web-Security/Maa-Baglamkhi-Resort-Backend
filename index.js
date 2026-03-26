@@ -24,6 +24,10 @@ const {
 const {
   ensureSchema: ensureKitchenSchema,
 } = require("./models/kitchen");
+const {
+  ensureSchema: ensureAuditLogSchema,
+} = require("./models/AuditLogModel");
+const auditLogger = require("./middleware/auditLogger");
 
 const http = require("http");
 const { Server } = require("socket.io");
@@ -49,6 +53,7 @@ io.on("connection", (socket) => {
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(auditLogger);
 
 // serve uploads
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
@@ -107,6 +112,9 @@ app.use("/api/kitchen", kitchenRoutes);
 // Inventory
 const inventoryRoutes = require("./routes/inventoryRoutes");
 app.use("/api/inventory", inventoryRoutes);
+
+// Audit Logs
+app.use("/api/audit-logs", require("./routes/auditLogRoutes"));
 
 // Housekeeping
 app.use("/api/housekeeping", require("./routes/housekeepingRoutes"));
@@ -185,6 +193,7 @@ async function initializeDatabase() {
     await bootstrapSchema("Token schema init", ensureTokenSchema);
     await bootstrapSchema("Restaurant schema init", ensureRestaurantSchema);
     await bootstrapSchema("Kitchen schema init", ensureKitchenSchema);
+    await bootstrapSchema("Audit log schema init", ensureAuditLogSchema);
   } catch (error) {
     console.error("Database connection failed:", error.code || error.message || error);
     console.error("Skipping schema bootstrap until MySQL is available.");
