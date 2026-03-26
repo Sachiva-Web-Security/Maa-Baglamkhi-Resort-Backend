@@ -25,6 +25,10 @@ const {
   ensureSchema: ensureKitchenSchema,
 } = require("./models/kitchen");
 const {
+
+  ensureSchema: ensureHousekeepingSchema,
+} = require("./models/Housekeeping");
+
   ensureSchema: ensureAuditLogSchema,
 } = require("./models/AuditLogModel");
 const {
@@ -34,6 +38,7 @@ const {
   ensureSchema: ensureAccountsExpansionSchema,
 } = require("./models/AccountsExpansionModel");
 const auditLogger = require("./middleware/auditLogger");
+
 
 const http = require("http");
 const { Server } = require("socket.io");
@@ -160,6 +165,10 @@ app.get("/", (req, res) => {
 // ================= SERVER =================
 
 const PORT = process.env.PORT || 5002;
+
+ensureHousekeepingSchema().catch((error) => {
+  console.error("Housekeeping schema init failed:", error);
+});
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
