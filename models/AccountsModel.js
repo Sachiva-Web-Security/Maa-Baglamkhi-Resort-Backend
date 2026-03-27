@@ -1,5 +1,24 @@
 const db = require("../config/db");
 
+const runQuery = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+  });
+
+const ensureSchema = async () => {
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS accounts_transactions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      date DATE NOT NULL,
+      type ENUM('Income','Expense') NOT NULL,
+      description VARCHAR(255) NOT NULL,
+      amount DECIMAL(10,2) NOT NULL,
+      payment_mode VARCHAR(30) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+};
+
 const getTransactions = (callback) => {
   const sql =
     "SELECT id, DATE_FORMAT(date, '%d %b %Y') AS date, type, description, amount, payment_mode AS paymentMode FROM accounts_transactions ORDER BY date DESC, id DESC";
@@ -12,11 +31,10 @@ const createTransaction = (data, callback) => {
   db.query(
     sql,
     [data.date, data.type, data.description, data.amount, data.paymentMode],
-    callback
+    callback,
   );
 };
 
-// ✅ NEW
 const getSummary = (callback) => {
   const sql = `
     SELECT
@@ -28,7 +46,8 @@ const getSummary = (callback) => {
 };
 
 module.exports = {
+  ensureSchema,
   getTransactions,
   createTransaction,
-  getSummary, // ✅ NEW
+  getSummary,
 };

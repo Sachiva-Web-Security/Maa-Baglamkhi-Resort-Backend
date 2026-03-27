@@ -487,7 +487,7 @@ const Housekeeping = {
 
   deleteRoom: async (id, callback) => {
     try {
-      await runQuery("DELETE FROM housekeeping WHERE id = ?", [id]);
+      await runQuery("DELETE FROM housekeeping WHERE id = ? OR CAST(roomNo AS CHAR) = CAST(? AS CHAR)", [id, id]);
       callback(null, { message: "Room deleted" });
     } catch (error) {
       callback(error);

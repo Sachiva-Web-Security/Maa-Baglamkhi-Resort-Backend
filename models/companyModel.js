@@ -1,9 +1,22 @@
-// models/companyModel.js
-
 const db = require("../config/db");
 
+const runQuery = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+  });
+
+const ensureSchema = async () => {
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS companies (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      booking_id INT NOT NULL,
+      company_name VARCHAR(191) NOT NULL,
+      gstin VARCHAR(100) DEFAULT NULL
+    )
+  `);
+};
+
 const addCompany = (data, callback) => {
-  // 🔒 safety check
   if (!data.companyName) {
     return callback(new Error("Company name is required"));
   }
@@ -17,7 +30,6 @@ const addCompany = (data, callback) => {
     [bookingId],
     (findErr, rows) => {
       if (findErr) {
-        console.error("❌ DB ERROR (Company lookup):", findErr);
         return callback(findErr);
       }
 
@@ -25,36 +37,21 @@ const addCompany = (data, callback) => {
         db.query(
           "UPDATE companies SET company_name = ?, gstin = ? WHERE booking_id = ?",
           [companyName, gstin, bookingId],
-          (updateErr, result) => {
-            if (updateErr) {
-              console.error("❌ DB ERROR (Company update):", updateErr);
-              return callback(updateErr);
-            }
-            callback(null, result);
-          },
+          callback,
         );
         return;
       }
 
       db.query(
-        `
-          INSERT INTO companies
-          (booking_id, company_name, gstin)
-          VALUES (?,?,?)
-        `,
+        "INSERT INTO companies (booking_id, company_name, gstin) VALUES (?,?,?)",
         [bookingId, companyName, gstin],
-        (insertErr, result) => {
-          if (insertErr) {
-            console.error("❌ DB ERROR (Company insert):", insertErr);
-            return callback(insertErr);
-          }
-          callback(null, result);
-        },
+        callback,
       );
     },
   );
 };
 
 module.exports = {
-  addCompany
+  ensureSchema,
+  addCompany,
 };

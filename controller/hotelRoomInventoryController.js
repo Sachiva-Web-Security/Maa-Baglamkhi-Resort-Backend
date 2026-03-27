@@ -24,7 +24,9 @@ exports.addRoom = async (req, res) => {
     const room = await roomInventoryModel.addRoom(req.body);
     res.json({ message: "Room added successfully", room });
   } catch (error) {
-    console.error(error);
+    if (error.code !== "ER_DUP_ENTRY" && process.env.NODE_ENV !== "test") {
+      console.error(error);
+    }
     res.status(500).json({
       message: error.code === "ER_DUP_ENTRY" ? "Room already exists" : "Failed to add room",
     });
