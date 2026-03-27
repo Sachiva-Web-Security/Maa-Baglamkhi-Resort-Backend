@@ -28,7 +28,7 @@ const {
 
   ensureSchema: ensureHousekeepingSchema,
 } = require("./models/Housekeeping");
-
+const {
   ensureSchema: ensureAuditLogSchema,
 } = require("./models/AuditLogModel");
 const {
@@ -116,6 +116,7 @@ app.use("/api/payment", require("./routes/paymentRoutes"));
 // Invoice
 const invoiceRoutes = require("./routes/InvoiceRoutes");
 app.use("/api/invoices", invoiceRoutes);
+app.use("/api/invoice", invoiceRoutes);
 
 // Kitchen
 const kitchenRoutes = require("./routes/kitchenRoutes");

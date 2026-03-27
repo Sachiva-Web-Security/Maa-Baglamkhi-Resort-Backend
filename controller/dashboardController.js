@@ -31,6 +31,14 @@ const getTotal = async (sql, params = []) => {
   return Number(rows?.[0]?.total || 0);
 };
 
+const formatDateKey = (value) => {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
+};
+
+const todayKey = () => formatDateKey(new Date());
+
 const resolveBillSource = async (rangeConditionBuilder) => {
   const candidates = ["restaurant_bills", "bills"];
   let fallback = null;
@@ -119,40 +127,151 @@ const getTodayRevenue = async () => {
     `);
   }
 
+  if (await tableExists("payment_history")) {
+    return getTotal(`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM payment_history
+      WHERE DATE(created_at) = CURDATE()
+    `);
+  }
+
   return total;
 };
 
-const getTodayCheckins = async () => {
-  if (await tableExists("guests")) {
-    return getCount(
-      "SELECT COUNT(*) AS count FROM guests WHERE DATE(check_in) = CURDATE()",
-    );
+const getGuestStayRows = async () => {
+  if (!(await tableExists("guests"))) return [];
+
+  const hasRoomTariff = await tableExists("room_tariff");
+  const roomJoin = hasRoomTariff
+    ? `
+      LEFT JOIN (
+        SELECT
+          booking_id,
+          GROUP_CONCAT(DISTINCT CAST(room_number AS CHAR) ORDER BY room_number SEPARATOR ', ') AS rooms
+        FROM room_tariff
+        GROUP BY booking_id
+      ) rt ON rt.booking_id = g.id
+    `
+    : "";
+  const roomSelect = hasRoomTariff ? "COALESCE(rt.rooms, '') AS rooms," : "'' AS rooms,";
+
+  const rows = await runQuery(`
+    SELECT
+      g.id,
+      g.booking_code,
+      g.guest_name,
+      g.check_in,
+      g.check_out,
+      g.booking_status,
+      ${roomSelect}
+      g.mobile
+    FROM guests g
+    ${roomJoin}
+    ORDER BY g.id DESC
+  `);
+
+  return rows.map((row) => ({
+    id: row.id,
+    bookingId: row.id,
+    bookingCode: row.booking_code || "",
+    guestName: row.guest_name || "Guest",
+    rooms: row.rooms || "",
+    mobile: row.mobile || "",
+    checkIn: formatDateKey(row.check_in),
+    checkOut: formatDateKey(row.check_out),
+    bookingStatus: row.booking_status || "Confirmed",
+  }));
+};
+
+const isInactiveBooking = (booking) => {
+  const status = String(booking.bookingStatus || "").toLowerCase();
+  return status.includes("cancel") || status.includes("checked out");
+};
+
+const isCheckedInBooking = (booking) => {
+  const status = String(booking.bookingStatus || "").toLowerCase();
+  return status.includes("checked in") || status.includes("occupied") || status.includes("in house");
+};
+
+const getArrivalMetrics = async () => {
+  const targetDate = todayKey();
+  const bookings = await getGuestStayRows();
+
+  const expectedArrivalDetails = bookings.filter(
+    (booking) => booking.checkIn === targetDate && !isInactiveBooking(booking),
+  );
+  const expectedCheckoutDetails = bookings.filter(
+    (booking) => booking.checkOut === targetDate && !isInactiveBooking(booking),
+  );
+  const todayCheckinDetails = bookings.filter(
+    (booking) => booking.checkIn === targetDate && isCheckedInBooking(booking),
+  );
+
+  return {
+    expectedArrivals: expectedArrivalDetails.length,
+    expectedCheckouts: expectedCheckoutDetails.length,
+    todayCheckins: todayCheckinDetails.length,
+    expectedArrivalDetails,
+    expectedCheckoutDetails,
+    todayCheckinDetails,
+  };
+};
+
+const getTotalRevenueGenerated = async () => {
+  let total = 0;
+
+  if (await tableExists("room_tariff")) {
+    total += await getTotal(`
+      SELECT COALESCE(SUM(total), 0) AS total
+      FROM room_tariff
+    `);
   }
 
-  if (await tableExists("hotel_bookings")) {
-    return getCount(
-      "SELECT COUNT(*) AS count FROM hotel_bookings WHERE DATE(check_in) = CURDATE()",
-    );
+  const salesSource = await resolveBillSource(() => "1 = 1");
+  if (salesSource) {
+    total += await getTotal(`
+      SELECT COALESCE(SUM(${salesSource.totalColumn}), 0) AS total
+      FROM ${salesSource.tableName}
+    `);
+  } else if (!(await tableExists("room_tariff")) && (await tableExists("accounts_transactions"))) {
+    total += await getTotal(`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM accounts_transactions
+      WHERE LOWER(COALESCE(type, '')) = 'income'
+    `);
   }
 
-  return 0;
+  return total;
 };
 
 exports.getMetrics = async (_req, res) => {
   try {
-    const [totalRooms, occupiedRooms, todayRevenue, todayCheckins] =
+    const [
+      totalRooms,
+      occupiedRooms,
+      todayRevenue,
+      totalRevenueGenerated,
+      arrivalMetrics,
+    ] =
       await Promise.all([
         getTotalRooms(),
         getOccupiedRooms(),
         getTodayRevenue(),
-        getTodayCheckins(),
+        getTotalRevenueGenerated(),
+        getArrivalMetrics(),
       ]);
 
     res.json({
       totalRooms,
       occupiedRooms,
       todayRevenue,
-      todayCheckins,
+      todayCheckins: arrivalMetrics.todayCheckins,
+      expectedArrivals: arrivalMetrics.expectedArrivals,
+      expectedCheckouts: arrivalMetrics.expectedCheckouts,
+      totalRevenueGenerated,
+      expectedArrivalDetails: arrivalMetrics.expectedArrivalDetails,
+      expectedCheckoutDetails: arrivalMetrics.expectedCheckoutDetails,
+      todayCheckinDetails: arrivalMetrics.todayCheckinDetails,
     });
   } catch (error) {
     console.error("Error fetching dashboard metrics:", error);
