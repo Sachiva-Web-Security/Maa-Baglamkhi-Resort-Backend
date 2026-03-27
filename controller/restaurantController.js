@@ -150,7 +150,7 @@ exports.getOrder = (req, res) => {
   Restaurant.getPendingOrder(tableNumber, (err, data) => {
     if (err) return res.status(500).json(err);
 
-    res.json(data);
+    res.json(data || {});
   });
 };
 

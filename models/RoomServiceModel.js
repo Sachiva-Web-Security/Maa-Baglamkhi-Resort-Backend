@@ -1,5 +1,63 @@
 const db = require("../config/db");
 
+const runQuery = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+  });
+
+exports.ensureSchema = async () => {
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS rooms (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      room_number VARCHAR(50) NOT NULL UNIQUE,
+      status VARCHAR(60) DEFAULT 'Available',
+      guest VARCHAR(191) DEFAULT NULL,
+      check_in DATE DEFAULT NULL,
+      check_out DATE DEFAULT NULL
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS room_menu_items (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(191) NOT NULL,
+      price DECIMAL(10,2) NOT NULL DEFAULT 0,
+      category VARCHAR(100) DEFAULT 'Other'
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS room_orders (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      roomNumber VARCHAR(50) NOT NULL,
+      status VARCHAR(30) DEFAULT 'pending',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS room_order_items (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      order_id INT NOT NULL,
+      name VARCHAR(191) NOT NULL,
+      price DECIMAL(10,2) NOT NULL DEFAULT 0,
+      quantity INT NOT NULL DEFAULT 1
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS room_bills (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      roomNumber VARCHAR(50) NOT NULL,
+      subtotal DECIMAL(10,2) NOT NULL DEFAULT 0,
+      gst DECIMAL(10,2) NOT NULL DEFAULT 0,
+      total DECIMAL(10,2) NOT NULL DEFAULT 0,
+      paymentMethod VARCHAR(50) DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+};
+
 /* ================= ROOMS ================= */
 
 exports.addRoom = (data, callback) => {

@@ -10,33 +10,49 @@ const RoomTariffModel = require("../models/roomTariffModel");
 const Paymentadvance = require("../models/Paymentadvance");
 const roomInventoryModel = require("../models/hotelRoomInventoryModel");
 
-const getBookingSummaryById = (id) =>
+const query = (sql, params = []) =>
   new Promise((resolve, reject) => {
-    const sql = `
-    SELECT 
-      g.id AS bookingId,
-      g.booking_code AS bookingCode,
-      g.guest_name,
-      g.mobile,
-      g.guest_email,
-      g.check_in,
-      g.check_out,
-      g.booking_status,
-      c.company_name,
-      GROUP_CONCAT(rt.room_number ORDER BY rt.room_number) AS rooms
+    db.query(sql, params, (error, results) => {
+      if (error) return reject(error);
+      resolve(results);
+    });
+  });
+
+const getBookingSummaryById = async (id) => {
+  const rows = await query(
+    `
+      SELECT
+        g.id AS bookingId,
+        g.booking_code AS bookingCode,
+        g.guest_name,
+        g.mobile,
+        g.guest_email,
+        g.check_in,
+        g.check_out,
+        g.booking_status,
+        c.company_name,
+        GROUP_CONCAT(rt.room_number ORDER BY rt.room_number) AS rooms
       FROM guests g
       LEFT JOIN companies c ON g.id = c.booking_id
       LEFT JOIN room_tariff rt ON g.id = rt.booking_id
       WHERE g.id = ?
-      GROUP BY g.id, g.guest_name, g.mobile, g.guest_email, g.check_in, g.check_out, g.booking_status, c.company_name
+      GROUP BY
+        g.id,
+        g.booking_code,
+        g.guest_name,
+        g.mobile,
+        g.guest_email,
+        g.check_in,
+        g.check_out,
+        g.booking_status,
+        c.company_name
       LIMIT 1
-    `;
+    `,
+    [id],
+  );
 
-    db.query(sql, [id], (error, rows) => {
-      if (error) return reject(error);
-      resolve(rows[0] || null);
-    });
-  });
+  return rows[0] || null;
+};
 
 const updateRoomsForBooking = async (booking, nextStatus) => {
   const roomNumbers = String(booking?.rooms || "")
@@ -53,13 +69,11 @@ const updateRoomsForBooking = async (booking, nextStatus) => {
         checkIn: booking.check_in || null,
         checkOut: booking.check_out || null,
       });
-      await new Promise((resolve, reject) => {
-        db.query(
-          "UPDATE housekeeping SET status = ? WHERE CAST(roomNo AS CHAR) = CAST(? AS CHAR)",
-          ["Occupied Dirty", roomNumber],
-          (error) => (error ? reject(error) : resolve()),
-        );
-      });
+
+      await query(
+        "UPDATE housekeeping SET status = ? WHERE CAST(roomNo AS CHAR) = CAST(? AS CHAR)",
+        ["Occupied Dirty", roomNumber],
+      );
       continue;
     }
 
@@ -70,313 +84,258 @@ const updateRoomsForBooking = async (booking, nextStatus) => {
       checkIn: null,
       checkOut: null,
     });
-    await new Promise((resolve, reject) => {
-      db.query(
-        "UPDATE housekeeping SET status = ? WHERE CAST(roomNo AS CHAR) = CAST(? AS CHAR)",
-        ["Vacant Dirty", roomNumber],
-        (error) => (error ? reject(error) : resolve()),
-      );
-    });
+
+    await query(
+      "UPDATE housekeeping SET status = ? WHERE CAST(roomNo AS CHAR) = CAST(? AS CHAR)",
+      ["Vacant Dirty", roomNumber],
+    );
   }
 };
 
-// ================= CREATE GUEST =================
 exports.createGuest = (req, res) => {
   GuestModel.createGuest(req.body, (err, result) => {
-    if (err) return res.status(500).json({ message: "Guest creation failed" });
+    if (err) {
+      return res.status(500).json({ message: "Guest creation failed" });
+    }
 
     res.json({
       message: "Guest Created",
       bookingId: result.insertId,
-      bookingCode: result.bookingCode
+      bookingCode: result.bookingCode,
     });
   });
 };
 
-
-// ================= OTHER BOOKING =================
 exports.updateOtherBooking = (req, res) => {
   const data = { booking_id: req.params.id, ...req.body };
 
   OtherBookingModel.createOtherBooking(data, (err) => {
-    if (err) return res.status(500).json({ message: "Other booking failed" });
+    if (err) {
+      return res.status(500).json({ message: "Other booking failed" });
+    }
 
     res.json({ message: "Other Booking Saved" });
   });
 };
 
-
-// ================= REFERENCE =================
 exports.updateReference = (req, res) => {
   const data = { booking_id: req.params.id, ...req.body };
 
   ReferenceModel.createReference(data, (err) => {
-    if (err) return res.status(500).json({ message: "Reference save failed" });
+    if (err) {
+      return res.status(500).json({ message: "Reference save failed" });
+    }
 
     res.json({ message: "Reference Saved" });
   });
 };
 
-
-// ================= COMPANY =================
-// controller/bookingController.js
-
 exports.updateCompany = (req, res) => {
   const data = { booking_id: req.params.id, ...req.body };
 
-  console.log("📦 COMPANY DATA:", data); // debug
+  if (!data.companyName && !data.company_name) {
+    return res.status(400).json({
+      message: "Company name is required",
+    });
+  }
 
   CompanyModel.addCompany(data, (err, result) => {
     if (err) {
-      console.error("❌ COMPANY ERROR:", err);
+      if (process.env.NODE_ENV !== "test") {
+        console.error("Company save failed:", err);
+      }
 
       return res.status(500).json({
         message: "Company save failed",
-        error: err.message
+        error: err.message,
       });
     }
 
     res.json({
-      message: "Company Added ✅",
-      id: result.insertId
+      message: "Company Added",
+      id: result.insertId,
     });
   });
 };
 
-
-// ================= PAX =================
 exports.updatePax = (req, res) => {
   const data = { booking_id: req.params.id, ...req.body };
 
   PaxModel.addPax(data, (err) => {
-    if (err) return res.status(500).json({ message: "Pax save failed" });
+    if (err) {
+      return res.status(500).json({ message: "Pax save failed" });
+    }
 
     res.json({ message: "Pax Added" });
   });
 };
 
-
-// ================= ROOM TARIFF =================
 exports.updateTariff = (req, res) => {
   const data = { booking_id: req.params.id, ...req.body };
 
   RoomTariffModel.addTariff(data, (err) => {
-    if (err) return res.status(500).json({ message: "Tariff save failed" });
+    if (err) {
+      return res.status(500).json({ message: "Tariff save failed" });
+    }
 
     res.json({ message: "Tariff Added" });
   });
 };
 
+exports.getAllBookings = async (_req, res) => {
+  try {
+    const result = await query(`
+      SELECT
+        g.id AS bookingId,
+        g.booking_code AS bookingCode,
+        g.guest_name,
+        g.mobile,
+        g.guest_email,
+        g.check_in,
+        g.check_out,
+        g.booking_status,
+        c.company_name,
+        COALESCE(SUM(rt.total), 0) AS totalAmount,
+        IFNULL(a.amount, 0) AS paidAmount,
+        IFNULL(a.discount_amount, 0) AS discountAmount,
+        IFNULL(a.refund_amount, 0) AS refundAmount,
+        (IFNULL(a.amount, 0) - IFNULL(a.refund_amount, 0)) AS netPaid,
+        (
+          SUM(rt.total) -
+          ((IFNULL(a.amount, 0) - IFNULL(a.refund_amount, 0)) + IFNULL(a.discount_amount, 0))
+        ) AS remainingAmount,
+        GROUP_CONCAT(rt.room_number) AS rooms
+      FROM guests g
+      LEFT JOIN companies c ON g.id = c.booking_id
+      LEFT JOIN advance_payment a ON g.id = a.booking_id
+      LEFT JOIN room_tariff rt ON g.id = rt.booking_id
+      WHERE LOWER(IFNULL(g.booking_status, 'confirmed')) NOT IN ('checked out', 'cancelled')
+      GROUP BY
+        g.id,
+        g.booking_code,
+        g.guest_name,
+        g.mobile,
+        g.guest_email,
+        g.check_in,
+        g.check_out,
+        g.booking_status,
+        c.company_name,
+        a.amount,
+        a.discount_amount,
+        a.refund_amount
+      ORDER BY g.id DESC
+    `);
 
-
-// ================= ALL BOOKINGS (🔥 FINAL) =================
-exports.getAllBookings = (req, res) => {
-  const sql = `
-    SELECT 
-      g.id AS bookingId,
-      g.booking_code AS bookingCode,
-      g.guest_name,
-      g.mobile,
-      g.guest_email,
-      g.check_in,
-      g.check_out,
-      g.booking_status,
-
-      c.company_name,
-
-      COALESCE(SUM(rt.total), 0) AS totalAmount,
-
-      IFNULL(a.amount, 0) AS paidAmount,
-      IFNULL(a.discount_amount, 0) AS discountAmount,
-      IFNULL(a.refund_amount, 0) AS refundAmount,
-
-      (IFNULL(a.amount,0) - IFNULL(a.refund_amount,0)) AS netPaid,
-
-      (
-        SUM(rt.total) -
-        ((IFNULL(a.amount,0) - IFNULL(a.refund_amount,0)) + IFNULL(a.discount_amount,0))
-      ) AS remainingAmount,
-
-      GROUP_CONCAT(rt.room_number) AS rooms
-
-    FROM guests g
-    LEFT JOIN companies c ON g.id = c.booking_id
-    LEFT JOIN advance_payment a ON g.id = a.booking_id
-    LEFT JOIN room_tariff rt ON g.id = rt.booking_id
-    WHERE LOWER(IFNULL(g.booking_status, 'confirmed')) NOT IN ('checked out', 'cancelled')
-
-    GROUP BY
-      g.id,
-      g.booking_code,
-      g.guest_name,
-      g.mobile,
-      g.guest_email,
-      g.check_in,
-      g.check_out,
-      g.booking_status,
-      c.company_name,
-      a.amount,
-      a.discount_amount,
-      a.refund_amount
-    ORDER BY g.id DESC
-  `;
-
-  db.query(sql, (err, result) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json(err);
-    }
     res.json(result);
-  });
+  } catch (error) {
+    res.status(500).json(error);
+  }
 };
 
-// ================= GET SINGLE =================
-exports.getBookingById = (req, res) => {
-  db.query(
-    "SELECT * FROM guests WHERE id=?",
-    [req.params.id],
-    (err, result) => {
-      if (err) return res.status(500).json(err);
-      res.json(result[0]);
-    }
-  );
+exports.getBookingById = async (req, res) => {
+  try {
+    const result = await query("SELECT * FROM guests WHERE id = ?", [req.params.id]);
+    res.json(result[0] || null);
+  } catch (error) {
+    res.status(500).json(error);
+  }
 };
 
-
-// ================= UPDATE BASIC =================
-exports.updateBooking = (req, res) => {
+exports.updateBooking = async (req, res) => {
   const { guest_name, mobile } = req.body;
 
-  db.query(
-    "UPDATE guests SET guest_name=?, mobile=? WHERE id=?",
-    [guest_name, mobile, req.params.id],
-    (err) => {
-      if (err) return res.status(500).json(err);
-      res.json({ message: "Updated Successfully" });
-    }
-  );
-};
-
-
-// ================= FULL BOOKING GET =================
-exports.getFullBooking = (req, res) => {
-  const id = req.params.id;
-
-  const summarySql = `
-    SELECT 
-      g.id AS bookingId,
-      g.booking_code AS bookingCode,
-      g.booking_code,
-      g.guest_name,
-      g.mobile,
-      g.guest_email,
-      g.check_in,
-      g.check_out,
-      g.booking_status,
-      c.company_name,
-      IFNULL(a.amount, 0) AS paidAmount,
-      IFNULL(a.discount_amount, 0) AS discountAmount,
-      IFNULL(a.refund_amount, 0) AS refundAmount,
-      SUM(rt.total) AS totalAmount,
-      (
-        SUM(rt.total) -
-        ((IFNULL(a.amount,0) - IFNULL(a.refund_amount,0)) + IFNULL(a.discount_amount,0))
-      ) AS remainingAmount
-    FROM guests g
-    LEFT JOIN companies c ON g.id = c.booking_id
-    LEFT JOIN advance_payment a ON g.id = a.booking_id
-    LEFT JOIN room_tariff rt ON g.id = rt.booking_id
-    WHERE g.id = ?
-    GROUP BY
-      g.id,
-      g.booking_code,
-      g.guest_name,
-      g.mobile,
-      g.guest_email,
-      g.check_in,
-      g.check_out,
-      g.booking_status,
-      c.company_name,
-      a.amount,
-      a.discount_amount,
-      a.refund_amount
-    LIMIT 1
-  `;
-
-  const roomsSql = `
-    SELECT 
-      rt.room_number,
-      IFNULL(hri.id, rt.room_number) AS roomId,
-      hrc.name AS roomType,
-      rt.tariff,
-      rt.gst,
-      rt.total,
-      p.adults,
-      p.children
-    FROM room_tariff rt
-    LEFT JOIN pax p 
-      ON rt.booking_id = p.booking_id 
-      AND rt.room_number = p.room_number
-    LEFT JOIN hotel_room_inventory hri
-      ON CAST(hri.room_number AS CHAR) = CAST(rt.room_number AS CHAR)
-    LEFT JOIN hotel_room_categories hrc
-      ON hrc.id = hri.category_id
-    WHERE rt.booking_id = ?
-  `;
-
-  db.query(summarySql, [id], (err1, summaryResult) => {
-    if (err1) return res.status(500).json(err1);
-
-    db.query(roomsSql, [id], (err2, roomsResult) => {
-      if (err2) return res.status(500).json(err2);
-
-      res.json({
-        ...summaryResult[0],
-        rooms: roomsResult,
-      });
-    });
-  });
-};
-// ================= FULL BOOKING UPDATE =================
-exports.updateFullBooking = (req, res) => {
-  const id = req.params.id;
-  const { guest_name, mobile, company_name, rooms, paidAmount } = req.body;
-
-  db.query("UPDATE guests SET guest_name=?, mobile=? WHERE id=?", [
-    guest_name,
-    mobile,
-    id,
-  ]);
-
-  db.query("UPDATE companies SET company_name=? WHERE booking_id=?", [
-    company_name,
-    id,
-  ]);
-
-  db.query("UPDATE advance_payment SET amount=? WHERE booking_id=?", [
-    paidAmount,
-    id,
-  ]);
-
-  // 🔥 MULTIPLE ROOMS UPDATE
-  for (const room of rooms) {
-    db.query(
-      `UPDATE room_tariff 
-       SET tariff=?, gst=?, total=? 
-       WHERE booking_id=? AND room_number=?`,
-      [room.tariff, room.gst, room.total, id, room.room_number]
+  try {
+    await query(
+      "UPDATE guests SET guest_name = ?, mobile = ? WHERE id = ?",
+      [guest_name, mobile, req.params.id],
     );
-
-    db.query(
-      `UPDATE pax 
-       SET adults=?, children=? 
-       WHERE booking_id=? AND room_number=?`,
-      [room.adults, room.children, id, room.room_number]
-    );
+    res.json({ message: "Updated Successfully" });
+  } catch (error) {
+    res.status(500).json(error);
   }
-
-  res.json({ message: "Full Booking Updated ✅" });
 };
+
+exports.getFullBooking = async (req, res) => {
+  const id = req.params.id;
+
+  try {
+    const summaryResult = await query(
+      `
+        SELECT
+          g.id AS bookingId,
+          g.booking_code AS bookingCode,
+          g.booking_code,
+          g.guest_name,
+          g.mobile,
+          g.guest_email,
+          g.check_in,
+          g.check_out,
+          g.booking_status,
+          c.company_name,
+          IFNULL(a.amount, 0) AS paidAmount,
+          IFNULL(a.discount_amount, 0) AS discountAmount,
+          IFNULL(a.refund_amount, 0) AS refundAmount,
+          SUM(rt.total) AS totalAmount,
+          (
+            SUM(rt.total) -
+            ((IFNULL(a.amount, 0) - IFNULL(a.refund_amount, 0)) + IFNULL(a.discount_amount, 0))
+          ) AS remainingAmount
+        FROM guests g
+        LEFT JOIN companies c ON g.id = c.booking_id
+        LEFT JOIN advance_payment a ON g.id = a.booking_id
+        LEFT JOIN room_tariff rt ON g.id = rt.booking_id
+        WHERE g.id = ?
+        GROUP BY
+          g.id,
+          g.booking_code,
+          g.guest_name,
+          g.mobile,
+          g.guest_email,
+          g.check_in,
+          g.check_out,
+          g.booking_status,
+          c.company_name,
+          a.amount,
+          a.discount_amount,
+          a.refund_amount
+        LIMIT 1
+      `,
+      [id],
+    );
+
+    const roomsResult = await query(
+      `
+        SELECT
+          rt.room_number,
+          IFNULL(hri.id, rt.room_number) AS roomId,
+          hrc.name AS roomType,
+          rt.tariff,
+          rt.gst,
+          rt.total,
+          p.adults,
+          p.children
+        FROM room_tariff rt
+        LEFT JOIN pax p
+          ON rt.booking_id = p.booking_id
+         AND rt.room_number = p.room_number
+        LEFT JOIN hotel_room_inventory hri
+          ON CAST(hri.room_number AS CHAR) = CAST(rt.room_number AS CHAR)
+        LEFT JOIN hotel_room_categories hrc
+          ON hrc.id = hri.category_id
+        WHERE rt.booking_id = ?
+      `,
+      [id],
+    );
+
+    res.json({
+      ...(summaryResult[0] || {}),
+      rooms: roomsResult,
+    });
+  } catch (error) {
+    res.status(500).json(error);
+  }
+};
+
 exports.updateFullBooking = async (req, res) => {
   const id = req.params.id;
   const {
@@ -399,66 +358,50 @@ exports.updateFullBooking = async (req, res) => {
         .filter(Boolean);
 
   try {
-    await new Promise((resolve, reject) => {
-      db.query(
-        `
-          UPDATE guests
-          SET guest_name = ?,
-              mobile = ?,
-              check_in = COALESCE(?, check_in),
-              check_out = COALESCE(?, check_out),
-              arrival = COALESCE(?, arrival),
-              departure = COALESCE(?, departure)
-          WHERE id = ?
-        `,
-        [guest_name, mobile, checkIn ?? null, checkOut ?? null, arrival ?? null, departure ?? null, id],
-        (error) => (error ? reject(error) : resolve()),
-      );
-    });
+    await query(
+      `
+        UPDATE guests
+        SET guest_name = ?,
+            mobile = ?,
+            check_in = COALESCE(?, check_in),
+            check_out = COALESCE(?, check_out),
+            arrival = COALESCE(?, arrival),
+            departure = COALESCE(?, departure)
+        WHERE id = ?
+      `,
+      [guest_name, mobile, checkIn ?? null, checkOut ?? null, arrival ?? null, departure ?? null, id],
+    );
 
-    await new Promise((resolve, reject) => {
-      db.query(
-        "UPDATE companies SET company_name=? WHERE booking_id=?",
-        [company_name, id],
-        (error) => (error ? reject(error) : resolve()),
-      );
-    });
-
-    await new Promise((resolve, reject) => {
-      db.query(
-        "UPDATE advance_payment SET amount=? WHERE booking_id=?",
-        [paidAmount, id],
-        (error) => (error ? reject(error) : resolve()),
-      );
-    });
+    await query("UPDATE companies SET company_name = ? WHERE booking_id = ?", [company_name, id]);
+    await query("UPDATE advance_payment SET amount = ? WHERE booking_id = ?", [paidAmount, id]);
 
     if (roomList.length) {
       for (const room of roomList) {
-        await new Promise((resolve, reject) => {
-          db.query(
-            `UPDATE room_tariff 
-             SET tariff=?, gst=?, total=? 
-             WHERE booking_id=? AND room_number=?`,
-            [room.tariff, room.gst, room.total, id, room.room_number],
-            (error) => (error ? reject(error) : resolve()),
-          );
-        });
+        await query(
+          `
+            UPDATE room_tariff
+            SET tariff = ?, gst = ?, total = ?
+            WHERE booking_id = ? AND room_number = ?
+          `,
+          [room.tariff, room.gst, room.total, id, room.room_number],
+        );
 
-        await new Promise((resolve, reject) => {
-          db.query(
-            `UPDATE pax 
-             SET adults=?, children=? 
-             WHERE booking_id=? AND room_number=?`,
-            [room.adults, room.children, id, room.room_number],
-            (error) => (error ? reject(error) : resolve()),
-          );
-        });
+        await query(
+          `
+            UPDATE pax
+            SET adults = ?, children = ?
+            WHERE booking_id = ? AND room_number = ?
+          `,
+          [room.adults, room.children, id, room.room_number],
+        );
       }
     }
 
     const updatedBooking = await getBookingSummaryById(id);
     const roomNumbers = roomList.length
-      ? roomList.map((room) => String(room.room_number || room.roomNumber || "").trim()).filter(Boolean)
+      ? roomList
+          .map((room) => String(room.room_number || room.roomNumber || "").trim())
+          .filter(Boolean)
       : String(updatedBooking?.rooms || "")
           .split(",")
           .map((item) => item.trim())
@@ -485,73 +428,48 @@ exports.updateFullBooking = async (req, res) => {
 
     res.json({ message: "Full Booking Updated" });
   } catch (error) {
-    console.error(error);
+    if (process.env.NODE_ENV !== "test") {
+      console.error(error);
+    }
     res.status(500).json({ message: "Full booking update failed", error: error.message });
   }
 };
 
-// ================= DELETE =================
-exports.deleteBooking = (req, res) => {
+exports.deleteBooking = async (req, res) => {
   const id = req.params.id;
 
-  db.query("DELETE FROM guests WHERE id=?", [id]);
-  db.query("DELETE FROM companies WHERE booking_id=?", [id]);
-  db.query("DELETE FROM pax WHERE booking_id=?", [id]);
-  db.query("DELETE FROM room_tariff WHERE booking_id=?", [id]);
-  db.query("DELETE FROM advance_payment WHERE booking_id=?", [id]);
+  try {
+    await query("DELETE FROM guests WHERE id = ?", [id]);
+    await query("DELETE FROM companies WHERE booking_id = ?", [id]);
+    await query("DELETE FROM pax WHERE booking_id = ?", [id]);
+    await query("DELETE FROM room_tariff WHERE booking_id = ?", [id]);
+    await query("DELETE FROM advance_payment WHERE booking_id = ?", [id]);
 
-  res.json({ message: "Booking Deleted" });
+    res.json({ message: "Booking Deleted" });
+  } catch (error) {
+    res.status(500).json(error);
+  }
 };
 
-// ================= REFUND =================
-exports.refundBooking = (req, res) => {
+exports.refundBooking = async (req, res) => {
   const id = req.params.id;
   const { amount } = req.body;
 
-  db.query(
-    `
-    UPDATE advance_payment 
-    SET refund_amount = IFNULL(refund_amount,0) + ?
-   WHERE booking_id=? 
-    `,
-    [amount, id],
-    (err) => {
-      if (err) return res.status(500).json(err);
+  try {
+    await query(
+      `
+        UPDATE advance_payment
+        SET refund_amount = IFNULL(refund_amount, 0) + ?
+        WHERE booking_id = ?
+      `,
+      [amount, id],
+    );
 
-      res.json({ message: "Refund Done" });
-    }
-  );
+    res.json({ message: "Refund Done" });
+  } catch (error) {
+    res.status(500).json(error);
+  }
 };
-
-
-
-
-
-exports.updateAdvance = (req, res) => {
-  const data = { booking_id: req.params.id, ...req.body };
-
-  // 1️⃣ Save payment history
-  Paymentadvance.addPayment(data, (err) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ message: "Payment history failed" });
-    }
-
-    // 2️⃣ Update advance total
-    AdvanceModel.addAdvance(data, (err) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ message: "Advance save failed" });
-      }
-
-      res.json({
-        message: "Payment Added + History Saved ✅"
-      });
-    });
-  });
-};
-
-
 
 exports.updateAdvance = (req, res) => {
   const data = { booking_id: req.params.id, ...req.body };
@@ -560,7 +478,9 @@ exports.updateAdvance = (req, res) => {
     .then(() => {
       Paymentadvance.addPayment(data, (paymentError) => {
         if (paymentError) {
-          console.error(paymentError);
+          if (process.env.NODE_ENV !== "test") {
+            console.error(paymentError);
+          }
           return res.status(500).json({
             message: "Payment history failed",
             error: paymentError.message,
@@ -569,7 +489,9 @@ exports.updateAdvance = (req, res) => {
 
         AdvanceModel.addAdvance(data, (advanceError) => {
           if (advanceError) {
-            console.error(advanceError);
+            if (process.env.NODE_ENV !== "test") {
+              console.error(advanceError);
+            }
             return res.status(500).json({
               message: "Advance save failed",
               error: advanceError.message,
@@ -583,7 +505,9 @@ exports.updateAdvance = (req, res) => {
       });
     })
     .catch((schemaError) => {
-      console.error(schemaError);
+      if (process.env.NODE_ENV !== "test") {
+        console.error(schemaError);
+      }
       return res.status(500).json({
         message: "Payment schema init failed",
         error: schemaError.message,
@@ -598,19 +522,14 @@ exports.checkInBooking = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    await new Promise((resolve, reject) => {
-      db.query(
-        "UPDATE guests SET booking_status = ? WHERE id = ?",
-        ["Checked In", req.params.id],
-        (error) => (error ? reject(error) : resolve()),
-      );
-    });
-
+    await query("UPDATE guests SET booking_status = ? WHERE id = ?", ["Checked In", req.params.id]);
     await updateRoomsForBooking(booking, "Checked In");
 
     res.json({ message: "Booking checked in successfully" });
   } catch (error) {
-    console.error(error);
+    if (process.env.NODE_ENV !== "test") {
+      console.error(error);
+    }
     res.status(500).json({ message: "Check-in failed" });
   }
 };
@@ -622,19 +541,14 @@ exports.checkOutBooking = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    await new Promise((resolve, reject) => {
-      db.query(
-        "UPDATE guests SET booking_status = ? WHERE id = ?",
-        ["Checked Out", req.params.id],
-        (error) => (error ? reject(error) : resolve()),
-      );
-    });
-
+    await query("UPDATE guests SET booking_status = ? WHERE id = ?", ["Checked Out", req.params.id]);
     await updateRoomsForBooking(booking, "Checked Out");
 
     res.json({ message: "Booking checked out successfully" });
   } catch (error) {
-    console.error(error);
+    if (process.env.NODE_ENV !== "test") {
+      console.error(error);
+    }
     res.status(500).json({ message: "Check-out failed" });
   }
 };
@@ -656,13 +570,10 @@ exports.cancelBooking = async (req, res) => {
       return res.status(400).json({ message: "Checked-in booking cannot be cancelled from this flow" });
     }
 
-    await new Promise((resolve, reject) => {
-      db.query(
-        "UPDATE guests SET booking_status = ?, cancel_reason = ? WHERE id = ?",
-        ["Cancelled", cancelReason, req.params.id],
-        (error) => (error ? reject(error) : resolve()),
-      );
-    });
+    await query(
+      "UPDATE guests SET booking_status = ?, cancel_reason = ? WHERE id = ?",
+      ["Cancelled", cancelReason, req.params.id],
+    );
 
     const roomNumbers = String(booking?.rooms || "")
       .split(",")
@@ -679,123 +590,115 @@ exports.cancelBooking = async (req, res) => {
           checkOut: null,
         });
 
-        await new Promise((resolve, reject) => {
-          db.query(
-            "UPDATE housekeeping SET status = ? WHERE CAST(roomNo AS CHAR) = CAST(? AS CHAR)",
-            ["Vacant Clean", roomNumber],
-            (error) => (error ? reject(error) : resolve()),
-          );
-        });
+        await query(
+          "UPDATE housekeeping SET status = ? WHERE CAST(roomNo AS CHAR) = CAST(? AS CHAR)",
+          ["Vacant Clean", roomNumber],
+        );
       }),
     );
 
     res.json({ message: "Booking cancelled successfully" });
   } catch (error) {
-    console.error(error);
+    if (process.env.NODE_ENV !== "test") {
+      console.error(error);
+    }
     res.status(500).json({ message: "Booking cancellation failed" });
   }
 };
 
-exports.getBookingHistory = (req, res) => {
-  const sql = `
-    SELECT 
-      g.id AS bookingId,
-      g.booking_code AS bookingCode,
-      g.guest_name,
-      g.mobile,
-      g.guest_email,
-      g.check_in,
-      g.check_out,
-      g.booking_status,
-      c.company_name,
-      COALESCE(SUM(rt.total), 0) AS totalAmount,
-      IFNULL(a.amount, 0) AS paidAmount,
-      IFNULL(a.discount_amount, 0) AS discountAmount,
-      IFNULL(a.refund_amount, 0) AS refundAmount,
-      (
-        SUM(rt.total) -
-        ((IFNULL(a.amount,0) - IFNULL(a.refund_amount,0)) + IFNULL(a.discount_amount,0))
-      ) AS remainingAmount,
-      GROUP_CONCAT(rt.room_number) AS rooms,
-      GROUP_CONCAT(
-        DISTINCT CONCAT(
-          rt.room_number,
-          ' | ID ',
-          IFNULL(hri.id, '-'),
-          ' | ',
-          IFNULL(hrc.name, 'Room')
-        )
-        ORDER BY rt.room_number SEPARATOR ' || '
-      ) AS roomDetails
-    FROM guests g
-    LEFT JOIN companies c ON g.id = c.booking_id
-    LEFT JOIN advance_payment a ON g.id = a.booking_id
-    LEFT JOIN room_tariff rt ON g.id = rt.booking_id
-    LEFT JOIN hotel_room_inventory hri ON CAST(hri.room_number AS CHAR) = CAST(rt.room_number AS CHAR)
-    LEFT JOIN hotel_room_categories hrc ON hrc.id = hri.category_id
-    WHERE LOWER(IFNULL(g.booking_status, '')) = 'checked out'
-    GROUP BY
-      g.id,
-      g.booking_code,
-      g.guest_name,
-      g.mobile,
-      g.guest_email,
-      g.check_in,
-      g.check_out,
-      g.booking_status,
-      c.company_name,
-      a.amount,
-      a.discount_amount,
-      a.refund_amount
-    ORDER BY g.id DESC
-  `;
+exports.getBookingHistory = async (_req, res) => {
+  try {
+    const result = await query(`
+      SELECT
+        g.id AS bookingId,
+        g.booking_code AS bookingCode,
+        g.guest_name,
+        g.mobile,
+        g.guest_email,
+        g.check_in,
+        g.check_out,
+        g.booking_status,
+        c.company_name,
+        COALESCE(SUM(rt.total), 0) AS totalAmount,
+        IFNULL(a.amount, 0) AS paidAmount,
+        IFNULL(a.discount_amount, 0) AS discountAmount,
+        IFNULL(a.refund_amount, 0) AS refundAmount,
+        (
+          SUM(rt.total) -
+          ((IFNULL(a.amount, 0) - IFNULL(a.refund_amount, 0)) + IFNULL(a.discount_amount, 0))
+        ) AS remainingAmount,
+        GROUP_CONCAT(rt.room_number) AS rooms,
+        GROUP_CONCAT(
+          DISTINCT CONCAT(
+            rt.room_number,
+            ' | ID ',
+            IFNULL(hri.id, '-'),
+            ' | ',
+            IFNULL(hrc.name, 'Room')
+          )
+          ORDER BY rt.room_number SEPARATOR ' || '
+        ) AS roomDetails
+      FROM guests g
+      LEFT JOIN companies c ON g.id = c.booking_id
+      LEFT JOIN advance_payment a ON g.id = a.booking_id
+      LEFT JOIN room_tariff rt ON g.id = rt.booking_id
+      LEFT JOIN hotel_room_inventory hri ON CAST(hri.room_number AS CHAR) = CAST(rt.room_number AS CHAR)
+      LEFT JOIN hotel_room_categories hrc ON hrc.id = hri.category_id
+      WHERE LOWER(IFNULL(g.booking_status, '')) = 'checked out'
+      GROUP BY
+        g.id,
+        g.booking_code,
+        g.guest_name,
+        g.mobile,
+        g.guest_email,
+        g.check_in,
+        g.check_out,
+        g.booking_status,
+        c.company_name,
+        a.amount,
+        a.discount_amount,
+        a.refund_amount
+      ORDER BY g.id DESC
+    `);
 
-  db.query(sql, (err, result) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json(err);
-    }
     res.json(result);
-  });
+  } catch (error) {
+    res.status(500).json(error);
+  }
 };
 
-// ================= PAYMENT HISTORY =================
-exports.getPaymentHistory = (req, res) => {
+exports.getPaymentHistory = async (req, res) => {
   const bookingId = req.params.id;
 
-  const sql = `
-    SELECT 
-      ph.id,
-      ph.amount,
-      IFNULL(ph.discount_amount, 0) AS discount_amount,
-      ph.payment_mode,
-      ph.created_at,
+  try {
+    const result = await query(
+      `
+        SELECT
+          ph.id,
+          ph.amount,
+          IFNULL(ph.discount_amount, 0) AS discount_amount,
+          ph.payment_mode,
+          ph.created_at,
+          g.guest_name,
+          GROUP_CONCAT(DISTINCT rt.room_number ORDER BY rt.room_number) AS rooms
+        FROM payment_history ph
+        LEFT JOIN guests g ON ph.booking_id = g.id
+        LEFT JOIN room_tariff rt ON ph.booking_id = rt.booking_id
+        WHERE ph.booking_id = ?
+        GROUP BY
+          ph.id,
+          ph.amount,
+          ph.discount_amount,
+          ph.payment_mode,
+          ph.created_at,
+          g.guest_name
+        ORDER BY ph.id DESC
+      `,
+      [bookingId],
+    );
 
-      g.guest_name,
-
-      GROUP_CONCAT(DISTINCT rt.room_number ORDER BY rt.room_number) AS rooms
-
-    FROM payment_history ph
-
-    LEFT JOIN guests g 
-      ON ph.booking_id = g.id
-
-    LEFT JOIN room_tariff rt 
-      ON ph.booking_id = rt.booking_id
-
-    WHERE ph.booking_id = ?
-
-    GROUP BY 
-      ph.id, ph.amount, ph.discount_amount, ph.payment_mode, ph.created_at, g.guest_name
-
-    ORDER BY ph.id DESC
-  `;
-
-  db.query(sql, [bookingId], (err, result) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json(err);
-    }
     res.json(result);
-  });
+  } catch (error) {
+    res.status(500).json(error);
+  }
 };

@@ -52,40 +52,12 @@ exports.avatarUpload = multer({
 // ================= CREATE USER =================
 
 exports.createUser = async (req, res) => {
-  const { name, email, password, role } = req.body;
+  const { name, email, password, role } = req.body || {};
 
-  try {
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    UserModel.createUser(
-      { name, email, password: hashedPassword, role },
-      (err, result) => {
-        if (err) {
-          console.error("Error creating user:", err);
-          return res
-            .status(500)
-            .json({ message: "User creation failed", error: err.message });
-        }
-
-        res.json({
-          message: "User created successfully",
-          user: {
-            id: result?.insertId,
-            name,
-            email,
-            role,
-          },
-        });
-      }
-    );
-  } catch (err) {
-    console.error("Error hashing password:", err);
-    return res
-      .status(500)
-      .json({ message: "Internal server error", error: err.message });
+  if (!name || !email || !password || !role) {
+    return res.status(400).json({ message: "name, email, password and role required" });
   }
 
-  // 🔴 Duplicate email check
   UserModel.findUserByEmail(email, async (err, existing) => {
     if (err) {
       return res.status(500).json({ message: "DB Error" });
@@ -105,11 +77,11 @@ exports.createUser = async (req, res) => {
           name,
           email,
           password: hashedPassword,
-          role: role.toLowerCase(), // ✅ FIX
+          role: String(role).toLowerCase(),
         },
-        (err) => {
-          if (err) {
-            console.error("Create error:", err);
+        (createErr, result) => {
+          if (createErr) {
+            console.error("Create error:", createErr);
             return res.status(500).json({
               message: "User creation failed",
             });
@@ -117,11 +89,17 @@ exports.createUser = async (req, res) => {
 
           return res.json({
             message: "User created successfully",
+            user: {
+              id: result?.insertId,
+              name,
+              email,
+              role: String(role).toLowerCase(),
+            },
           });
         }
       );
-    } catch (err) {
-      console.error("Hash error:", err);
+    } catch (hashErr) {
+      console.error("Hash error:", hashErr);
       return res.status(500).json({
         message: "Internal server error",
       });

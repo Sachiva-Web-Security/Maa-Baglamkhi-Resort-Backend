@@ -8,9 +8,46 @@ const runQuery = (sql, params = []) =>
     });
   });
 
-// =========================
-// HALLS
-// =========================
+const ensureSchema = async () => {
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS banquet_halls (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(191) NOT NULL,
+      capacity INT NOT NULL DEFAULT 0,
+      rate_per_hour DECIMAL(10,2) NOT NULL DEFAULT 0,
+      is_ac TINYINT(1) NOT NULL DEFAULT 0,
+      image VARCHAR(255) DEFAULT NULL,
+      status VARCHAR(50) DEFAULT 'Available'
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS banquet_bookings (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      hall_id INT NOT NULL,
+      customer_name VARCHAR(191) NOT NULL,
+      phone VARCHAR(50) DEFAULT '',
+      guest_email VARCHAR(191) DEFAULT '',
+      event_title VARCHAR(191) DEFAULT '',
+      event_type VARCHAR(100) NOT NULL,
+      guests INT NOT NULL DEFAULT 0,
+      menu_package_id VARCHAR(100) DEFAULT 'standard',
+      meal_section VARCHAR(100) DEFAULT '',
+      custom_menu_items TEXT DEFAULT NULL,
+      lighting_system VARCHAR(100) DEFAULT 'classic',
+      decoration_fee DECIMAL(10,2) NOT NULL DEFAULT 0,
+      notes TEXT DEFAULT NULL,
+      date DATE NOT NULL,
+      start_time TIME NOT NULL,
+      end_time TIME NOT NULL,
+      discount DECIMAL(10,2) NOT NULL DEFAULT 0,
+      gst_percent DECIMAL(10,2) NOT NULL DEFAULT 5,
+      invoice_no VARCHAR(100) DEFAULT NULL,
+      status VARCHAR(50) DEFAULT 'Confirmed',
+      advance DECIMAL(10,2) NOT NULL DEFAULT 0
+    )
+  `);
+};
 
 const getAllHalls = async () => {
   const rows = await runQuery(`
@@ -18,7 +55,7 @@ const getAllHalls = async () => {
       id,
       name,
       capacity,
-      ratePerHour,
+      rate_per_hour AS ratePerHour,
       is_ac,
       image,
       status
@@ -35,33 +72,18 @@ const createHall = async ({ name, capacity, ratePerHour, is_ac, image }) => {
     INSERT INTO banquet_halls (
       name,
       capacity,
-      ratePerHour,
+      rate_per_hour,
       is_ac,
       image,
       status
     ) VALUES (?, ?, ?, ?, ?, ?)
     `,
-    [
-      name,
-      Number(capacity),
-      Number(ratePerHour),
-      is_ac ? 1 : 0,
-      image || null,
-      "Available",
-    ]
+    [name, Number(capacity), Number(ratePerHour), is_ac ? 1 : 0, image || null, "Available"],
   );
 
-  const rows = await runQuery(
-    `SELECT * FROM banquet_halls WHERE id = ?`,
-    [result.insertId]
-  );
-
+  const rows = await runQuery("SELECT * FROM banquet_halls WHERE id = ?", [result.insertId]);
   return rows[0];
 };
-
-// =========================
-// BOOKINGS
-// =========================
 
 const getAllBookings = async () => {
   const rows = await runQuery(`
@@ -97,12 +119,7 @@ const getAllBookings = async () => {
   return rows;
 };
 
-const checkHallBookingConflict = async ({
-  hallId,
-  date,
-  startTime,
-  endTime,
-}) => {
+const checkHallBookingConflict = async ({ hallId, date, startTime, endTime }) => {
   const rows = await runQuery(
     `
     SELECT id
@@ -112,7 +129,7 @@ const checkHallBookingConflict = async ({
       AND status IN ('Confirmed', 'Completed', 'Billed')
       AND (start_time < ? AND end_time > ?)
     `,
-    [hallId, date, endTime, startTime]
+    [hallId, date, endTime, startTime],
   );
 
   return rows;
@@ -167,35 +184,27 @@ const createBooking = async (data) => {
       data.invoiceNo || "",
       "Confirmed",
       Number(data.advance || 0),
-    ]
+    ],
   );
 
   return result.insertId;
 };
 
 const updateBookingStatus = async (id, status) => {
-  const result = await runQuery(
-    `UPDATE banquet_bookings SET status = ? WHERE id = ?`,
-    [status, id]
-  );
-
+  const result = await runQuery("UPDATE banquet_bookings SET status = ? WHERE id = ?", [status, id]);
   return result;
 };
 
 const updateBookingBill = async (id, invoiceNo) => {
   const result = await runQuery(
-    `
-    UPDATE banquet_bookings
-    SET invoice_no = ?, status = 'Billed'
-    WHERE id = ?
-    `,
-    [invoiceNo, id]
+    "UPDATE banquet_bookings SET invoice_no = ?, status = 'Billed' WHERE id = ?",
+    [invoiceNo, id],
   );
-
   return result;
 };
 
 module.exports = {
+  ensureSchema,
   getAllHalls,
   createHall,
   getAllBookings,

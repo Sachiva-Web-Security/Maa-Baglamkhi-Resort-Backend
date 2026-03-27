@@ -1,17 +1,35 @@
-// models/roomTariffModel.js
-
 const db = require("../config/db");
 
-const addTariff = (data, callback) => {
+const runQuery = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+  });
 
+const ensureSchema = async () => {
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS room_tariff (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      booking_id INT NOT NULL,
+      room_number VARCHAR(50) NOT NULL,
+      date DATE DEFAULT NULL,
+      quantity INT NOT NULL DEFAULT 1,
+      category_name VARCHAR(120) DEFAULT 'Room Charge',
+      tariff DECIMAL(10,2) NOT NULL DEFAULT 0,
+      gst DECIMAL(10,2) NOT NULL DEFAULT 0,
+      total DECIMAL(10,2) NOT NULL DEFAULT 0
+    )
+  `);
+};
+
+const addTariff = (data, callback) => {
   if (!data.roomNumber) {
     return callback(new Error("Room number required"));
   }
 
   const sql = `
-  INSERT INTO room_tariff
-  (booking_id, room_number, date, quantity, tariff, gst, total)
-  VALUES (?,?,?,?,?,?,?)
+    INSERT INTO room_tariff
+    (booking_id, room_number, date, quantity, tariff, gst, total)
+    VALUES (?,?,?,?,?,?,?)
   `;
 
   db.query(
@@ -25,16 +43,11 @@ const addTariff = (data, callback) => {
       data.gstPercent,
       data.total,
     ],
-    (err, result) => {
-      if (err) {
-        console.error("❌ DB ERROR (TARIFF):", err);
-        return callback(err);
-      }
-      callback(null, result);
-    }
+    callback,
   );
 };
 
 module.exports = {
+  ensureSchema,
   addTariff,
 };

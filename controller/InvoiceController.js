@@ -26,7 +26,7 @@ exports.getInvoiceByBookingId = (req, res) => {
     if (err) {
       return res.status(500).json({ error: "Failed to fetch invoice", details: err.message || err });
     }
-    res.json(result || null);
+    res.json(result || {});
   });
 };
 

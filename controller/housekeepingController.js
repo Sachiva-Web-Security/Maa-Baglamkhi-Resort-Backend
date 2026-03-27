@@ -4,6 +4,11 @@ const {
   ensureSchema: ensureCompletedCleaningLogSchema,
 } = require("../models/CompletedCleaningLogModel");
 
+const query = (sql, params = []) =>
+  new Promise((resolve, reject) =>
+    db.query(sql, params, (err, results) => (err ? reject(err) : resolve(results)))
+  );
+
 exports.getAllRooms = (req, res) => {
   Housekeeping.getAllRooms((err, results) => {
     if (err) {
@@ -148,90 +153,7 @@ exports.deleteRoom = (req, res) => {
     res.json(result);
   });
 };
-// =============================================
-// HELPERS
-// =============================================
-const query = (sql, params = []) =>
-  new Promise((resolve, reject) =>
-    db.query(sql, params, (err, results) => (err ? reject(err) : resolve(results)))
-  );
 
-// =============================================
-// EXISTING — GET ALL ROOMS
-// =============================================
-exports.getAllRooms = async (req, res) => {
-  try {
-    Housekeeping.getAllRooms((err, results) => {
-      if (err) {
-        return res.status(500).json({ message: "Database error", error: err });
-      }
-      return res.json(results);
-    });
-  } catch (err) {
-    res.status(500).json({ message: "Database error", error: err });
-  }
-};
-
-// =============================================
-// EXISTING — CREATE ROOM
-// =============================================
-exports.createRoom = async (req, res) => {
-  const { roomNumber, status, assignee } = req.body;
-  try {
-    const result = await query(
-      "INSERT INTO housekeeping (roomNo, status, assignee) VALUES (?, ?, ?)",
-      [roomNumber, status || "Vacant Dirty", assignee || "No Housekeeper"]
-    );
-    res.json({ message: "Room created", id: result.insertId });
-  } catch (err) {
-    res.status(500).json({ message: "Insert failed", error: err });
-  }
-};
-
-// =============================================
-// EXISTING — UPDATE STATUS
-// =============================================
-exports.updateStatus = async (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
-  try {
-    await query("UPDATE housekeeping SET status = ? WHERE id = ? OR CAST(roomNo AS CHAR) = CAST(? AS CHAR)", [status, id, id]);
-    res.json({ message: "Status updated" });
-  } catch (err) {
-    res.status(500).json({ message: "Update failed", error: err });
-  }
-};
-
-// =============================================
-// EXISTING — UPDATE ASSIGNEE
-// =============================================
-exports.updateAssignee = async (req, res) => {
-  const { id } = req.params;
-  const { assignee } = req.body;
-  try {
-    await query("UPDATE housekeeping SET assignee = ? WHERE id = ? OR CAST(roomNo AS CHAR) = CAST(? AS CHAR)", [assignee, id, id]);
-    res.json({ message: "Assignee updated" });
-  } catch (err) {
-    res.status(500).json({ message: "Update failed", error: err });
-  }
-};
-
-// =============================================
-// EXISTING — DELETE ROOM
-// =============================================
-exports.deleteRoom = async (req, res) => {
-  const { id } = req.params;
-  try {
-    await query("DELETE FROM housekeeping WHERE id = ?", [id]);
-    res.json({ message: "Room deleted" });
-  } catch (err) {
-    res.status(500).json({ message: "Delete failed", error: err });
-  }
-};
-
-// =============================================
-// PARAMETERS
-// =============================================
 exports.getParameters = async (req, res) => {
   try {
     const rows = await query("SELECT * FROM hk_parameters LIMIT 1");
@@ -263,7 +185,7 @@ exports.saveParameters = async (req, res) => {
           auto_release_enabled = ?, inspection_required = ?, default_assignee = ?
           WHERE id = ?`,
         [cleaningTimeMinutes, maxRoomsPerHousekeeper, shiftStartTime, shiftEndTime,
-         autoReleaseEnabled ? 1 : 0, inspectionRequired ? 1 : 0, defaultAssignee || "No Housekeeper", existing[0].id]
+          autoReleaseEnabled ? 1 : 0, inspectionRequired ? 1 : 0, defaultAssignee || "No Housekeeper", existing[0].id]
       );
     } else {
       await query(
@@ -271,7 +193,7 @@ exports.saveParameters = async (req, res) => {
           (cleaning_time_minutes, max_rooms_per_housekeeper, shift_start_time, shift_end_time, auto_release_enabled, inspection_required, default_assignee)
           VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [cleaningTimeMinutes, maxRoomsPerHousekeeper, shiftStartTime, shiftEndTime,
-         autoReleaseEnabled ? 1 : 0, inspectionRequired ? 1 : 0, defaultAssignee || "No Housekeeper"]
+          autoReleaseEnabled ? 1 : 0, inspectionRequired ? 1 : 0, defaultAssignee || "No Housekeeper"]
       );
     }
     res.json({ message: "Parameters saved" });
@@ -280,9 +202,6 @@ exports.saveParameters = async (req, res) => {
   }
 };
 
-// =============================================
-// MESSAGE TO RECEPTION
-// =============================================
 exports.sendMessage = async (req, res) => {
   const { roomId, roomNo, message } = req.body;
   try {
@@ -296,15 +215,12 @@ exports.sendMessage = async (req, res) => {
   }
 };
 
-// =============================================
-// AMENITIES CONSUMPTION
-// =============================================
 exports.getAmenities = async (req, res) => {
   const { roomId, date } = req.query;
   let sql = "SELECT * FROM hk_amenities_consumption WHERE 1=1";
   const params = [];
   if (roomId) { sql += " AND room_id = ?"; params.push(roomId); }
-  if (date)   { sql += " AND DATE(created_at) = ?"; params.push(date); }
+  if (date) { sql += " AND DATE(created_at) = ?"; params.push(date); }
   sql += " ORDER BY created_at DESC";
   try {
     const results = await query(sql, params);
@@ -339,9 +255,6 @@ exports.deleteAmenity = async (req, res) => {
   }
 };
 
-// =============================================
-// INSPECTION CHECKLIST
-// =============================================
 exports.getInspections = async (req, res) => {
   const { roomId } = req.query;
   let sql = "SELECT * FROM hk_inspections WHERE 1=1";
@@ -365,7 +278,6 @@ exports.createInspection = async (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [roomId, roomNo, inspectorName, priority || "Normal", JSON.stringify(checklist || {}), score || 0, notes || null]
     );
-    // If score >= 90, auto-update room status to Vacant Clean Inspected
     if (score >= 90) {
       await query("UPDATE housekeeping SET status = 'Vacant Clean Inspected' WHERE id = ?", [roomId]);
     }
@@ -380,16 +292,13 @@ exports.getInspectionById = async (req, res) => {
     const rows = await query("SELECT * FROM hk_inspections WHERE id = ?", [req.params.id]);
     if (!rows.length) return res.status(404).json({ message: "Not found" });
     const row = rows[0];
-    try { row.checklist_json = JSON.parse(row.checklist_json); } catch { /* leave as string */ }
+    try { row.checklist_json = JSON.parse(row.checklist_json); } catch {}
     res.json(row);
   } catch (err) {
     res.status(500).json({ message: "Database error", error: err });
   }
 };
 
-// =============================================
-// LOST & FOUND
-// =============================================
 exports.getLostFound = async (req, res) => {
   try {
     const results = await query("SELECT * FROM hk_lost_found ORDER BY created_at DESC");
@@ -437,9 +346,6 @@ exports.deleteLostFound = async (req, res) => {
   }
 };
 
-// =============================================
-// SHIFT / DUTY ROSTER
-// =============================================
 exports.getRoster = async (req, res) => {
   const { weekStart } = req.query;
   try {
@@ -483,9 +389,6 @@ exports.saveRoster = async (req, res) => {
   }
 };
 
-// =============================================
-// ROOM COSTING
-// =============================================
 exports.getCostingLogs = async (req, res) => {
   try {
     const results = await query("SELECT * FROM hk_room_costing ORDER BY created_at DESC");
@@ -515,14 +418,10 @@ exports.logCost = async (req, res) => {
   }
 };
 
-// =============================================
-// CHECKOUT REPORT
-// =============================================
 exports.getCheckoutReport = async (req, res) => {
   const { date } = req.query;
   const targetDate = date || new Date().toISOString().slice(0, 10);
   try {
-    // Join bookings with rooms and housekeeping to get checkout rooms needing cleaning
     const results = await query(
       `SELECT
         b.id AS booking_id,
@@ -545,7 +444,6 @@ exports.getCheckoutReport = async (req, res) => {
     );
     res.json(results);
   } catch (err) {
-    // Fallback to a simpler query if schema differs
     try {
       const simple = await query(
         `SELECT
@@ -570,9 +468,6 @@ exports.getCheckoutReport = async (req, res) => {
   }
 };
 
-// =============================================
-// COMPLETED CLEANING LOGS
-// =============================================
 exports.getCompletedCleaningLogs = async (req, res) => {
   const { date } = req.query;
   try {
