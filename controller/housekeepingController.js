@@ -4,7 +4,6 @@ const {
   ensureSchema: ensureCompletedCleaningLogSchema,
 } = require("../models/CompletedCleaningLogModel");
 
-<<<<<<< HEAD
 exports.getAllRooms = (req, res) => {
   Housekeeping.getAllRooms((err, results) => {
     if (err) {
@@ -148,7 +147,7 @@ exports.deleteRoom = (req, res) => {
 
     res.json(result);
   });
-=======
+};
 // =============================================
 // HELPERS
 // =============================================
@@ -569,7 +568,6 @@ exports.getCheckoutReport = async (req, res) => {
       res.status(500).json({ message: "Database error", error: err2 });
     }
   }
->>>>>>> 4fd4af981eb89736483687240e61d9e6ff186a93
 };
 
 // =============================================

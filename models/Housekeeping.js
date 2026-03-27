@@ -13,6 +13,11 @@ const tableExists = async (tableName) => {
   return Array.isArray(rows) && rows.length > 0;
 };
 
+const columnExists = async (tableName, columnName) => {
+  const rows = await runQuery(`SHOW COLUMNS FROM ${tableName} LIKE ?`, [columnName]);
+  return Array.isArray(rows) && rows.length > 0;
+};
+
 const mapHousekeepingToHotelStatus = (status) => {
   const s = String(status || "").toLowerCase();
 
@@ -107,26 +112,57 @@ const Housekeeping = {
     try {
       const hasRooms = await tableExists("rooms");
       const hasAssignments = await tableExists("assignments");
+      const hasInventory = await tableExists("hotel_room_inventory");
+      const hasHousekeepingPriority = await columnExists("housekeeping", "priority");
+      const hasHousekeepingNotes = await columnExists("housekeeping", "notes");
+      const hasHousekeepingCleaningStart = await columnExists("housekeeping", "cleaningStart");
+      const hasHousekeepingCleaningEnd = await columnExists("housekeeping", "cleaningEnd");
 
       if (!hasRooms) {
         return callback(null, []);
       }
 
+      const roomNumberColumn = (await columnExists("rooms", "room_number"))
+        ? "room_number"
+        : (await columnExists("rooms", "number"))
+          ? "number"
+          : null;
+      const roomStatusColumn = (await columnExists("rooms", "status")) ? "status" : null;
+
+      if (!roomNumberColumn) {
+        return callback(null, []);
+      }
+
+      const roomsRoomNoExpr = `CAST(r.${roomNumberColumn} AS CHAR)`;
+      const roomStatusExpr = roomStatusColumn ? `COALESCE(r.${roomStatusColumn}, 'available')` : "'available'";
+      const housekeepingPriorityExpr = hasHousekeepingPriority
+        ? "COALESCE(NULLIF(hk.priority, ''), 'Normal')"
+        : "'Normal'";
+      const housekeepingNotesExpr = hasHousekeepingNotes
+        ? "COALESCE(hk.notes, '')"
+        : "''";
+      const housekeepingCleaningStartExpr = hasHousekeepingCleaningStart
+        ? "hk.cleaningStart"
+        : "NULL";
+      const housekeepingCleaningEndExpr = hasHousekeepingCleaningEnd
+        ? "hk.cleaningEnd"
+        : "NULL";
+
       // sync rooms table -> housekeeping
       await runQuery(`
         INSERT INTO housekeeping (roomNo, status, assignee)
         SELECT
-          CAST(r.room_number AS CHAR),
+          ${roomsRoomNoExpr},
           CASE
-            WHEN LOWER(COALESCE(r.status, 'available')) = 'occupied' THEN 'Occupied Dirty'
-            WHEN LOWER(COALESCE(r.status, 'available')) = 'cleaning' THEN 'Cleaning In Progress'
-            WHEN LOWER(COALESCE(r.status, 'available')) = 'out of service' THEN 'Out of Service'
+            WHEN LOWER(${roomStatusExpr}) = 'occupied' THEN 'Occupied Dirty'
+            WHEN LOWER(${roomStatusExpr}) = 'cleaning' THEN 'Cleaning In Progress'
+            WHEN LOWER(${roomStatusExpr}) = 'out of service' THEN 'Out of Service'
             ELSE 'Vacant Clean'
           END,
           'No Housekeeper'
         FROM rooms r
         LEFT JOIN housekeeping hk
-          ON CAST(hk.roomNo AS CHAR) = CAST(r.room_number AS CHAR)
+          ON CAST(hk.roomNo AS CHAR) = ${roomsRoomNoExpr}
         WHERE hk.id IS NULL
       `);
 
@@ -143,35 +179,96 @@ const Housekeeping = {
             ) latest
               ON latest.room_number = a1.room_number
              AND latest.max_id = a1.id
-          ) a ON CAST(a.room_number AS CHAR) = CAST(r.room_number AS CHAR)
+          ) a ON CAST(a.room_number AS CHAR) = base.roomNo
         `;
       }
 
-            const housekeepingJoin = hasHousekeeping
-              ? `LEFT JOIN (
-                  SELECT hk1.*
-                  FROM housekeeping hk1
-                  INNER JOIN (
-                    SELECT CAST(roomNo AS CHAR) AS roomNo, MAX(id) AS max_id
-                    FROM housekeeping
-                    GROUP BY CAST(roomNo AS CHAR)
-                  ) latest_hk
-                    ON latest_hk.max_id = hk1.id
-                ) hk ON CAST(hk.roomNo AS CHAR) = CAST(${baseAlias}.room_number AS CHAR)`
-              : "";
-            const housekeepingIdSelect = hasHousekeeping ? "COALESCE(hk.id, 0)" : "0";
-            const housekeepingStatusSelect = hasHousekeeping
-              ? `COALESCE(NULLIF(hk.status, ''), CASE
-                  WHEN LOWER(${baseAlias}.status) = 'occupied' THEN 'Occupied Dirty'
-                  ELSE 'Vacant Dirty'
-                END)`
-              : `CASE
-                  WHEN LOWER(${baseAlias}.status) = 'occupied' THEN 'Occupied Dirty'
-                  ELSE 'Vacant Dirty'
-                END`;
-            const housekeepingAssigneeSelect = hasHousekeeping
-              ? "NULLIF(hk.assignee, '')"
-              : "NULL";
+      let inventoryJoin = "";
+      let inventoryStatusExpr = "base.roomStatus";
+      let guestExpr = "NULL";
+      let checkInExpr = "NULL";
+      let checkOutExpr = "NULL";
+
+      if (hasInventory) {
+        inventoryJoin = `
+          LEFT JOIN hotel_room_inventory hri
+            ON CAST(hri.room_number AS CHAR) = base.roomNo
+        `;
+        inventoryStatusExpr = "COALESCE(hri.status, base.roomStatus)";
+        guestExpr = "hri.guest";
+        checkInExpr = "hri.check_in";
+        checkOutExpr = "hri.check_out";
+      }
+
+      const baseRoomsSql = hasInventory
+        ? `
+          SELECT
+            MIN(src.id) AS id,
+            src.roomNo AS roomNo,
+            MAX(src.roomStatus) AS roomStatus
+          FROM (
+            SELECT
+              r.id AS id,
+              ${roomsRoomNoExpr} AS roomNo,
+              ${roomStatusExpr} AS roomStatus
+            FROM rooms r
+            UNION ALL
+            SELECT
+              hri.id AS id,
+              CAST(hri.room_number AS CHAR) AS roomNo,
+              COALESCE(hri.status, 'available') AS roomStatus
+            FROM hotel_room_inventory hri
+          ) src
+          GROUP BY src.roomNo
+        `
+        : `
+          SELECT
+            r.id AS id,
+            ${roomsRoomNoExpr} AS roomNo,
+            ${roomStatusExpr} AS roomStatus
+          FROM rooms r
+        `;
+
+      const rows = await runQuery(`
+        SELECT
+          COALESCE(hk.id, base.id) AS id,
+          base.roomNo AS roomNo,
+          COALESCE(
+            NULLIF(hk.status, ''),
+            CASE
+              WHEN LOWER(${inventoryStatusExpr}) = 'occupied' THEN 'Occupied Dirty'
+              WHEN LOWER(${inventoryStatusExpr}) = 'cleaning' THEN 'Cleaning In Progress'
+              WHEN LOWER(${inventoryStatusExpr}) = 'out of service' THEN 'Out of Service'
+              ELSE 'Vacant Clean'
+            END
+          ) AS status,
+          COALESCE(NULLIF(hk.assignee, ''), NULLIF(a.staff_name, ''), 'No Housekeeper') AS finalAssignee,
+          ${housekeepingPriorityExpr} AS priority,
+          ${housekeepingNotesExpr} AS notes,
+          ${housekeepingCleaningStartExpr} AS cleaningStart,
+          ${housekeepingCleaningEndExpr} AS cleaningEnd,
+          ${inventoryStatusExpr} AS hotelStatus,
+          ${guestExpr} AS guest,
+          ${checkInExpr} AS checkIn,
+          ${checkOutExpr} AS checkOut
+        FROM (
+          ${baseRoomsSql}
+        ) base
+        LEFT JOIN (
+          SELECT hk1.*
+          FROM housekeeping hk1
+          INNER JOIN (
+            SELECT CAST(roomNo AS CHAR) AS roomNo, MAX(id) AS max_id
+            FROM housekeeping
+            GROUP BY CAST(roomNo AS CHAR)
+          ) latest_hk
+            ON latest_hk.max_id = hk1.id
+        ) hk
+          ON CAST(hk.roomNo AS CHAR) = base.roomNo
+        ${assignmentJoin}
+        ${inventoryJoin}
+        ORDER BY CAST(base.roomNo AS UNSIGNED), base.roomNo
+      `);
 
       const mapped = rows.map((room) => ({
         id: room.id,
