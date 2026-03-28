@@ -147,6 +147,22 @@ const Housekeeping = {
       const housekeepingCleaningEndExpr = hasHousekeepingCleaningEnd
         ? "hk.cleaningEnd"
         : "NULL";
+      const assignmentRoomColumn = hasAssignments
+        ? (await columnExists("assignments", "room_number"))
+          ? "room_number"
+          : (await columnExists("assignments", "roomNumber"))
+            ? "roomNumber"
+            : null
+        : null;
+      const assignmentStaffColumn = hasAssignments
+        ? (await columnExists("assignments", "staff_name"))
+          ? "staff_name"
+          : (await columnExists("assignments", "staffName"))
+            ? "staffName"
+            : (await columnExists("assignments", "assignee"))
+              ? "assignee"
+              : null
+        : null;
 
       // sync rooms table -> housekeeping
       await runQuery(`
@@ -167,20 +183,24 @@ const Housekeeping = {
       `);
 
       let assignmentJoin = "";
-      if (hasAssignments) {
+      let assignmentAssigneeExpr = "NULL";
+      if (assignmentRoomColumn && assignmentStaffColumn) {
         assignmentJoin = `
           LEFT JOIN (
-            SELECT a1.room_number, a1.staff_name
+            SELECT
+              CAST(a1.${assignmentRoomColumn} AS CHAR) AS room_number,
+              a1.${assignmentStaffColumn} AS staff_name
             FROM assignments a1
             INNER JOIN (
-              SELECT room_number, MAX(id) AS max_id
+              SELECT ${assignmentRoomColumn} AS room_number, MAX(id) AS max_id
               FROM assignments
-              GROUP BY room_number
+              GROUP BY ${assignmentRoomColumn}
             ) latest
-              ON latest.room_number = a1.room_number
+              ON CAST(latest.room_number AS CHAR) = CAST(a1.${assignmentRoomColumn} AS CHAR)
              AND latest.max_id = a1.id
           ) a ON CAST(a.room_number AS CHAR) = base.roomNo
         `;
+        assignmentAssigneeExpr = "NULLIF(a.staff_name, '')";
       }
 
       let inventoryJoin = "";
@@ -242,7 +262,7 @@ const Housekeeping = {
               ELSE 'Vacant Clean'
             END
           ) AS status,
-          COALESCE(NULLIF(hk.assignee, ''), NULLIF(a.staff_name, ''), 'No Housekeeper') AS finalAssignee,
+          COALESCE(NULLIF(hk.assignee, ''), ${assignmentAssigneeExpr}, 'No Housekeeper') AS finalAssignee,
           ${housekeepingPriorityExpr} AS priority,
           ${housekeepingNotesExpr} AS notes,
           ${housekeepingCleaningStartExpr} AS cleaningStart,

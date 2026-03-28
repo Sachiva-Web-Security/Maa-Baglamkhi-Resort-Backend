@@ -139,8 +139,12 @@ async function bootstrapSchema(label, task) {
   }
 }
 
-async function initializeDatabase() {
+async function initializeDatabase(options = {}) {
   try {
+    const skipPaymentSchema =
+      options.skipPaymentSchema === true ||
+      String(process.env.SKIP_PAYMENT_SCHEMA_BOOTSTRAP || "").toLowerCase() === "true";
+
     await db.promise().query("SELECT 1");
     if (process.env.NODE_ENV !== "test") {
       console.log("MySQL Connected");
@@ -154,7 +158,9 @@ async function initializeDatabase() {
     await bootstrapSchema("Room tariff schema init", ensureRoomTariffSchema);
     await bootstrapSchema("Advance payment schema init", ensureAdvancePaymentSchema);
     await bootstrapSchema("Payment history schema init", ensurePaymentHistorySchema);
-    await bootstrapSchema("Payments schema init", ensurePaymentSchema);
+    if (!skipPaymentSchema) {
+      await bootstrapSchema("Payments schema init", ensurePaymentSchema);
+    }
     await bootstrapSchema("Accounts schema init", ensureAccountsSchema);
     await bootstrapSchema("Attendance schema init", ensureAttendanceSchema);
     await bootstrapSchema("Banquet schema init", ensureBanquetSchema);

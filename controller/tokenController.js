@@ -14,8 +14,10 @@ exports.createToken = (req, res) => {
     }
 
     res.json({
-      message: "Token created",
+      message: result?.existing ? "Token already active" : "Token created",
       tokenId: result.insertId,
+      tokenCode: result?.token?.token_code || result?.token_code || null,
+      existing: Boolean(result?.existing),
     });
   });
 };

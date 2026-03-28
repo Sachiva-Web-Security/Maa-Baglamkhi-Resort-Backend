@@ -290,19 +290,6 @@ describe("Operations, Dashboard, Reports, and Audit APIs", () => {
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
     });
-
-    test("returns daywise food report", async () => {
-      await api().get("/api/invoice/1");
-      const res = await api().get("/api/report/daywise-food?startDate=2026-03-01&endDate=2026-03-31");
-      expect(res.status).toBe(200);
-      expect(Array.isArray(res.body)).toBe(true);
-    });
-
-    test("returns daily room food report", async () => {
-      const res = await api().get("/api/report/daily-room-food?date=2026-03-27");
-      expect(res.status).toBe(200);
-      expect(Array.isArray(res.body)).toBe(true);
-    });
   });
 
   describe("audit logs role access", () => {

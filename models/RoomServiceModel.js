@@ -7,6 +7,17 @@ const runQuery = (sql, params = []) =>
 
 exports.ensureSchema = async () => {
   await runQuery(`
+    CREATE TABLE IF NOT EXISTS room_service_orders (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      room_number VARCHAR(50) NOT NULL,
+      token_id INT DEFAULT NULL,
+      status VARCHAR(30) DEFAULT 'pending',
+      total DECIMAL(10,2) DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await runQuery(`
     CREATE TABLE IF NOT EXISTS rooms (
       id INT AUTO_INCREMENT PRIMARY KEY,
       room_number VARCHAR(50) NOT NULL UNIQUE,
