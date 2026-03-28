@@ -3,9 +3,12 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon index.js",
+    "dev": "node --watch index.js",
     "start": "node index.js",
-    "seed": "node seed.js",
+    "init": "node initialize.js",
+    "init:prod": "node initialize.js",
+    "seed": "node seed-runner.js",
+    "repair:payments": "node repair-payments.js",
     "test": "jest --runInBand --detectOpenHandles",
     "test:coverage": "jest --runInBand --coverage"
   },

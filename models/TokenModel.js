@@ -1,9 +1,37 @@
+const crypto = require("crypto");
 const db = require("../config/db");
 
 const runQuery = (sql, params = []) =>
   new Promise((resolve, reject) => {
     db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
   });
+
+const ensureColumn = async (tableName, columnName, definition) => {
+  const rows = await runQuery(`SHOW COLUMNS FROM ${tableName} LIKE ?`, [columnName]);
+  if (!rows.length) {
+    await runQuery(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  }
+};
+
+const ensureIndex = async (tableName, indexName, definition) => {
+  const rows = await runQuery(`SHOW INDEX FROM ${tableName} WHERE Key_name = ?`, [indexName]);
+  if (!rows.length) {
+    await runQuery(`ALTER TABLE ${tableName} ADD ${definition}`);
+  }
+};
+
+const buildVisitCode = () => {
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const random = crypto.randomBytes(3).toString("hex").toUpperCase();
+  return `VIS-${stamp}-${random}`;
+};
+
+const assignMissingVisitCodes = async () => {
+  const rows = await runQuery("SELECT id FROM tokens WHERE token_code IS NULL OR token_code = ''");
+  for (const row of rows) {
+    await runQuery("UPDATE tokens SET token_code = ? WHERE id = ?", [buildVisitCode(), row.id]);
+  }
+};
 
 const ensureSchema = async () => {
   await runQuery(`
@@ -26,14 +54,48 @@ const ensureSchema = async () => {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  await ensureColumn("tokens", "token_code", "VARCHAR(40) DEFAULT NULL AFTER id");
+  await ensureIndex("tokens", "idx_tokens_table", "INDEX idx_tokens_table (tableNumber)");
+  await ensureIndex("tokens", "idx_tokens_status", "INDEX idx_tokens_status (status)");
+  await ensureIndex("tokens", "uniq_tokens_token_code", "UNIQUE KEY uniq_tokens_token_code (token_code)");
+  await assignMissingVisitCodes();
+};
+
+const getActiveTokenByTable = (tableNumber, callback) => {
+  const sql = `
+    SELECT * FROM tokens
+    WHERE tableNumber = ? AND status='active'
+    ORDER BY id DESC
+    LIMIT 1
+  `;
+  db.query(sql, [tableNumber], (err, result) => {
+    callback(err, result?.[0] || null);
+  });
 };
 
 const createToken = (data, callback) => {
-  const sql = `
-    INSERT INTO tokens (tableNumber, waiter, status)
-    VALUES (?, ?, 'active')
-  `;
-  db.query(sql, [data.tableNumber, data.waiter], callback);
+  getActiveTokenByTable(data.tableNumber, (lookupErr, activeToken) => {
+    if (lookupErr) {
+      callback(lookupErr);
+      return;
+    }
+
+    if (activeToken?.id) {
+      callback(null, {
+        insertId: activeToken.id,
+        existing: true,
+        token: activeToken,
+      });
+      return;
+    }
+
+    const sql = `
+      INSERT INTO tokens (token_code, tableNumber, waiter, status)
+      VALUES (?, ?, ?, 'active')
+    `;
+    db.query(sql, [buildVisitCode(), data.tableNumber, data.waiter], callback);
+  });
 };
 
 const getTokenByTable = (table, callback) => {
@@ -83,6 +145,7 @@ const closeActiveToken = (tableNumber, callback) => {
 
 module.exports = {
   ensureSchema,
+  getActiveTokenByTable,
   createToken,
   getTokenByTable,
   addTokenItem,

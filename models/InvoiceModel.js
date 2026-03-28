@@ -62,9 +62,20 @@ const ensureSchema = async () => {
     )
   `);
 
+  await ensureColumn("invoices", "date", "DATE NULL AFTER invoice_no");
+  await ensureColumn("invoices", "customer_name", "VARCHAR(255) DEFAULT NULL AFTER date");
+  await ensureColumn("invoices", "phone", "VARCHAR(30) DEFAULT NULL AFTER customer_name");
+  await ensureColumn("invoices", "room_no", "VARCHAR(255) DEFAULT NULL AFTER phone");
+  await ensureColumn("invoices", "check_in", "DATE DEFAULT NULL AFTER room_no");
+  await ensureColumn("invoices", "check_out", "DATE DEFAULT NULL AFTER check_in");
+  await ensureColumn("invoices", "price_per_day", "DECIMAL(12,2) DEFAULT 0 AFTER check_out");
+  await ensureColumn("invoices", "food_charge", "DECIMAL(12,2) DEFAULT 0 AFTER price_per_day");
+  await ensureColumn("invoices", "extra_charge", "DECIMAL(12,2) DEFAULT 0 AFTER food_charge");
   await ensureColumn("invoices", "subtotal", "DECIMAL(12,2) DEFAULT 0 AFTER extra_charge");
+  await ensureColumn("invoices", "final_total", "DECIMAL(12,2) DEFAULT 0 AFTER discount");
   await ensureColumn("invoices", "payment_status", "VARCHAR(50) DEFAULT 'Pending' AFTER payment_mode");
   await ensureColumn("invoices", "items_json", "LONGTEXT NULL AFTER notes");
+  await ensureColumn("invoices", "booking_id", "INT DEFAULT NULL AFTER notes");
   await ensureColumn("invoices", "customer_id", "INT DEFAULT NULL AFTER booking_id");
   await ensureColumn("invoices", "total_amount", "DECIMAL(12,2) DEFAULT 0 AFTER final_total");
 };

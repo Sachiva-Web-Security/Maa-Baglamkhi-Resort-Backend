@@ -1,5 +1,5 @@
 const { api } = require("./helpers/testRequest");
-const { resetAndSeedDatabase } = require("./helpers/testDb");
+const { resetAndSeedDatabase, runQuery } = require("./helpers/testDb");
 
 describe("Restaurant Order APIs", () => {
   beforeEach(async () => {
@@ -154,6 +154,110 @@ describe("Restaurant Order APIs", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.id).toBeTruthy();
+    });
+
+    test("generate bill does not create payment or accounts income", async () => {
+      const beforePayments = await runQuery("SELECT COUNT(*) AS total FROM payments");
+      const beforeAccounts = await runQuery("SELECT COUNT(*) AS total FROM accounts_transactions");
+
+      const res = await api().post("/api/restaurant/bill").send({
+        table: "T1",
+        entityType: "Table",
+        customerName: "Bill Only",
+        phone: "8888888888",
+        subtotal: 500,
+        gst: 25,
+        total: 525,
+        paymentMethod: null,
+        invoiceStatus: "Generated",
+      });
+
+      expect(res.status).toBe(200);
+
+      const afterPayments = await runQuery("SELECT COUNT(*) AS total FROM payments");
+      const afterAccounts = await runQuery("SELECT COUNT(*) AS total FROM accounts_transactions");
+      const bills = await runQuery("SELECT invoiceStatus, paymentMethod, account_transaction_id FROM bills WHERE id = ?", [res.body.id]);
+
+      expect(Number(afterPayments[0].total)).toBe(Number(beforePayments[0].total));
+      expect(Number(afterAccounts[0].total)).toBe(Number(beforeAccounts[0].total));
+      expect(bills[0].invoiceStatus).toBe("Generated");
+      expect(bills[0].paymentMethod).toBeNull();
+      expect(bills[0].account_transaction_id).toBeNull();
+    });
+
+    test("paying a generated bill creates payment and accounts income", async () => {
+      const billRes = await api().post("/api/restaurant/bill").send({
+        table: "T1",
+        entityType: "Table",
+        customerName: "Bill Then Pay",
+        phone: "8888888888",
+        subtotal: 500,
+        gst: 25,
+        total: 525,
+        paymentMethod: null,
+        invoiceStatus: "Generated",
+      });
+
+      const beforePayments = await runQuery("SELECT COUNT(*) AS total FROM payments");
+      const beforeAccounts = await runQuery("SELECT COUNT(*) AS total FROM accounts_transactions");
+
+      const payRes = await api().post(`/api/restaurant/bill/${billRes.body.id}/pay`).send({
+        paymentMethod: "UPI",
+      });
+
+      expect(payRes.status).toBe(200);
+      expect(payRes.body.billId).toBe(billRes.body.id);
+
+      const afterPayments = await runQuery("SELECT COUNT(*) AS total FROM payments");
+      const afterAccounts = await runQuery("SELECT COUNT(*) AS total FROM accounts_transactions");
+      const bills = await runQuery(
+        "SELECT invoiceStatus, paymentMethod, payment_id, account_transaction_id, paid_at FROM bills WHERE id = ?",
+        [billRes.body.id],
+      );
+
+      expect(Number(afterPayments[0].total)).toBe(Number(beforePayments[0].total) + 1);
+      expect(Number(afterAccounts[0].total)).toBe(Number(beforeAccounts[0].total) + 1);
+      expect(bills[0].invoiceStatus).toBe("Paid");
+      expect(bills[0].paymentMethod).toBe("UPI");
+      expect(bills[0].payment_id).toBeTruthy();
+      expect(bills[0].account_transaction_id).toBeTruthy();
+      expect(bills[0].paid_at).toBeTruthy();
+    });
+
+    test("reuses same open bill for same table instead of creating duplicate generated bills", async () => {
+      const firstBillRes = await api().post("/api/restaurant/bill").send({
+        table: "T1",
+        entityType: "Table",
+        customerName: "Walk In",
+        phone: "8888888888",
+        subtotal: 60,
+        gst: 3,
+        total: 63,
+        paymentMethod: null,
+        invoiceStatus: "Generated",
+      });
+
+      const secondBillRes = await api().post("/api/restaurant/bill").send({
+        table: "T1",
+        entityType: "Table",
+        customerName: "Walk In",
+        phone: "8888888888",
+        subtotal: 60,
+        gst: 3,
+        total: 63,
+        paymentMethod: null,
+        invoiceStatus: "Generated",
+      });
+
+      expect(secondBillRes.status).toBe(200);
+      expect(secondBillRes.body.id).toBe(firstBillRes.body.id);
+
+      const bills = await runQuery(
+        "SELECT id, invoiceStatus, total FROM bills WHERE tableNumber = 'T1' AND entityType = 'Table' AND account_transaction_id IS NULL ORDER BY id DESC",
+      );
+
+      expect(bills.filter((bill) => Number(bill.total) === 63).length).toBe(1);
+      expect(bills[0].invoiceStatus).toBe("Generated");
     });
 
     test("returns saved bills", async () => {

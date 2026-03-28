@@ -1,8 +1,123 @@
 const db = require("../config/db");
 
-const Inventory = {
+const runQuery = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.query(sql, params, (err, results) => {
+      if (err) return reject(err);
+      resolve(results);
+    });
+  });
 
-  // ── Inventory Items ─────────────────────────────────────────────────────────
+const columnExists = async (tableName, columnName) => {
+  const rows = await runQuery(
+    `SELECT COUNT(*) AS count
+     FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`,
+    [tableName, columnName],
+  );
+  return Number(rows?.[0]?.count || 0) > 0;
+};
+
+const ensureSchema = async () => {
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS inventory (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      category VARCHAR(120) NULL,
+      stock DECIMAL(10,2) NOT NULL DEFAULT 0,
+      unit VARCHAR(60) NULL,
+      price DECIMAL(10,2) NOT NULL DEFAULT 0,
+      reorder_point DECIMAL(10,2) NOT NULL DEFAULT 10,
+      expiry DATE NULL,
+      branch VARCHAR(120) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+
+  const inventoryColumns = [
+    ["category", "VARCHAR(120) NULL"],
+    ["stock", "DECIMAL(10,2) NOT NULL DEFAULT 0"],
+    ["unit", "VARCHAR(60) NULL"],
+    ["price", "DECIMAL(10,2) NOT NULL DEFAULT 0"],
+    ["reorder_point", "DECIMAL(10,2) NOT NULL DEFAULT 10"],
+    ["expiry", "DATE NULL"],
+    ["branch", "VARCHAR(120) NULL"],
+    ["created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"],
+    ["updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"],
+  ];
+
+  for (const [columnName, definition] of inventoryColumns) {
+    if (!(await columnExists("inventory", columnName))) {
+      await runQuery(`ALTER TABLE inventory ADD COLUMN ${columnName} ${definition}`);
+    }
+  }
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS inventory_waste_log (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      item_name VARCHAR(255) NOT NULL,
+      quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+      unit VARCHAR(60) NULL,
+      reason VARCHAR(255) NOT NULL,
+      store VARCHAR(120) NULL,
+      remarks TEXT NULL,
+      waste_date DATE NULL,
+      created_by VARCHAR(120) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS inventory_purchase_orders (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      po_number VARCHAR(120) NOT NULL,
+      vendor VARCHAR(255) NOT NULL,
+      item_name VARCHAR(255) NOT NULL,
+      quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+      unit VARCHAR(60) NULL,
+      rate DECIMAL(10,2) NOT NULL DEFAULT 0,
+      expected_date DATE NULL,
+      status VARCHAR(60) NOT NULL DEFAULT 'Draft',
+      created_by VARCHAR(120) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS inventory_stock_audit (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      item_id INT NULL,
+      item_name VARCHAR(255) NOT NULL,
+      system_stock DECIMAL(10,2) NOT NULL DEFAULT 0,
+      physical_stock DECIMAL(10,2) NOT NULL DEFAULT 0,
+      variance DECIMAL(10,2) NOT NULL DEFAULT 0,
+      unit VARCHAR(60) NULL,
+      remarks TEXT NULL,
+      audit_date DATE NULL,
+      audited_by VARCHAR(120) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS inventory_transfers (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      item_name VARCHAR(255) NOT NULL,
+      from_store VARCHAR(120) NOT NULL,
+      to_store VARCHAR(120) NOT NULL,
+      quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+      unit VARCHAR(60) NULL,
+      approved_by VARCHAR(120) NULL,
+      transfer_date DATE NULL,
+      notes TEXT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+};
+
+const Inventory = {
+  ensureSchema,
 
   create: (data, callback) => {
     const sql = `
@@ -12,9 +127,17 @@ const Inventory = {
     `;
     db.query(
       sql,
-      [data.name, data.category, data.stock, data.unit,
-       data.price, data.reorderPoint ?? 10, data.expiry || null, data.branch],
-      callback
+      [
+        data.name,
+        data.category,
+        data.stock,
+        data.unit,
+        data.price,
+        data.reorderPoint ?? 10,
+        data.expiry || null,
+        data.branch,
+      ],
+      callback,
     );
   },
 
@@ -27,7 +150,7 @@ const Inventory = {
               CASE WHEN stock <= reorder_point THEN 1 ELSE 0 END AS isLowStock
        FROM inventory
        ORDER BY name`,
-      callback
+      callback,
     );
   },
 
@@ -39,7 +162,7 @@ const Inventory = {
               branch
        FROM inventory WHERE id = ?`,
       [id],
-      callback
+      callback,
     );
   },
 
@@ -52,17 +175,24 @@ const Inventory = {
     `;
     db.query(
       sql,
-      [data.name, data.category, data.stock, data.unit,
-       data.price, data.reorderPoint ?? 10, data.expiry || null, data.branch, id],
-      callback
+      [
+        data.name,
+        data.category,
+        data.stock,
+        data.unit,
+        data.price,
+        data.reorderPoint ?? 10,
+        data.expiry || null,
+        data.branch,
+        id,
+      ],
+      callback,
     );
   },
 
   delete: (id, callback) => {
-    db.query("DELETE FROM inventory WHERE id=?", [id], callback);
+    db.query("DELETE FROM inventory WHERE id = ?", [id], callback);
   },
-
-  // ── Low Stock Alerts ────────────────────────────────────────────────────────
 
   getLowStock: (callback) => {
     db.query(
@@ -70,11 +200,9 @@ const Inventory = {
        FROM inventory
        WHERE stock <= reorder_point
        ORDER BY stock ASC`,
-      callback
+      callback,
     );
   },
-
-  // ── Expiry Tracking ─────────────────────────────────────────────────────────
 
   getExpiringItems: (daysAhead = 30, callback) => {
     db.query(
@@ -86,11 +214,9 @@ const Inventory = {
          AND expiry <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
        ORDER BY expiry ASC`,
       [daysAhead],
-      callback
+      callback,
     );
   },
-
-  // ── Waste / Spoilage Log ────────────────────────────────────────────────────
 
   logWaste: (data, callback) => {
     const sql = `
@@ -100,9 +226,17 @@ const Inventory = {
     `;
     db.query(
       sql,
-      [data.itemName, data.quantity, data.unit || null, data.reason,
-       data.store || null, data.remarks || null, data.date, data.createdBy || "system"],
-      callback
+      [
+        data.itemName,
+        data.quantity,
+        data.unit || null,
+        data.reason,
+        data.store || null,
+        data.remarks || null,
+        data.date || null,
+        data.createdBy || "system",
+      ],
+      callback,
     );
   },
 
@@ -112,12 +246,10 @@ const Inventory = {
               DATE_FORMAT(waste_date, '%Y-%m-%d') AS date, created_by AS createdBy,
               created_at AS createdAt
        FROM inventory_waste_log
-       ORDER BY waste_date DESC`,
-      callback
+       ORDER BY waste_date DESC, created_at DESC`,
+      callback,
     );
   },
-
-  // ── Purchase Orders ─────────────────────────────────────────────────────────
 
   createPurchaseOrder: (data, callback) => {
     const sql = `
@@ -127,10 +259,18 @@ const Inventory = {
     `;
     db.query(
       sql,
-      [data.poNumber, data.vendor, data.itemName, data.quantity,
-       data.unit || null, data.rate, data.expectedDate || null,
-       data.status || "Draft", data.createdBy || "system"],
-      callback
+      [
+        data.poNumber,
+        data.vendor,
+        data.itemName,
+        data.quantity,
+        data.unit || null,
+        data.rate,
+        data.expectedDate || null,
+        data.status || "Draft",
+        data.createdBy || "system",
+      ],
+      callback,
     );
   },
 
@@ -143,7 +283,7 @@ const Inventory = {
               created_at AS createdAt
        FROM inventory_purchase_orders
        ORDER BY created_at DESC`,
-      callback
+      callback,
     );
   },
 
@@ -156,17 +296,24 @@ const Inventory = {
     `;
     db.query(
       sql,
-      [data.poNumber, data.vendor, data.itemName, data.quantity,
-       data.unit || null, data.rate, data.expectedDate || null, data.status, id],
-      callback
+      [
+        data.poNumber,
+        data.vendor,
+        data.itemName,
+        data.quantity,
+        data.unit || null,
+        data.rate,
+        data.expectedDate || null,
+        data.status,
+        id,
+      ],
+      callback,
     );
   },
 
   deletePurchaseOrder: (id, callback) => {
-    db.query("DELETE FROM inventory_purchase_orders WHERE id=?", [id], callback);
+    db.query("DELETE FROM inventory_purchase_orders WHERE id = ?", [id], callback);
   },
-
-  // ── Stock Audit ─────────────────────────────────────────────────────────────
 
   saveAuditEntry: (data, callback) => {
     const sql = `
@@ -176,9 +323,17 @@ const Inventory = {
     `;
     db.query(
       sql,
-      [data.itemId, data.itemName, data.systemStock, data.physicalStock,
-       data.variance, data.unit, data.remarks || null, data.auditedBy || "system"],
-      callback
+      [
+        data.itemId,
+        data.itemName,
+        data.systemStock,
+        data.physicalStock,
+        data.variance,
+        data.unit,
+        data.remarks || null,
+        data.auditedBy || "system",
+      ],
+      callback,
     );
   },
 
@@ -190,12 +345,10 @@ const Inventory = {
               DATE_FORMAT(audit_date, '%Y-%m-%d') AS auditDate,
               audited_by AS auditedBy
        FROM inventory_stock_audit
-       ORDER BY audit_date DESC`,
-      callback
+       ORDER BY audit_date DESC, created_at DESC`,
+      callback,
     );
   },
-
-  // ── Inter-Department Stock Transfer ────────────────────────────────────────
 
   recordTransfer: (data, callback) => {
     const sql = `
@@ -205,9 +358,17 @@ const Inventory = {
     `;
     db.query(
       sql,
-      [data.itemName, data.fromStore, data.toStore, data.quantity,
-       data.unit || null, data.approvedBy || null, data.date, data.notes || null],
-      callback
+      [
+        data.itemName,
+        data.fromStore,
+        data.toStore,
+        data.quantity,
+        data.unit || null,
+        data.approvedBy || null,
+        data.date || null,
+        data.notes || null,
+      ],
+      callback,
     );
   },
 
@@ -217,8 +378,8 @@ const Inventory = {
               quantity, unit, approved_by AS approvedBy,
               DATE_FORMAT(transfer_date, '%Y-%m-%d') AS date, notes
        FROM inventory_transfers
-       ORDER BY transfer_date DESC`,
-      callback
+       ORDER BY transfer_date DESC, created_at DESC`,
+      callback,
     );
   },
 };

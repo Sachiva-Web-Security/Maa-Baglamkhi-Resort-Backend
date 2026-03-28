@@ -13,6 +13,13 @@ const runQuery = (sql, params = []) =>
     });
   });
 
+const ensureColumn = async (columnName, definition) => {
+  const rows = await runQuery("SHOW COLUMNS FROM guests LIKE ?", [columnName]);
+  if (!rows.length) {
+    await runQuery(`ALTER TABLE guests ADD COLUMN ${columnName} ${definition}`);
+  }
+};
+
 const ensureSchema = async () => {
   await runQuery(`
     CREATE TABLE IF NOT EXISTS guests (
@@ -30,15 +37,15 @@ const ensureSchema = async () => {
     )
   `);
 
-  const bookingCodeColumn = await runQuery("SHOW COLUMNS FROM guests LIKE 'booking_code'");
-  if (!bookingCodeColumn.length) {
-    await runQuery("ALTER TABLE guests ADD COLUMN booking_code VARCHAR(40) NULL UNIQUE AFTER id");
-  }
-
-  const cancelReasonColumn = await runQuery("SHOW COLUMNS FROM guests LIKE 'cancel_reason'");
-  if (!cancelReasonColumn.length) {
-    await runQuery("ALTER TABLE guests ADD COLUMN cancel_reason TEXT DEFAULT NULL AFTER booking_status");
-  }
+  await ensureColumn("booking_code", "VARCHAR(40) NULL UNIQUE AFTER id");
+  await ensureColumn("guest_name", "VARCHAR(255) DEFAULT '' AFTER mobile");
+  await ensureColumn("guest_email", "VARCHAR(255) DEFAULT '' AFTER guest_name");
+  await ensureColumn("check_in", "DATE DEFAULT NULL AFTER guest_email");
+  await ensureColumn("check_out", "DATE DEFAULT NULL AFTER check_in");
+  await ensureColumn("arrival", "VARCHAR(20) DEFAULT NULL AFTER check_out");
+  await ensureColumn("departure", "VARCHAR(20) DEFAULT NULL AFTER arrival");
+  await ensureColumn("booking_status", "VARCHAR(50) DEFAULT 'Confirmed' AFTER departure");
+  await ensureColumn("cancel_reason", "TEXT DEFAULT NULL AFTER booking_status");
 
   const missingCodes = await runQuery(
     "SELECT id FROM guests WHERE booking_code IS NULL OR booking_code = '' ORDER BY id",
@@ -59,6 +66,11 @@ const generateBookingCode = () => {
 const createGuest = async (data, callback) => {
   try {
     await ensureSchema();
+    const normalizedStatus = ["cancelled", "checked in", "checked out"].includes(
+      String(data.bookingStatus || "").trim().toLowerCase(),
+    )
+      ? data.bookingStatus
+      : "Confirmed";
 
     const bookingKey = [
       String(data.mobile || "").trim(),
@@ -110,7 +122,7 @@ const createGuest = async (data, callback) => {
         data.checkOut,
         data.arrival,
         data.departure,
-        data.bookingStatus,
+        normalizedStatus,
       ],
       (error, result) => {
         if (error) return callback(error);
