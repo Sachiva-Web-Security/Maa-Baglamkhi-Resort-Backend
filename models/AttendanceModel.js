@@ -5,6 +5,55 @@ const runQuery = (sql, params = []) =>
     db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
   });
 
+const columnExists = async (columnName) => {
+  const rows = await runQuery(
+    `
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'attendance_records'
+        AND COLUMN_NAME = ?
+      LIMIT 1
+    `,
+    [columnName],
+  );
+
+  return rows.length > 0;
+};
+
+const getSchemaProfile = async () => {
+  const [
+    hasEmployeeName,
+    hasStaffName,
+    hasDepartment,
+    hasCheckIn,
+    hasInTime,
+    hasCheckOut,
+    hasOutTime,
+    hasMethod,
+    hasNotes,
+  ] = await Promise.all([
+    columnExists("employee_name"),
+    columnExists("staff_name"),
+    columnExists("department"),
+    columnExists("check_in"),
+    columnExists("in_time"),
+    columnExists("check_out"),
+    columnExists("out_time"),
+    columnExists("method"),
+    columnExists("notes"),
+  ]);
+
+  return {
+    nameColumn: hasEmployeeName ? "employee_name" : hasStaffName ? "staff_name" : null,
+    hasDepartment,
+    checkInColumn: hasCheckIn ? "check_in" : hasInTime ? "in_time" : null,
+    checkOutColumn: hasCheckOut ? "check_out" : hasOutTime ? "out_time" : null,
+    hasMethod,
+    hasNotes,
+  };
+};
+
 const ensureSchema = async () => {
   await runQuery(`
     CREATE TABLE IF NOT EXISTS attendance_records (
@@ -21,31 +70,91 @@ const ensureSchema = async () => {
   `);
 };
 
-const getByDate = (date, callback) => {
-  db.query(
-    "SELECT id, date, employee_name AS name, role, department, check_in AS checkIn, check_out AS checkOut, status, method FROM attendance_records WHERE date = ? ORDER BY employee_name",
-    [date],
-    callback,
-  );
+const getByDate = async (date, callback) => {
+  try {
+    const profile = await getSchemaProfile();
+    const nameExpr = profile.nameColumn
+      ? `${profile.nameColumn} AS name`
+      : "NULL AS name";
+    const departmentExpr = profile.hasDepartment
+      ? "department"
+      : "'General' AS department";
+    const checkInExpr = profile.checkInColumn
+      ? `${profile.checkInColumn} AS checkIn`
+      : "NULL AS checkIn";
+    const checkOutExpr = profile.checkOutColumn
+      ? `${profile.checkOutColumn} AS checkOut`
+      : "NULL AS checkOut";
+    const methodExpr = profile.hasMethod
+      ? "method"
+      : "'Manual' AS method";
+    const notesExpr = profile.hasNotes
+      ? "notes"
+      : "NULL AS notes";
+    const orderByExpr = profile.nameColumn || "id";
+
+    const rows = await runQuery(
+      `SELECT id, date, ${nameExpr}, role, ${departmentExpr}, ${checkInExpr}, ${checkOutExpr}, status, ${methodExpr}, ${notesExpr}
+       FROM attendance_records
+       WHERE date = ?
+       ORDER BY ${orderByExpr}`,
+      [date],
+    );
+
+    callback(null, rows);
+  } catch (err) {
+    callback(err);
+  }
 };
 
-const createRecord = (data, callback) => {
-  const sql =
-    "INSERT INTO attendance_records (date, employee_name, role, department, check_in, check_out, status, method) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-  db.query(
-    sql,
-    [
-      data.date,
-      data.name,
-      data.role,
-      data.department,
-      data.checkIn,
-      data.checkOut,
-      data.status,
-      data.method,
-    ],
-    callback,
-  );
+const createRecord = async (data, callback) => {
+  try {
+    const profile = await getSchemaProfile();
+    const columns = ["date"];
+    const values = [data.date];
+
+    if (profile.nameColumn) {
+      columns.push(profile.nameColumn);
+      values.push(data.name);
+    }
+
+    columns.push("role");
+    values.push(data.role);
+
+    if (profile.hasDepartment) {
+      columns.push("department");
+      values.push(data.department || "General");
+    }
+
+    if (profile.checkInColumn) {
+      columns.push(profile.checkInColumn);
+      values.push(data.checkIn || null);
+    }
+
+    if (profile.checkOutColumn) {
+      columns.push(profile.checkOutColumn);
+      values.push(data.checkOut || null);
+    }
+
+    columns.push("status");
+    values.push(data.status);
+
+    if (profile.hasMethod) {
+      columns.push("method");
+      values.push(data.method || "Manual");
+    }
+
+    if (profile.hasNotes) {
+      columns.push("notes");
+      values.push(data.notes || null);
+    }
+
+    const placeholders = columns.map(() => "?").join(", ");
+    const sql = `INSERT INTO attendance_records (${columns.join(", ")}) VALUES (${placeholders})`;
+    db.query(sql, values, callback);
+  } catch (err) {
+    callback(err);
+  }
 };
 
 module.exports = {

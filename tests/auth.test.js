@@ -1,5 +1,6 @@
 const { api, authHeader } = require("./helpers/testRequest");
 const { clearDatabase, resetAndSeedDatabase, runQuery } = require("./helpers/testDb");
+const { waitForPendingAuditLogs } = require("../middleware/auditLogger");
 
 describe("Auth and User APIs", () => {
   let seed;
@@ -341,6 +342,8 @@ describe("Auth and User APIs", () => {
       await api()
         .get("/api/users")
         .set(authHeader(seed.users.admin));
+
+      await waitForPendingAuditLogs();
 
       const rows = await runQuery("SELECT COUNT(*) AS c FROM audit_logs");
       expect(Number(rows[0]?.c || 0)).toBeGreaterThan(0);

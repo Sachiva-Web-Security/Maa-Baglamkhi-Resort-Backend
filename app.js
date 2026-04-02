@@ -1,6 +1,7 @@
 require("dotenv").config({ quiet: process.env.NODE_ENV === "test" });
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
 const path = require("path");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -63,26 +64,45 @@ const {
 const {
   ensureSchema: ensureAccountsExpansionSchema,
 } = require("./models/AccountsExpansionModel");
+const {
+  ensureSchema: ensureInventoryMastersSchema,
+} = require("./models/InventoryMastersModel");
+const {
+  ensureSchema: ensureMenuRecipeSchema,
+} = require("./models/MenuRecipeModel");
 const auditLogger = require("./middleware/auditLogger");
+const { getCorsOptions } = require("./config/security");
 
 const app = express();
 const server = http.createServer(app);
+const corsOptions = getCorsOptions();
 
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-  },
+  cors: corsOptions,
 });
 
 global.io = io;
+
+app.disable("etag");
 
 io.on("connection", () => {
   console.log("User connected");
 });
 
-app.use(cors());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false,
+  }),
+);
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use("/api", (req, res, next) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
+  next();
+});
 app.use(auditLogger);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
@@ -107,6 +127,8 @@ app.use("/api/invoice", invoiceRoutes);
 
 app.use("/api/kitchen", require("./routes/kitchenRoutes"));
 app.use("/api/inventory", require("./routes/inventoryRoutes"));
+app.use("/api/inventory-masters", require("./routes/inventoryMastersRoutes"));
+app.use("/api/menu-recipes", require("./routes/menuRecipeRoutes"));
 app.use("/api/audit-logs", require("./routes/auditLogRoutes"));
 app.use("/api/housekeeping", require("./routes/housekeepingRoutes"));
 
@@ -171,6 +193,8 @@ async function initializeDatabase(options = {}) {
     await bootstrapSchema("Audit log schema init", ensureAuditLogSchema);
     await bootstrapSchema("Completed cleaning log schema init", ensureCompletedCleaningLogSchema);
     await bootstrapSchema("Accounts expansion schema init", ensureAccountsExpansionSchema);
+    await bootstrapSchema("Inventory masters schema init", ensureInventoryMastersSchema);
+    await bootstrapSchema("Menu recipe schema init", ensureMenuRecipeSchema);
   } catch (error) {
     console.error("Database connection failed:", error.code || error.message || error);
     console.error("Skipping schema bootstrap until MySQL is available.");

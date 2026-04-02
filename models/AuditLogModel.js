@@ -26,6 +26,33 @@ async function ensureSchema() {
   `);
 }
 
+const MAX_JSON_LENGTH = 8000;
+
+function safeSerialize(value) {
+  if (value == null) return null;
+
+  try {
+    const text = JSON.stringify(value);
+    if (text == null) return null;
+    if (text.length <= MAX_JSON_LENGTH) return text;
+
+    return JSON.stringify({
+      truncated: true,
+      preview: text.slice(0, MAX_JSON_LENGTH),
+      originalLength: text.length,
+    });
+  } catch {
+    const fallback = String(value);
+    if (fallback.length <= MAX_JSON_LENGTH) return JSON.stringify(fallback);
+
+    return JSON.stringify({
+      truncated: true,
+      preview: fallback.slice(0, MAX_JSON_LENGTH),
+      originalLength: fallback.length,
+    });
+  }
+}
+
 async function createLog(entry) {
   const payload = {
     user_id: entry.userId ?? null,
@@ -51,12 +78,12 @@ async function createLog(entry) {
       payload.action,
       payload.endpoint,
       payload.http_method,
-      JSON.stringify(payload.request_data),
+      safeSerialize(payload.request_data),
       payload.response_status,
       payload.ip_address,
-      JSON.stringify(payload.old_value),
-      JSON.stringify(payload.new_value),
-      JSON.stringify(payload.response_body),
+      safeSerialize(payload.old_value),
+      safeSerialize(payload.new_value),
+      safeSerialize(payload.response_body),
     ],
   );
 }
@@ -78,6 +105,10 @@ async function listLogs(filters = {}) {
   const offset = (page - 1) * limit;
   const where = [];
   const params = [];
+  const makeWhereClause = (alias = "l") =>
+    where.length
+      ? `WHERE ${where.map((condition) => condition.replace(/\bl\./g, `${alias}.`).replace(/\bu\./g, "u.")).join(" AND ")}`
+      : "";
 
   if (filters.search) {
     where.push("(l.action LIKE ? OR l.endpoint LIKE ? OR u.name LIKE ? OR u.email LIKE ?)");
@@ -105,7 +136,7 @@ async function listLogs(filters = {}) {
     params.push(filters.dateTo);
   }
 
-  const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const whereClause = makeWhereClause("l");
 
   const [rows] = await db.promise().query(
     `
@@ -126,12 +157,32 @@ async function listLogs(filters = {}) {
     `
       SELECT
         COUNT(*) AS total,
-        SUM(CASE WHEN l.response_status BETWEEN 200 AND 299 THEN 1 ELSE 0 END) AS success_count,
+        SUM(CASE WHEN l.response_status BETWEEN 200 AND 399 THEN 1 ELSE 0 END) AS success_count,
         SUM(CASE WHEN l.response_status >= 400 THEN 1 ELSE 0 END) AS error_count,
         COUNT(DISTINCT l.user_id) AS unique_users
       FROM ${TABLE_NAME} l
       LEFT JOIN register u ON u.id = l.user_id
       ${whereClause}
+    `,
+    params,
+  );
+
+  const liveWhereClause = makeWhereClause("base");
+  const [liveRows] = await db.promise().query(
+    `
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN latest.response_status BETWEEN 200 AND 399 THEN 1 ELSE 0 END) AS success_count,
+        SUM(CASE WHEN latest.response_status >= 400 THEN 1 ELSE 0 END) AS error_count
+      FROM ${TABLE_NAME} latest
+      INNER JOIN (
+        SELECT base.endpoint, base.action, MAX(base.id) AS max_id
+        FROM ${TABLE_NAME} base
+        LEFT JOIN register u ON u.id = base.user_id
+        ${liveWhereClause}
+        ${liveWhereClause ? "AND" : "WHERE"} base.endpoint <> '/api/audit-logs'
+        GROUP BY base.endpoint, base.action
+      ) current_state ON current_state.max_id = latest.id
     `,
     params,
   );
@@ -149,6 +200,11 @@ async function listLogs(filters = {}) {
       successCount: Number(countRows?.[0]?.success_count || 0),
       errorCount: Number(countRows?.[0]?.error_count || 0),
       uniqueUsers: Number(countRows?.[0]?.unique_users || 0),
+    },
+    liveSummary: {
+      total: Number(liveRows?.[0]?.total || 0),
+      successCount: Number(liveRows?.[0]?.success_count || 0),
+      errorCount: Number(liveRows?.[0]?.error_count || 0),
     },
     pagination: {
       page,

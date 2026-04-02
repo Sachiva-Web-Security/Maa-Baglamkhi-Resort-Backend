@@ -70,16 +70,17 @@ const ensureSchema = async () => {
     }
   }
 
-  // Seed default categories if table is empty
-  const categoryCount = await runQuery("SELECT COUNT(*) AS count FROM hotel_room_categories");
-  if (!categoryCount[0]?.count) {
-    for (const category of DEFAULT_CATEGORIES) {
-      await runQuery(
-        `INSERT INTO hotel_room_categories (id, name, default_price, unit_label)
-         VALUES (?, ?, ?, ?)`,
-        [category.id, category.name, category.defaultPrice, category.unitLabel],
-      );
-    }
+  // Keep the default room categories present across repeated test resets.
+  for (const category of DEFAULT_CATEGORIES) {
+    await runQuery(
+      `INSERT INTO hotel_room_categories (id, name, default_price, unit_label)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         name = VALUES(name),
+         default_price = VALUES(default_price),
+         unit_label = VALUES(unit_label)`,
+      [category.id, category.name, category.defaultPrice, category.unitLabel],
+    );
   }
 };
 

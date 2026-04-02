@@ -3,6 +3,6 @@ const authMiddleware = require("../middleware/authMiddleware");
 const roleMiddleware = require("../middleware/roleMiddleware");
 const { getAuditLogs } = require("../controller/auditLogController");
 
-router.get("/", authMiddleware, roleMiddleware(["admin", "manager"]), getAuditLogs);
+router.get("/", authMiddleware, roleMiddleware(["admin", "manager", "accountant"]), getAuditLogs);
 
 module.exports = router;

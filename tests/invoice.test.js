@@ -80,6 +80,32 @@ describe("Invoice APIs", () => {
 
       expect(Number(computedSubtotal.toFixed(2))).toBe(res.body.subtotal);
     });
+
+    test("reuses latest invoice row and removes duplicate booking invoices", async () => {
+      await runQuery(
+        `
+          INSERT INTO invoices
+          (
+            invoice_no, date, customer_name, phone, room_no, check_in, check_out,
+            subtotal, gst, discount, final_total, total_amount, payment_mode,
+            payment_status, status, booking_id, customer_id
+          )
+          VALUES
+          ('LEGACY-INV-1', '2026-03-30', 'Cancel Guest', '9990003333', '102', '2026-03-28', '2026-03-30', 1890, 94.5, 0, 1984.5, 1984.5, 'Cash', 'Pending', 'Pending', 3, 3),
+          ('LEGACY-INV-2', '2026-03-31', 'Cancel Guest', '9990003333', '102', '2026-03-28', '2026-03-30', 1890, 94.5, 0, 1984.5, 1984.5, 'Cash', 'Paid', 'Paid', 3, 3)
+        `,
+      );
+
+      const res = await api().get("/api/invoice/3");
+      expect(res.status).toBe(200);
+      expect(res.body.invoiceNo).toBe("LEGACY-INV-2");
+
+      const rows = await runQuery(
+        "SELECT id, invoice_no FROM invoices WHERE booking_id = 3 ORDER BY id DESC",
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0].invoice_no).toBe("LEGACY-INV-2");
+    });
   });
 
   describe("manual invoice endpoints", () => {
@@ -115,6 +141,28 @@ describe("Invoice APIs", () => {
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
       expect(res.body.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test("returns only one invoice row per booking in invoice list", async () => {
+      await runQuery(
+        `
+          INSERT INTO invoices
+          (
+            invoice_no, date, customer_name, phone, room_no, check_in, check_out,
+            subtotal, gst, discount, final_total, total_amount, payment_mode,
+            payment_status, status, booking_id, customer_id
+          )
+          VALUES
+          ('DUP-LIST-1', '2026-03-30', 'Cancel Guest', '9990003333', '102', '2026-03-28', '2026-03-30', 1890, 94.5, 0, 1984.5, 1984.5, 'Cash', 'Pending', 'Pending', 3, 3),
+          ('DUP-LIST-2', '2026-03-31', 'Cancel Guest', '9990003333', '102', '2026-03-28', '2026-03-30', 1890, 94.5, 0, 1984.5, 1984.5, 'Cash', 'Paid', 'Paid', 3, 3)
+        `,
+      );
+
+      const res = await api().get("/api/invoice/all");
+      expect(res.status).toBe(200);
+      const bookingInvoices = res.body.filter((invoice) => Number(invoice.booking_id) === 3);
+      expect(bookingInvoices).toHaveLength(1);
+      expect(bookingInvoices[0].invoice_no).toBe("DUP-LIST-2");
     });
 
     test("returns invoice by booking id", async () => {

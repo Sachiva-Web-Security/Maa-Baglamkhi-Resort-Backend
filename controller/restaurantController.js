@@ -1,8 +1,10 @@
 const Restaurant = require("../models/RestaurantModel");
-const db   = require("../config/db");
-const path = require("path");
-const fs   = require("fs");
+const db = require("../config/db");
 
+const q = (sql, params = []) =>
+  new Promise((resolve, reject) =>
+    db.query(sql, params, (err, res) => (err ? reject(err) : resolve(res)))
+  );
 
 const isHappyHourActive = (item) => {
   if (!item.happy_hour_price || !item.happy_hour_start || !item.happy_hour_end) return false;
@@ -11,47 +13,138 @@ const isHappyHourActive = (item) => {
   return current >= item.happy_hour_start && current <= item.happy_hour_end;
 };
 
-const q = (sql, params = []) =>
-  new Promise((resolve, reject) =>
-    db.query(sql, params, (err, res) => (err ? reject(err) : resolve(res)))
-  );
+const withEffectivePrice = (item) => {
+  const effectivePrice = isHappyHourActive(item)
+    ? Number(item.happy_hour_price || item.happyHourPrice || item.price || 0)
+    : Number(item.price || 0);
 
+  return {
+    ...item,
+    effectivePrice,
+    effective_price: effectivePrice,
+  };
+};
+
+const normalizeTableRow = (tableRow) => ({
+  id: tableRow.id,
+  number: tableRow.table_number,
+  floorName: tableRow.floor_name || tableRow.floorName || "",
+  sectionName: tableRow.section_name || tableRow.sectionName || "",
+  seatCount: tableRow.seat_count || tableRow.seatCount || tableRow.guestCount || 4,
+  statusColor: tableRow.status_color || tableRow.statusColor || "",
+  status: tableRow.status || "available",
+});
+
+
+
+
+
+
+
+
+const tableExistsInLegacyTable = async (number) => {
+  try {
+    const rows = await q("SELECT id, number FROM tables WHERE number = ? LIMIT 1", [String(number)]);
+    return rows[0] || null;
+  } catch {
+    return null;
+  }
+};
+
+const getMergedTableRows = async () => {
+  const seen = new Set();
+  const merged = [];
+
+  try {
+    const restaurantRows = await q("SELECT * FROM restaurant_tables ORDER BY CAST(table_number AS UNSIGNED), table_number ASC");
+    for (const row of restaurantRows) {
+      const key = String(row.table_number || "").trim().toLowerCase();
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        merged.push(normalizeTableRow(row));
+      }
+    }
+  } catch {
+    // ignore and fall back to legacy table list below
+  }
+
+  try {
+    const legacyRows = await q("SELECT * FROM tables ORDER BY CAST(number AS UNSIGNED), number ASC");
+    for (const row of legacyRows) {
+      const key = String(row.number || "").trim().toLowerCase();
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        merged.push(normalizeTableRow(row));
+      }
+    }
+  } catch {
+    // ignore when legacy table does not exist
+  }
+
+  return merged;
+};
 
 /* ================= TABLE ================= */
-
-// ── TABLES ─────────────────────────────────────────────────────────────────
 exports.addTable = async (req, res) => {
-  const { number, floorName, sectionName, seatCount, statusColor } = req.body;
-  if (!number) return res.status(400).json({ message: "Table number required" });
-  try {
-    // upsert — if number exists, just return it
-    const existing = await q("SELECT * FROM restaurant_tables WHERE number = ? LIMIT 1", [String(number)]);
-    if (existing.length) return res.json({ id: existing[0].id, number: String(number), message: "Already exists" });
+  const { number, floorName, sectionName, seatCount, statusColor } = req.body || {};
 
-    const result = await q(
-      "INSERT INTO restaurant_tables (number, status, guestCount, floor_name, section_name, seat_count, status_color) VALUES (?, 'available', ?, ?, ?, ?, ?)",
-      [String(number), Number(seatCount || 4), floorName || null, sectionName || null, Number(seatCount || 4), statusColor || null]
+  if (!number) {
+    return res.status(400).json({ message: "Table number required" });
+  }
+
+  try {
+    await Restaurant.ensureSchema();
+
+    // ✅ duplicate check (safe)
+    const existing = await q(
+      "SELECT id FROM restaurant_tables WHERE table_number = ? LIMIT 1",
+      [String(number)]
     );
-    res.json({ id: result.insertId, number: String(number) });
+
+    const legacyExisting = await tableExistsInLegacyTable(number);
+
+    if (existing.length > 0 || legacyExisting !== null) {
+      return res.status(400).json({ message: "Table already exists" });
+    }
+
+    // ✅ CLEAN INSERT (guestCount removed)
+ const result = await q(
+  "INSERT INTO restaurant_tables (table_number, status, guestCount, floor_name, section_name, seat_count, status_color) VALUES (?, 'available', ?, ?, ?, ?, ?)",
+  [
+    String(number),
+    Number(seatCount || 4),   // guestCount
+    floorName || null,
+    sectionName || null,
+    Number(seatCount || 4),   // seat_count
+    statusColor || null,
+  ]
+);
+    res.json({
+      id: result.insertId,
+      number: String(number),
+    });
+
   } catch (err) {
-    res.status(500).json({ message: "Table insert failed", error: err.message });
+    console.error("🔥 ADD TABLE ERROR:", err.sqlMessage || err.message);
+
+    // ✅ duplicate DB error handle
+    if (err.code === "ER_DUP_ENTRY") {
+      return res.status(400).json({
+        message: "Table already exists",
+      });
+    }
+
+    res.status(500).json({
+      message: "Table insert failed",
+      error: err.message,
+    });
   }
 };
 
 exports.getTables = async (req, res) => {
   try {
-    const rows = await q("SELECT * FROM restaurant_tables ORDER BY CAST(number AS UNSIGNED), number ASC");
-    // Normalize field names to match frontend expectations
-    const normalized = rows.map(t => ({
-      id:          t.id,
-      number:      t.number,
-      floorName:   t.floor_name   || t.floorName   || "",
-      sectionName: t.section_name || t.sectionName || "",
-      seatCount:   t.seat_count   || t.seatCount   || t.guestCount || 4,
-      statusColor: t.status_color || t.statusColor || "",
-      status:      t.status || "available",
-    }));
-    res.json(normalized);
+    const rows = await getMergedTableRows();
+    res.json(rows);
   } catch (err) {
     res.status(500).json({ message: "Failed to load tables", error: err.message });
   }
@@ -59,7 +152,8 @@ exports.getTables = async (req, res) => {
 
 exports.updateTable = async (req, res) => {
   const { id } = req.params;
-  const { floorName, sectionName, seatCount, statusColor, status } = req.body;
+  const { floorName, sectionName, seatCount, statusColor, status } = req.body || {};
+
   try {
     await q(
       "UPDATE restaurant_tables SET floor_name=?, section_name=?, seat_count=?, status_color=?, status=? WHERE id=?",
@@ -67,29 +161,49 @@ exports.updateTable = async (req, res) => {
     );
     res.json({ message: "Updated" });
   } catch (err) {
-    res.status(500).json(err);
+    res.status(500).json({ message: "Failed to update table", error: err.message });
   }
 };
 
 exports.deleteTable = async (req, res) => {
-  try {
-    await q("DELETE FROM restaurant_tables WHERE id = ?", [req.params.id]);
-    res.json({ message: "Deleted" });
-  } catch (err) { res.status(500).json(err); }
-};
+  const { id } = req.params;
 
+  try {
+    await Restaurant.ensureSchema();
+
+    const result = await q(
+      "DELETE FROM restaurant_tables WHERE id = ?",
+      [id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        message: "Table not found",
+      });
+    }
+
+    res.json({ message: "Table deleted successfully" });
+
+  } catch (err) {
+    console.error("🔥 DELETE TABLE ERROR:", err.sqlMessage || err.message);
+
+    res.status(500).json({
+      message: "Failed to delete table",
+      error: err.message,
+    });
+  }
+};
 /* ================= MENU ================= */
 
 exports.addMenuItem = async (req, res) => {
-  // handles both JSON and FormData
-  const name        = req.body.name;
-  const price       = Number(req.body.price);
-  const category    = req.body.category || "Others";
+  const name = req.body.name;
+  const price = Number(req.body.price);
+  const category = req.body.category || "Others";
   const tableNumber = req.body.tableNumber || null;
-  const tax         = Number(req.body.tax || 5);
+  const tax = Number(req.body.tax || 5);
   const description = req.body.description || null;
-  const foodType    = req.body.foodType || "Veg";
-  const status      = req.body.status || "Available";
+  const foodType = req.body.foodType || "Veg";
+  const status = req.body.status || "Available";
 
   if (!name || !price) return res.status(400).json({ message: "Name and price required" });
 
@@ -114,63 +228,123 @@ exports.addMenuItem = async (req, res) => {
 exports.getMenuItems = async (req, res) => {
   const { tableNumber } = req.query;
   try {
-    let rows;
-    if (tableNumber) {
-      // Return items for this specific table OR global items (null table_number)
-      rows = await q(
-        "SELECT * FROM menu_items WHERE table_number = ? OR table_number IS NULL ORDER BY category, name",
-        [String(tableNumber)]
-      );
-    } else {
-      rows = await q("SELECT * FROM menu_items ORDER BY category, name");
-    }
-    res.json(rows);
+    const rows = tableNumber
+      ? await q(
+          `
+            SELECT *
+            FROM menu_items
+            WHERE table_number = ?
+               OR table_number IS NULL
+               OR TRIM(table_number) = ''
+            ORDER BY
+              CASE WHEN table_number = ? THEN 0 ELSE 1 END,
+              category,
+              name
+          `,
+          [String(tableNumber), String(tableNumber)],
+        )
+      : await q("SELECT * FROM menu_items ORDER BY category, name");
+
+    res.json(rows.map(withEffectivePrice));
   } catch (err) {
     res.status(500).json({ message: "Failed to load menu", error: err.message });
   }
 };
 
 exports.updateMenuItem = async (req, res) => {
-  const { id } = req.params;
-  const { name, price, category, status, description, foodType } = req.body;
-  let imageUrl = req.body.imageUrl || null;
-  if (req.file) imageUrl = `/uploads/${req.file.filename}`;
+  const {
+    name,
+    price,
+    category,
+    tableNumber,
+    tax,
+    happyHourPrice,
+    happyHourStart,
+    happyHourEnd,
+    description,
+    foodType,
+    status,
+    existingImageUrl,
+    imageUrl: bodyImageUrl,
+  } = req.body;
+  const imageUrl = req.file ? `/uploads/${req.file.filename}` : bodyImageUrl || existingImageUrl || null;
+
+  if (!name || !price) {
+    return res.status(400).json({ message: "Name and price required" });
+  }
+
   try {
-    await q(
-      "UPDATE menu_items SET name=?, price=?, category=?, status=?, description=?, food_type=?, image_url=COALESCE(?,image_url) WHERE id=?",
-      [name, price, category, status || "Available", description || null, foodType || "Veg", imageUrl, id]
+    await Restaurant.ensureSchema();
+    Restaurant.updateMenuItem(
+      req.params.id,
+      { name, price, category, tableNumber, imageUrl, description, foodType, status, tax, happyHourPrice, happyHourStart, happyHourEnd },
+      (err) => {
+        if (err) return res.status(500).json(err);
+        res.json({ message: "Menu item updated" });
+      }
     );
-    res.json({ message: "Menu item updated" });
-  } catch (err) { res.status(500).json(err); }
+  } catch {
+    res.status(500).json({ message: "Failed to prepare restaurant schema" });
+  }
 };
 
-exports.deleteMenuItem = async (req, res) => {
-  try {
-    await q("DELETE FROM menu_items WHERE id = ?", [req.params.id]);
+exports.deleteMenuItem = (req, res) => {
+  Restaurant.deleteMenuItem(req.params.id, (err) => {
+    if (err) return res.status(500).json(err);
     res.json({ message: "Menu item deleted" });
-  } catch (err) { res.status(500).json(err); }
+  });
 };
-
 
 /* ================= ORDER ================= */
 
 exports.addOrderItem = async (req, res) => {
-  const { tableNumber, item } = req.body;
+  const { tableNumber, item } = req.body || {};
   if (!tableNumber || !item) return res.status(400).json({ message: "tableNumber and item required" });
+
   try {
-    // Find or create pending order
+    let created = false;
     let order = (await q("SELECT id FROM orders WHERE tableNumber=? AND status='pending' ORDER BY id DESC LIMIT 1", [tableNumber]))[0];
+
     if (!order) {
-      const r = await q("INSERT INTO orders (tableNumber, status) VALUES (?, 'pending')", [tableNumber]);
-      order = { id: r.insertId };
+      const result = await q("INSERT INTO orders (tableNumber, status) VALUES (?, 'pending')", [tableNumber]);
+      order = { id: result.insertId };
+      created = true;
     }
+
     await q(
       "INSERT INTO order_items (order_id, name, price, quantity) VALUES (?,?,?,?)",
       [order.id, item.name, Number(item.price), Number(item.quantity || 1)]
     );
-    res.json({ orderId: order.id, message: "Item added" });
+
+    res.json({
+      orderId: order.id,
+      message: created ? "Order created and item added" : "Item added",
+    });
   } catch (err) {
     res.status(500).json({ message: "Failed to add order item", error: err.message });
+  }
+};
+
+exports.getOrders = async (req, res) => {
+  try {
+    const rows = await q(
+      `
+        SELECT
+          o.id,
+          o.tableNumber,
+          o.status,
+          o.created_at,
+          COUNT(oi.id) AS itemCount,
+          COALESCE(SUM(COALESCE(oi.price, 0) * COALESCE(oi.quantity, 0)), 0) AS totalAmount
+        FROM orders o
+        LEFT JOIN order_items oi ON oi.order_id = o.id
+        GROUP BY o.id, o.tableNumber, o.status, o.created_at
+        ORDER BY o.id DESC
+      `
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to load orders", error: err.message });
   }
 };
 
@@ -178,8 +352,10 @@ exports.getOrder = async (req, res) => {
   const { tableNumber } = req.params;
   try {
     const rows = await q("SELECT * FROM orders WHERE tableNumber=? AND status='pending' ORDER BY id DESC LIMIT 1", [tableNumber]);
-    res.json(rows[0] || null);
-  } catch (err) { res.status(500).json(err); }
+    res.json(rows[0] || {});
+  } catch (err) {
+    res.status(500).json({ message: "Failed to load order", error: err.message });
+  }
 };
 
 exports.getOrderItems = async (req, res) => {
@@ -187,29 +363,107 @@ exports.getOrderItems = async (req, res) => {
   try {
     const rows = await q("SELECT * FROM order_items WHERE order_id=?", [orderId]);
     res.json(rows);
-  } catch (err) { res.status(500).json(err); }
+  } catch (err) {
+    res.status(500).json({ message: "Failed to load order items", error: err.message });
+  }
+};
+
+exports.updateOrder = async (req, res) => {
+  const { orderId } = req.params;
+  const { status, tableNumber } = req.body || {};
+
+  try {
+    const existing = await q("SELECT id FROM orders WHERE id = ? LIMIT 1", [orderId]);
+    if (!existing.length) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    const fields = [];
+    const values = [];
+
+    if (status !== undefined) {
+      fields.push("status = ?");
+      values.push(status);
+    }
+
+    if (tableNumber !== undefined) {
+      fields.push("tableNumber = ?");
+      values.push(tableNumber);
+    }
+
+    if (!fields.length) {
+      return res.status(400).json({ message: "Nothing to update" });
+    }
+
+    values.push(orderId);
+    await q(`UPDATE orders SET ${fields.join(", ")} WHERE id = ?`, values);
+    res.json({ message: "Order updated" });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to update order", error: err.message });
+  }
+};
+
+exports.deleteOrder = async (req, res) => {
+  const { orderId } = req.params;
+  try {
+    const result = await q("DELETE FROM orders WHERE id = ?", [orderId]);
+    if (!result.affectedRows) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+    res.json({ message: "Order deleted" });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to delete order", error: err.message });
+  }
 };
 
 exports.payOrder = async (req, res) => {
   const { tableNumber } = req.params;
   try {
-    await q("UPDATE orders SET status='paid' WHERE tableNumber=? AND status='pending'", [tableNumber]);
-    res.json({ message: "Order marked paid" });
-  } catch (err) { res.status(500).json(err); }
-};
-// ── BILLS ────────────────────────────────────────────────────────────────────
-exports.createBill = async (req, res) => {
-  const { tableNumber, tokenId, entityType, subtotal, gst, discount, total, paymentMethod } = req.body;
-  try {
-    const result = await q(
-      "INSERT INTO restaurant_bills (tableNumber, tokenId, entityType, subtotal, gst, discount, total, paymentMethod, invoiceStatus) VALUES (?,?,?,?,?,?,?,?,'paid')",
-      [tableNumber, tokenId || null, entityType || "Table", subtotal || 0, gst || 0, discount || 0, total || 0, paymentMethod || "Cash"]
-    );
-    // Close the token
-    if (tableNumber) {
-      await q("UPDATE tokens SET status='closed' WHERE tableNumber=? AND status='active'", [tableNumber]);
+    const result = await q("UPDATE orders SET status='paid' WHERE tableNumber=? AND status='pending'", [tableNumber]);
+    if (!result.affectedRows) {
+      return res.json({ message: "Order already settled" });
     }
-    res.json({ id: result.insertId, message: "Bill created" });
+    res.json({ message: "Order marked paid" });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to pay order", error: err.message });
+  }
+};
+
+/* ================= BILLS ================= */
+
+exports.createBill = async (req, res) => {
+  try {
+    await Restaurant.ensureSchema();
+
+    Restaurant.createBill(
+      {
+        table: req.body.table || req.body.tableNumber,
+        tokenId: req.body.tokenId || null,
+        entityType: req.body.entityType || "Table",
+        waiterName: req.body.waiterName || null,
+        customerName: req.body.customerName || "",
+        phone: req.body.phone || "",
+        subtotal: Number(req.body.subtotal || 0),
+        gst: Number(req.body.gst || 0),
+        total: Number(req.body.total || 0),
+        discountAmount: Number(req.body.discountAmount || req.body.discount || 0),
+        paymentMethod: req.body.paymentMethod || null,
+        invoiceStatus: req.body.invoiceStatus || (req.body.paymentMethod ? "Paid" : "Generated"),
+        splitNo: req.body.splitNo || null,
+        splitCount: req.body.splitCount || null,
+      },
+      (err, result) => {
+        if (err) {
+          return res.status(500).json({ message: "Failed to create bill", error: err.message });
+        }
+
+        res.json({
+          id: result?.insertId || result?.bill?.id || null,
+          bill: result?.bill || null,
+          message: "Bill created",
+        });
+      }
+    );
   } catch (err) {
     res.status(500).json({ message: "Failed to create bill", error: err.message });
   }
@@ -217,14 +471,48 @@ exports.createBill = async (req, res) => {
 
 exports.getBills = async (req, res) => {
   try {
-    const rows = await q("SELECT * FROM restaurant_bills ORDER BY created_at DESC LIMIT 200");
-    res.json(rows);
-  } catch (err) {
-    // fallback to old bills table
+    await Restaurant.ensureSchema();
+
+    Restaurant.getBills((err, rows) => {
+      if (err) {
+        return res.status(500).json({ message: "Failed to load bills", error: err.message });
+      }
+      res.json(Array.isArray(rows) ? rows : []);
+    });
+  } catch {
     try {
-      const rows = await q("SELECT *, tableNumber as tableNumber FROM bills ORDER BY created_at DESC LIMIT 200");
+      const rows = await q(
+        `
+          SELECT
+            id,
+            tableNumber,
+            tokenId,
+            NULL AS tokenCode,
+            entityType,
+            NULL AS waiter_name,
+            NULL AS customerName,
+            NULL AS phone,
+            subtotal,
+            gst,
+            total,
+            discount AS discountAmount,
+            paymentMethod,
+            invoiceStatus,
+            NULL AS split_no,
+            NULL AS split_count,
+            NULL AS paid_at,
+            NULL AS payment_id,
+            NULL AS account_transaction_id,
+            created_at
+          FROM restaurant_bills
+          ORDER BY created_at DESC
+          LIMIT 200
+        `
+      );
       res.json(rows);
-    } catch (e) { res.status(500).json(e); }
+    } catch (err) {
+      res.status(500).json({ message: "Failed to load bills", error: err.message });
+    }
   }
 };
 
@@ -240,43 +528,13 @@ exports.payBill = async (req, res) => {
       ...result,
     });
   } catch (error) {
-    const statusCode = Number(error.statusCode || 500);
-    res.status(statusCode).json({
+    res.status(Number(error.statusCode || 500)).json({
       message: error.message || "Bill payment failed",
     });
   }
 };
 
-exports.updateMenuItem = async (req, res) => {
-  const { name, price, category, tableNumber, tax, happyHourPrice, happyHourStart, happyHourEnd, description, foodType, status, existingImageUrl, imageUrl: bodyImageUrl } = req.body;
-  const imageUrl = req.file ? `/uploads/${req.file.filename}` : bodyImageUrl || existingImageUrl || null;
-
-  if (!name || !price) {
-    return res.status(400).json({ message: "Name and price required" });
-  }
-
-  try {
-    await Restaurant.ensureSchema();
-    Restaurant.updateMenuItem(
-      req.params.id,
-      { name, price, category, tableNumber, imageUrl, description, foodType, status, tax, happyHourPrice, happyHourStart, happyHourEnd },
-      (err) => {
-        if (err) return res.status(500).json(err);
-        res.json({ message: "Menu item updated" });
-      },
-    );
-  } catch (error) {
-    return res.status(500).json({ message: "Failed to prepare restaurant schema" });
-  }
-};
-
-exports.deleteMenuItem = (req, res) => {
-  Restaurant.deleteMenuItem(req.params.id, (err) => {
-    if (err) return res.status(500).json(err);
-    res.json({ message: "Menu item deleted" });
-  });
-};
-
+/* ================= ITEM ACTION / SPLIT / METRICS ================= */
 
 exports.addItemActionRequest = (req, res) => {
   const { tokenItemId, tableNumber, actionType, reason, requestedBy } = req.body || {};
@@ -289,16 +547,23 @@ exports.addItemActionRequest = (req, res) => {
     (err, result) => {
       if (err) return res.status(500).json(err);
       res.json({ message: "Item action request created", id: result.insertId });
-    },
+    }
   );
 };
 
-// ── ACTION REQUESTS (used by EditToken) ───────────────────────────────────
 exports.getItemActionRequests = async (req, res) => {
-  // Stub — return empty if table doesn't exist yet
-  res.json([]);
+  try {
+    await Restaurant.ensureSchema();
+    Restaurant.getItemActionRequests((err, rows) => {
+      if (err) {
+        return res.status(500).json({ message: "Failed to load item action requests", error: err.message });
+      }
+      res.json(Array.isArray(rows) ? rows : []);
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to load item action requests", error: err.message });
+  }
 };
-
 
 exports.reviewItemActionRequest = (req, res) => {
   const { id } = req.params;
@@ -313,7 +578,7 @@ exports.reviewItemActionRequest = (req, res) => {
     (err) => {
       if (err) return res.status(500).json(err);
       res.json({ message: "Item action request updated" });
-    },
+    }
   );
 };
 
@@ -353,25 +618,18 @@ exports.createSplitBill = (req, res) => {
     (err, result) => {
       if (err) return res.status(500).json(err);
       res.json({ message: "Split bill saved", id: result.insertId });
-    },
+    }
   );
 };
 
-// ── WAITER PERFORMANCE (was missing — crashes TablePage) ──────────────────
 exports.getWaiterPerformance = async (req, res) => {
   try {
-    const rows = await q(`
-      SELECT waiter AS waiter_name,
-             COUNT(*)                                              AS total_orders,
-             SUM(CASE WHEN status='Ready' THEN 1 ELSE 0 END)      AS completed,
-             AVG(prep_time_minutes)                                AS avg_prep_time
-      FROM kitchen_orders
-      WHERE token_status = 'Active'
-      GROUP BY waiter
-      ORDER BY total_orders DESC
-    `);
-    res.json(rows);
+    await Restaurant.ensureSchema();
+    Restaurant.getWaiterPerformance((err, rows) => {
+      if (err) return res.json([]);
+      res.json(Array.isArray(rows) ? rows : []);
+    });
   } catch {
-    res.json([]); // non-critical, return empty
+    res.json([]);
   }
 };

@@ -4,7 +4,7 @@ require("dotenv").config({ quiet: process.env.NODE_ENV === "test" });
 const resolvedDatabase =
   process.env.NODE_ENV === "test" && process.env.DB_NAME_TEST
     ? process.env.DB_NAME_TEST
-    : process.env.DB_NAME || "employee";
+    : process.env.DB_NAME || "employee3";
 
 const db = mysql.createPool({
   host: process.env.DB_HOST || "127.0.0.1",

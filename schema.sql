@@ -1,6 +1,6 @@
 -- =====================================================================
 -- BAGLAMUKHI RESORT - COMPLETE SCHEMA
--- Run this FIRST, then seed.js
+-- Run this FIRST, then seed.sql (or `npm run seed`)
 -- =====================================================================
 
 SET FOREIGN_KEY_CHECKS = 0;

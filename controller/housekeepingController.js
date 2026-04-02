@@ -9,6 +9,19 @@ const query = (sql, params = []) =>
     db.query(sql, params, (err, results) => (err ? reject(err) : resolve(results)))
   );
 
+exports.bootstrap = async (req, res, next) => {
+  try {
+    await Housekeeping.ensureSchema();
+    await ensureCompletedCleaningLogSchema();
+    next();
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to prepare housekeeping schema",
+      error: error.message || error,
+    });
+  }
+};
+
 exports.getAllRooms = (req, res) => {
   Housekeeping.getAllRooms((err, results) => {
     if (err) {
@@ -26,12 +39,21 @@ exports.getAllRooms = (req, res) => {
 exports.createRoom = (req, res) => {
   const data = {
     roomNo: req.body.roomNo || req.body.roomNumber,
+    type: req.body.type,
+    building: req.body.building,
+    floor: req.body.floor,
+    section: req.body.section,
+    guestStatus: req.body.guestStatus,
+    roomType: req.body.roomType,
     status: req.body.status,
     assignee: req.body.assignee,
     priority: req.body.priority,
     notes: req.body.notes,
     cleaningStart: req.body.cleaningStart,
     cleaningEnd: req.body.cleaningEnd,
+    layout: req.body.layout,
+    articles: req.body.articles,
+    services: req.body.services,
   };
 
   if (!data.roomNo) {
@@ -61,12 +83,21 @@ exports.updateRoom = (req, res) => {
   const id = req.params.id;
 
   const data = {
+    type: req.body.type || "Accommodation",
+    building: req.body.building || null,
+    floor: req.body.floor || null,
+    section: req.body.section || null,
+    guestStatus: req.body.guestStatus || null,
+    roomType: req.body.roomType || null,
     status: req.body.status || "Vacant Dirty",
     assignee: req.body.assignee || "No Housekeeper",
     priority: req.body.priority || "Normal",
     notes: req.body.notes || "",
     cleaningStart: req.body.cleaningStart || null,
     cleaningEnd: req.body.cleaningEnd || null,
+    layout: req.body.layout || null,
+    articles: req.body.articles || null,
+    services: req.body.services || null,
   };
 
   Housekeeping.updateRoom(id, data, (err, result) => {

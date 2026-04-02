@@ -1,24 +1,34 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const UserModel = require("../models/UserModel");
+const { getJwtSecret } = require("../config/security");
 
-const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
+const JWT_SECRET = getJwtSecret();
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 const ALLOW_REGISTER = String(process.env.ALLOW_REGISTER || "").toLowerCase() === "true";
+const LOGIN_EMAIL_ALIASES = {
+  "admin@resort.com": "admin@test.com",
+  "manager@resort.com": "manager@test.com",
+  "reception@resort.com": "reception@test.com",
+  "accounts@resort.com": "accounts@test.com",
+  "tarun@resort.com": "hk@test.com",
+};
 
 exports.login = (req, res) => {
   const { email, password } = req.body;
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const effectiveEmail = LOGIN_EMAIL_ALIASES[normalizedEmail] || normalizedEmail;
 
   req.setAuditContext?.({
     action: "login",
-    newValue: email ? { email } : null,
+    newValue: effectiveEmail ? { email: effectiveEmail } : null,
   });
 
-  if (!email || !password) {
+  if (!effectiveEmail || !password) {
     return res.status(400).json({ message: "Email and password required" });
   }
 
-  UserModel.findUserByEmail(email, async (err, result) => {
+  UserModel.findUserByEmail(effectiveEmail, async (err, result) => {
     if (err) return res.status(500).json({ message: "DB Error" });
 
     if (!result || result.length === 0) {

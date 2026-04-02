@@ -60,6 +60,19 @@ function shouldSkip(req) {
   return req.originalUrl.startsWith("/uploads") || req.originalUrl === "/api/health";
 }
 
+const getPendingAuditLogSet = () => {
+  if (!global.__PENDING_AUDIT_LOG_WRITES__) {
+    global.__PENDING_AUDIT_LOG_WRITES__ = new Set();
+  }
+  return global.__PENDING_AUDIT_LOG_WRITES__;
+};
+
+async function waitForPendingAuditLogs() {
+  const pending = Array.from(getPendingAuditLogSet());
+  if (!pending.length) return;
+  await Promise.allSettled(pending);
+}
+
 function auditLogger(req, res, next) {
   if (shouldSkip(req)) return next();
 
@@ -92,7 +105,7 @@ function auditLogger(req, res, next) {
   };
 
   res.on("finish", async () => {
-    try {
+    const writePromise = (async () => {
       await AuditLogModel.createLog({
         userId:
           req.auditContext?.userId ??
@@ -115,8 +128,17 @@ function auditLogger(req, res, next) {
         newValue: maskSensitive(req.auditContext?.newValue),
         responseBody: maskSensitive(responseBody),
       });
+    })();
+
+    const pending = getPendingAuditLogSet();
+    pending.add(writePromise);
+
+    try {
+      await writePromise;
     } catch (error) {
       console.error("Audit log write failed:", error.message || error);
+    } finally {
+      pending.delete(writePromise);
     }
   });
 
@@ -124,3 +146,4 @@ function auditLogger(req, res, next) {
 }
 
 module.exports = auditLogger;
+module.exports.waitForPendingAuditLogs = waitForPendingAuditLogs;

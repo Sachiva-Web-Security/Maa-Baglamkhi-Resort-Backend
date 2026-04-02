@@ -34,6 +34,86 @@ const formatDateKey = (value) => {
 const buildInvoiceNo = (bookingId) =>
   `HOTINV-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${String(bookingId).padStart(4, "0")}`;
 
+const normalizeInvoiceKey = (row = {}) => {
+  const bookingId = Number(row.booking_id || row.customer_id || 0);
+  if (bookingId > 0) {
+    return `booking:${bookingId}`;
+  }
+
+  const invoiceNo = String(row.invoice_no || "").trim();
+  if (invoiceNo) {
+    return `invoice:${invoiceNo}`;
+  }
+
+  return `row:${row.id || "unknown"}`;
+};
+
+const dedupeInvoiceRows = (rows = []) => {
+  const seen = new Set();
+  return rows.filter((row) => {
+    const key = normalizeInvoiceKey(row);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+};
+
+const getLatestInvoiceRow = async (bookingId) => {
+  const rows = await runQuery(
+    `
+      SELECT id, invoice_no, payment_status, payment_mode, status, notes
+      FROM invoices
+      WHERE booking_id = ? OR customer_id = ?
+      ORDER BY updated_at DESC, id DESC
+      LIMIT 1
+    `,
+    [bookingId, bookingId],
+  );
+
+  return rows[0] || null;
+};
+
+const removeDuplicateInvoices = async ({ keepId, bookingId, invoiceNo }) => {
+  const filters = [];
+  const params = [];
+
+  if (Number(bookingId) > 0) {
+    filters.push("booking_id = ?");
+    params.push(Number(bookingId));
+    filters.push("customer_id = ?");
+    params.push(Number(bookingId));
+  }
+
+  if (String(invoiceNo || "").trim()) {
+    filters.push("invoice_no = ?");
+    params.push(String(invoiceNo).trim());
+  }
+
+  if (!filters.length) {
+    return;
+  }
+
+  const duplicateRows = await runQuery(
+    `
+      SELECT id
+      FROM invoices
+      WHERE id <> ?
+        AND (${filters.join(" OR ")})
+    `,
+    [keepId, ...params],
+  );
+
+  if (!duplicateRows.length) {
+    return;
+  }
+
+  const deleteIds = duplicateRows.map((row) => Number(row.id)).filter(Boolean);
+  const placeholders = deleteIds.map(() => "?").join(", ");
+  await runQuery(`DELETE FROM invoices WHERE id IN (${placeholders})`, deleteIds);
+};
+
 const ensureSchema = async () => {
   await runQuery(`
     CREATE TABLE IF NOT EXISTS invoices (
@@ -74,10 +154,16 @@ const ensureSchema = async () => {
   await ensureColumn("invoices", "subtotal", "DECIMAL(12,2) DEFAULT 0 AFTER extra_charge");
   await ensureColumn("invoices", "final_total", "DECIMAL(12,2) DEFAULT 0 AFTER discount");
   await ensureColumn("invoices", "payment_status", "VARCHAR(50) DEFAULT 'Pending' AFTER payment_mode");
+  await ensureColumn("invoices", "notes", "TEXT NULL AFTER status");
   await ensureColumn("invoices", "items_json", "LONGTEXT NULL AFTER notes");
   await ensureColumn("invoices", "booking_id", "INT DEFAULT NULL AFTER notes");
   await ensureColumn("invoices", "customer_id", "INT DEFAULT NULL AFTER booking_id");
   await ensureColumn("invoices", "total_amount", "DECIMAL(12,2) DEFAULT 0 AFTER final_total");
+  await ensureColumn(
+    "invoices",
+    "updated_at",
+    "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at",
+  );
 };
 
 const getBookingInvoiceBase = async (customerId) => {
@@ -232,11 +318,7 @@ const getFoodItems = async (roomNumbers = []) => {
 const saveGeneratedInvoice = async (payload) => {
   await ensureSchema();
 
-  const existing = await runQuery(
-    "SELECT id, invoice_no, payment_status, payment_mode, status, notes FROM invoices WHERE booking_id = ? ORDER BY id DESC LIMIT 1",
-    [payload.customerId],
-  );
-  const current = existing[0] || null;
+  const current = await getLatestInvoiceRow(payload.customerId);
 
   const invoiceNo = current?.invoice_no || buildInvoiceNo(payload.customerId);
   const paymentStatus = current?.payment_status || current?.status || payload.paymentStatus || "Pending";
@@ -298,6 +380,11 @@ const saveGeneratedInvoice = async (payload) => {
       `,
       [...values, current.id],
     );
+    await removeDuplicateInvoices({
+      keepId: current.id,
+      bookingId: payload.customerId,
+      invoiceNo,
+    });
     return { id: current.id, invoiceNo, paymentStatus, paymentMode, notes };
   }
 
@@ -314,6 +401,12 @@ const saveGeneratedInvoice = async (payload) => {
     `,
     values,
   );
+
+  await removeDuplicateInvoices({
+    keepId: result.insertId,
+    bookingId: payload.customerId,
+    invoiceNo,
+  });
 
   return { id: result.insertId, invoiceNo, paymentStatus, paymentMode, notes };
 };
@@ -458,10 +551,10 @@ const getAllInvoices = (callback) => {
       runQuery(`
         SELECT *
         FROM invoices
-        ORDER BY id DESC
+        ORDER BY updated_at DESC, id DESC
       `),
     )
-    .then((rows) => callback(null, rows.map(parseInvoiceRow)))
+    .then((rows) => callback(null, dedupeInvoiceRows(rows).map(parseInvoiceRow)))
     .catch((error) => callback(error));
 };
 
@@ -469,8 +562,14 @@ const getInvoiceByBookingId = (bookingId, callback) => {
   ensureSchema()
     .then(() =>
       runQuery(
-        "SELECT * FROM invoices WHERE booking_id = ? ORDER BY id DESC LIMIT 1",
-        [bookingId],
+        `
+          SELECT *
+          FROM invoices
+          WHERE booking_id = ? OR customer_id = ?
+          ORDER BY updated_at DESC, id DESC
+          LIMIT 1
+        `,
+        [bookingId, bookingId],
       ),
     )
     .then((rows) => callback(null, rows[0] ? parseInvoiceRow(rows[0]) : null))
@@ -537,11 +636,25 @@ const generateCustomerInvoice = async (customerId) => {
   return buildInvoicePayload(Number(customerId));
 };
 
-const updatePaymentStatus = async (id, paymentStatus) => {
+const updatePaymentStatus = async (id, paymentStatus, options = {}) => {
   await ensureSchema();
+  const paymentMode = options.paymentMode || null;
+  const notes = options.notes || null;
   await runQuery(
-    "UPDATE invoices SET payment_status = ?, status = ? WHERE id = ?",
-    [paymentStatus, paymentStatus, id],
+    `
+      UPDATE invoices
+      SET
+        payment_status = ?,
+        status = ?,
+        payment_mode = COALESCE(?, payment_mode),
+        notes = CASE
+          WHEN ? IS NULL OR ? = '' THEN notes
+          WHEN notes IS NULL OR notes = '' THEN ?
+          ELSE CONCAT(notes, ' | ', ?)
+        END
+      WHERE id = ?
+    `,
+    [paymentStatus, paymentStatus, paymentMode, notes, notes, notes, notes, id],
   );
 };
 
