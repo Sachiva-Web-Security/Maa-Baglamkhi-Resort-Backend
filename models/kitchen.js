@@ -21,6 +21,8 @@ const ensureSchema = async () => {
       entity_type VARCHAR(30) DEFAULT 'Table',
       items LONGTEXT NULL,
       status VARCHAR(50) DEFAULT 'Pending',
+      token_status VARCHAR(50) DEFAULT 'Active',
+      kot_no VARCHAR(100) DEFAULT NULL,
       prep_time_minutes INT DEFAULT 20,
       expected_ready_at DATETIME NULL,
       ready_at DATETIME NULL,
@@ -31,6 +33,8 @@ const ensureSchema = async () => {
 
   await ensureColumn("kitchen_orders", "entity_type", "VARCHAR(30) DEFAULT 'Table'");
   await ensureColumn("kitchen_orders", "prep_time_minutes", "INT DEFAULT 20");
+  await ensureColumn("kitchen_orders", "token_status", "VARCHAR(50) DEFAULT 'Active'");
+  await ensureColumn("kitchen_orders", "kot_no", "VARCHAR(100) DEFAULT NULL");
   await ensureColumn("kitchen_orders", "expected_ready_at", "DATETIME NULL");
   await ensureColumn("kitchen_orders", "ready_at", "DATETIME NULL");
   await ensureColumn("kitchen_orders", "ready_message", "VARCHAR(255) NULL");

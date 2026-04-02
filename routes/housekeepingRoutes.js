@@ -2,42 +2,51 @@ const express = require("express");
 const router = express.Router();
 
 const ctrl = require("../controller/housekeepingController");
+const authMiddleware = require("../middleware/authMiddleware");
+const roleMiddleware = require("../middleware/roleMiddleware");
 
-router.get("/", ctrl.getAllRooms);
-router.get("/logs", ctrl.getLogs);
-router.post("/", ctrl.createRoom);
-router.put("/:id", ctrl.updateRoom);
-router.put("/status/:id", ctrl.updateStatus);
-router.put("/assignee/:id", ctrl.updateAssignee);
-router.delete("/:id", ctrl.deleteRoom);
+const READERS = ["admin", "manager", "housekeeping", "receptionist", "kitchen"];
+const EDITORS = ["admin", "manager", "housekeeping"];
+const PARAMETER_EDITORS = ["admin", "manager"];
 
-router.get("/parameters", ctrl.getParameters);
-router.post("/parameters", ctrl.saveParameters);
+router.use(ctrl.bootstrap);
+router.use(authMiddleware);
 
-router.post("/message", ctrl.sendMessage);
+router.get("/", roleMiddleware(READERS), ctrl.getAllRooms);
+router.get("/logs", roleMiddleware(READERS), ctrl.getLogs);
+router.post("/", roleMiddleware(EDITORS), ctrl.createRoom);
+router.put("/:id", roleMiddleware(EDITORS), ctrl.updateRoom);
+router.put("/status/:id", roleMiddleware(EDITORS), ctrl.updateStatus);
+router.put("/assignee/:id", roleMiddleware(EDITORS), ctrl.updateAssignee);
+router.delete("/:id", roleMiddleware(EDITORS), ctrl.deleteRoom);
 
-router.get("/amenities", ctrl.getAmenities);
-router.post("/amenities", ctrl.logAmenity);
-router.delete("/amenities/:id", ctrl.deleteAmenity);
+router.get("/parameters", roleMiddleware(READERS), ctrl.getParameters);
+router.post("/parameters", roleMiddleware(PARAMETER_EDITORS), ctrl.saveParameters);
 
-router.get("/inspections", ctrl.getInspections);
-router.post("/inspections", ctrl.createInspection);
-router.get("/inspections/:id", ctrl.getInspectionById);
+router.post("/message", roleMiddleware(EDITORS), ctrl.sendMessage);
 
-router.get("/lost-found", ctrl.getLostFound);
-router.post("/lost-found", ctrl.createLostFound);
-router.put("/lost-found/:id", ctrl.updateLostFound);
-router.delete("/lost-found/:id", ctrl.deleteLostFound);
+router.get("/amenities", roleMiddleware(READERS), ctrl.getAmenities);
+router.post("/amenities", roleMiddleware(EDITORS), ctrl.logAmenity);
+router.delete("/amenities/:id", roleMiddleware(EDITORS), ctrl.deleteAmenity);
 
-router.get("/roster", ctrl.getRoster);
-router.post("/roster", ctrl.saveRoster);
+router.get("/inspections", roleMiddleware(READERS), ctrl.getInspections);
+router.post("/inspections", roleMiddleware(EDITORS), ctrl.createInspection);
+router.get("/inspections/:id", roleMiddleware(READERS), ctrl.getInspectionById);
 
-router.get("/costing", ctrl.getCostingLogs);
-router.post("/costing", ctrl.logCost);
+router.get("/lost-found", roleMiddleware(READERS), ctrl.getLostFound);
+router.post("/lost-found", roleMiddleware(EDITORS), ctrl.createLostFound);
+router.put("/lost-found/:id", roleMiddleware(EDITORS), ctrl.updateLostFound);
+router.delete("/lost-found/:id", roleMiddleware(EDITORS), ctrl.deleteLostFound);
 
-router.get("/checkout-report", ctrl.getCheckoutReport);
+router.get("/roster", roleMiddleware(READERS), ctrl.getRoster);
+router.post("/roster", roleMiddleware(PARAMETER_EDITORS), ctrl.saveRoster);
 
-router.get("/completed-cleaning", ctrl.getCompletedCleaningLogs);
-router.post("/completed-cleaning", ctrl.createCompletedCleaningLog);
+router.get("/costing", roleMiddleware(READERS), ctrl.getCostingLogs);
+router.post("/costing", roleMiddleware(EDITORS), ctrl.logCost);
+
+router.get("/checkout-report", roleMiddleware(READERS), ctrl.getCheckoutReport);
+
+router.get("/completed-cleaning", roleMiddleware(READERS), ctrl.getCompletedCleaningLogs);
+router.post("/completed-cleaning", roleMiddleware(EDITORS), ctrl.createCompletedCleaningLog);
 
 module.exports = router;

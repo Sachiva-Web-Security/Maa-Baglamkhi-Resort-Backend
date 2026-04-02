@@ -75,26 +75,60 @@ const getActiveTokenByTable = (tableNumber, callback) => {
 };
 
 const createToken = (data, callback) => {
-  getActiveTokenByTable(data.tableNumber, (lookupErr, activeToken) => {
+  getActiveTokenByTable(data.tableNumber, async (lookupErr, activeToken) => {
     if (lookupErr) {
       callback(lookupErr);
       return;
     }
 
-    if (activeToken?.id) {
-      callback(null, {
-        insertId: activeToken.id,
-        existing: true,
-        token: activeToken,
-      });
-      return;
-    }
+    try {
+      if (activeToken?.id) {
+        const paidBills = await runQuery(
+          `
+            SELECT id
+            FROM bills
+            WHERE token_id = ?
+              AND (
+                LOWER(COALESCE(invoiceStatus, '')) = 'paid'
+                OR account_transaction_id IS NOT NULL
+              )
+            ORDER BY id DESC
+            LIMIT 1
+          `,
+          [activeToken.id],
+        );
 
-    const sql = `
-      INSERT INTO tokens (token_code, tableNumber, waiter, status)
-      VALUES (?, ?, ?, 'active')
-    `;
-    db.query(sql, [buildVisitCode(), data.tableNumber, data.waiter], callback);
+        if (!paidBills.length) {
+          callback(null, {
+            insertId: activeToken.id,
+            existing: true,
+            token: activeToken,
+          });
+          return;
+        }
+
+        await runQuery(
+          "UPDATE tokens SET status='closed' WHERE id = ? AND status='active'",
+          [activeToken.id],
+        );
+      }
+
+      const nextTokenCode = buildVisitCode();
+      const result = await runQuery(
+        `
+          INSERT INTO tokens (token_code, tableNumber, waiter, status)
+          VALUES (?, ?, ?, 'active')
+        `,
+        [nextTokenCode, data.tableNumber, data.waiter],
+      );
+
+      callback(null, {
+        ...result,
+        token_code: nextTokenCode,
+      });
+    } catch (error) {
+      callback(error);
+    }
   });
 };
 

@@ -1,5 +1,3 @@
-const Kitchen = require("../models/kitchen");
-const AccountsModel = require("../models/AccountsModel");
 const db = require("../config/db");
 
 const q = (sql, params = []) =>
@@ -56,12 +54,15 @@ const inferEntityType = (orderLike = {}) => {
 
 exports.createOrder = async (req, res) => {
   const { table, waiter, items, prepTimeMinutes, entityType, kotNo } = req.body;
+  if (!String(table || "").trim()) {
+    return res.status(400).json({ message: "Table reference is required" });
+  }
+  if (!Array.isArray(items) || !items.length) {
+    return res.status(400).json({ message: "At least one kitchen item is required" });
+  }
   const itemsJson   = JSON.stringify(Array.isArray(items) ? items : []);
-  const prepMinutes = Number(prepTimeMinutes || 20);
-  const expectedAt  = new Date(Date.now() + prepMinutes * 60000)
-    .toISOString()
-    .slice(0, 19)
-    .replace("T", " ");
+  const prepMinutes = normalizePrepTime(prepTimeMinutes);
+  const expectedAt  = formatMySqlDateTime(new Date(Date.now() + prepMinutes * 60000));
   const kot = kotNo || `KOT-${Date.now()}`;
 
   try {
@@ -71,7 +72,19 @@ exports.createOrder = async (req, res) => {
         VALUES (?, ?, ?, 'Pending', 'Active', ?, ?, ?, ?)`,
       [waiter || "Waiter", String(table || ""), itemsJson, kot, entityType || "Table", prepMinutes, expectedAt]
     );
-    res.status(201).json({ id: result.insertId, message: "Kitchen order created", kotNo: kot });
+    res.json({
+      id: result.insertId,
+      message: "Kitchen order created",
+      kotNo: kot,
+      order: {
+        id: result.insertId,
+        table: String(table || ""),
+        waiter: waiter || "Waiter",
+        entityType: entityType || "Table",
+        prepTimeMinutes: prepMinutes,
+        expectedReadyAt: expectedAt,
+      },
+    });
   } catch (err) {
     res.status(500).json({ message: "Failed to create kitchen order", error: err.message });
   }
@@ -81,7 +94,7 @@ exports.createOrder = async (req, res) => {
 exports.getOrders = async (req, res) => {
   try {
     const rows = await q(
-      "SELECT * FROM kitchen_orders WHERE token_status != 'Closed' ORDER BY created_at DESC"
+      "SELECT * FROM kitchen_orders WHERE COALESCE(token_status, 'Active') != 'Closed' ORDER BY created_at DESC"
     );
     res.json(rows.map(normalizeOrder));
   } catch (err) {
@@ -94,14 +107,19 @@ exports.updateOrderStatus = async (req, res) => {
   const { id } = req.params;
   const { status, prepTimeMinutes, readyMessage } = req.body;
   try {
+    const existingRows = await q("SELECT id FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    if (!existingRows.length) {
+      return res.status(404).json({ message: "Kitchen order not found" });
+    }
+
     const fields = [], vals = [];
     if (status !== undefined) { fields.push("status = ?"); vals.push(status); }
     if (readyMessage !== undefined) { fields.push("ready_message = ?"); vals.push(readyMessage); }
     if (prepTimeMinutes !== undefined) {
+      const normalizedPrepTime = normalizePrepTime(prepTimeMinutes);
       fields.push("prep_time_minutes = ?");
-      vals.push(Number(prepTimeMinutes));
-      const expectedAt = new Date(Date.now() + Number(prepTimeMinutes) * 60000)
-        .toISOString().slice(0, 19).replace("T", " ");
+      vals.push(normalizedPrepTime);
+      const expectedAt = formatMySqlDateTime(new Date(Date.now() + normalizedPrepTime * 60000));
       fields.push("expected_ready_at = ?");
       vals.push(expectedAt);
     }
@@ -121,10 +139,47 @@ exports.updateOrderStatus = async (req, res) => {
 exports.saveOrder = async (req, res) => {
   const { id } = req.params;
   try {
-    await q("UPDATE kitchen_orders SET status = 'Saved', token_status = 'Closed' WHERE id = ?", [id]);
-    res.json({ message: "Order saved" });
+    const rows = await q("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const order = rows[0];
+    if (!order) {
+      return res.status(404).json({ message: "Kitchen order not found" });
+    }
+
+    const items = parseItems(order.items);
+    const amount = items.reduce((sum, item) => {
+      const quantity = Number(item.qty ?? item.quantity ?? 0);
+      const price = Number(item.price || 0);
+      return sum + quantity * price;
+    }, 0);
+    const entityType = inferEntityType(order);
+    const reference = String(order.table_number || "--");
+    const accountDate = new Date().toISOString().slice(0, 10);
+    const description = `Kitchen order saved - ${entityType} ${reference} - Order #${order.id}`;
+
+    const accountResult = await q(
+      `
+        INSERT INTO accounts_transactions (date, type, description, amount, payment_mode)
+        VALUES (?, 'Income', ?, ?, ?)
+      `,
+      [accountDate, description, amount, "Kitchen"],
+    );
+
+    await q(
+      "UPDATE kitchen_orders SET status = 'Saved', token_status = 'Closed' WHERE id = ?",
+      [id],
+    );
+
+    res.json({
+      message: "Order saved",
+      accountEntry: {
+        id: accountResult.insertId,
+        amount,
+        description,
+        paymentMode: "Kitchen",
+      },
+    });
   } catch (err) {
-    res.status(500).json(err);
+    res.status(500).json({ message: "Failed to save kitchen order", error: err.message });
   }
 };
 
@@ -132,10 +187,13 @@ exports.saveOrder = async (req, res) => {
 exports.cancelOrder = async (req, res) => {
   const { id } = req.params;
   try {
-    await q("UPDATE kitchen_orders SET status = 'Cancelled' WHERE id = ?", [id]);
+    const result = await q("UPDATE kitchen_orders SET status = 'Cancelled' WHERE id = ?", [id]);
+    if (!result.affectedRows) {
+      return res.status(404).json({ message: "Kitchen order not found" });
+    }
     res.json({ message: "Order cancelled" });
   } catch (err) {
-    res.status(500).json(err);
+    res.status(500).json({ message: "Failed to cancel kitchen order", error: err.message });
   }
 };
 
@@ -143,7 +201,10 @@ exports.cancelOrder = async (req, res) => {
 exports.removeOrder = async (req, res) => {
   const { id } = req.params;
   try {
-    await q("DELETE FROM kitchen_orders WHERE id = ?", [id]);
+    const result = await q("DELETE FROM kitchen_orders WHERE id = ?", [id]);
+    if (!result.affectedRows) {
+      return res.status(404).json({ message: "Kitchen order not found" });
+    }
     res.json({ message: "Order permanently removed" });
   } catch (err) {
     res.status(500).json({ message: "Failed to remove order", error: err.message });

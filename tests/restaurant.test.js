@@ -71,7 +71,29 @@ describe("Restaurant Order APIs", () => {
     test("filters menu by tableNumber", async () => {
       const res = await api().get("/api/restaurant/menu?tableNumber=T2");
       expect(res.status).toBe(200);
-      expect(res.body.every((item) => item.table_number === "T2")).toBe(true);
+      expect(
+        res.body.every((item) => item.table_number === "T2" || item.table_number == null || item.table_number === ""),
+      ).toBe(true);
+      expect(res.body.some((item) => item.table_number === "T2")).toBe(true);
+    });
+
+    test("includes global menu items when filtering by tableNumber", async () => {
+      await api().post("/api/restaurant/menu").send({
+        name: "Global Veg Thali",
+        price: 240,
+        category: "Main Course",
+      });
+
+      const res = await api().get("/api/restaurant/menu?tableNumber=T1");
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "Global Veg Thali",
+          }),
+        ]),
+      );
     });
 
     test("exposes effective price", async () => {
@@ -135,9 +157,10 @@ describe("Restaurant Order APIs", () => {
       expect(res.body.message).toMatch(/paid/i);
     });
 
-    test("returns 404 when paying non-pending order", async () => {
+    test("returns success when paying non-pending order", async () => {
       const res = await api().put("/api/restaurant/order/T2/pay").send({});
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(200);
+      expect(res.body.message).toMatch(/already settled/i);
     });
 
     test("creates restaurant bill", async () => {
@@ -154,6 +177,17 @@ describe("Restaurant Order APIs", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.id).toBeTruthy();
+
+      const legacyBills = await runQuery(
+        "SELECT modern_bill_id, customerName, phone, paymentMethod, invoiceStatus FROM restaurant_bills WHERE modern_bill_id = ?",
+        [res.body.id],
+      );
+
+      expect(legacyBills).toHaveLength(1);
+      expect(legacyBills[0].customerName).toBe("Walk In");
+      expect(legacyBills[0].phone).toBe("8888888888");
+      expect(legacyBills[0].paymentMethod).toBe("Cash");
+      expect(legacyBills[0].invoiceStatus).toBe("Paid");
     });
 
     test("generate bill does not create payment or accounts income", async () => {
@@ -177,12 +211,21 @@ describe("Restaurant Order APIs", () => {
       const afterPayments = await runQuery("SELECT COUNT(*) AS total FROM payments");
       const afterAccounts = await runQuery("SELECT COUNT(*) AS total FROM accounts_transactions");
       const bills = await runQuery("SELECT invoiceStatus, paymentMethod, account_transaction_id FROM bills WHERE id = ?", [res.body.id]);
+      const legacyBills = await runQuery(
+        "SELECT customerName, phone, invoiceStatus, paymentMethod FROM restaurant_bills WHERE modern_bill_id = ?",
+        [res.body.id],
+      );
 
       expect(Number(afterPayments[0].total)).toBe(Number(beforePayments[0].total));
       expect(Number(afterAccounts[0].total)).toBe(Number(beforeAccounts[0].total));
       expect(bills[0].invoiceStatus).toBe("Generated");
       expect(bills[0].paymentMethod).toBeNull();
       expect(bills[0].account_transaction_id).toBeNull();
+      expect(legacyBills).toHaveLength(1);
+      expect(legacyBills[0].customerName).toBe("Bill Only");
+      expect(legacyBills[0].phone).toBe("8888888888");
+      expect(legacyBills[0].invoiceStatus).toBe("Generated");
+      expect(legacyBills[0].paymentMethod).toBeNull();
     });
 
     test("paying a generated bill creates payment and accounts income", async () => {
@@ -214,6 +257,10 @@ describe("Restaurant Order APIs", () => {
         "SELECT invoiceStatus, paymentMethod, payment_id, account_transaction_id, paid_at FROM bills WHERE id = ?",
         [billRes.body.id],
       );
+      const legacyBills = await runQuery(
+        "SELECT customerName, phone, invoiceStatus, paymentMethod, payment_id, account_transaction_id, paid_at FROM restaurant_bills WHERE modern_bill_id = ?",
+        [billRes.body.id],
+      );
 
       expect(Number(afterPayments[0].total)).toBe(Number(beforePayments[0].total) + 1);
       expect(Number(afterAccounts[0].total)).toBe(Number(beforeAccounts[0].total) + 1);
@@ -222,6 +269,65 @@ describe("Restaurant Order APIs", () => {
       expect(bills[0].payment_id).toBeTruthy();
       expect(bills[0].account_transaction_id).toBeTruthy();
       expect(bills[0].paid_at).toBeTruthy();
+      expect(legacyBills).toHaveLength(1);
+      expect(legacyBills[0].customerName).toBe("Bill Then Pay");
+      expect(legacyBills[0].phone).toBe("8888888888");
+      expect(legacyBills[0].invoiceStatus).toBe("Paid");
+      expect(legacyBills[0].paymentMethod).toBe("UPI");
+      expect(legacyBills[0].payment_id).toBeTruthy();
+      expect(legacyBills[0].account_transaction_id).toBeTruthy();
+      expect(legacyBills[0].paid_at).toBeTruthy();
+
+      const activeTokens = await runQuery(
+        "SELECT id FROM tokens WHERE tableNumber = 'T1' AND status = 'active'",
+      );
+      const pendingOrders = await runQuery(
+        "SELECT id FROM orders WHERE tableNumber = 'T1' AND status = 'pending'",
+      );
+
+      expect(activeTokens).toHaveLength(0);
+      expect(pendingOrders).toHaveLength(0);
+    });
+
+    test("generic pay endpoint reuses existing generated bill for the same token", async () => {
+      const billRes = await api().post("/api/restaurant/bill").send({
+        table: "T1",
+        tokenId: 1,
+        entityType: "Table",
+        customerName: "Walk In",
+        phone: "8888888888",
+        subtotal: 500,
+        gst: 25,
+        total: 525,
+        paymentMethod: null,
+        invoiceStatus: "Generated",
+      });
+
+      expect(billRes.status).toBe(200);
+
+      const payRes = await api().post("/api/restaurant/bill/pay").send({
+        table: "T1",
+        tokenId: 1,
+        entityType: "Table",
+        customerName: "Walk In",
+        phone: "8888888888",
+        subtotal: 500,
+        gst: 25,
+        total: 525,
+        paymentMethod: "Cash",
+      });
+
+      expect(payRes.status).toBe(200);
+      expect(payRes.body.billId).toBe(billRes.body.id);
+
+      const bills = await runQuery(
+        "SELECT id, invoiceStatus, paymentMethod FROM bills WHERE token_id = 1 ORDER BY id DESC",
+      );
+
+      expect(bills).toHaveLength(1);
+      expect(bills[0].id).toBe(billRes.body.id);
+      expect(bills[0].invoiceStatus).toBe("Paid");
+      expect(bills[0].paymentMethod).toBe("Cash");
     });
 
     test("reuses same open bill for same table instead of creating duplicate generated bills", async () => {
@@ -258,6 +364,44 @@ describe("Restaurant Order APIs", () => {
 
       expect(bills.filter((bill) => Number(bill.total) === 63).length).toBe(1);
       expect(bills[0].invoiceStatus).toBe("Generated");
+    });
+
+    test("repairs legacy restaurant bill rows by attaching modern bill id", async () => {
+      const billInsert = await runQuery(
+        `
+          INSERT INTO bills (
+            tableNumber, token_id, entityType, waiter_name, customerName, phone,
+            subtotal, gst, total, paymentMethod, invoiceStatus
+          )
+          VALUES ('T1', 1, 'Table', 'Waiter One', 'Legacy Walk In', '8888888888', 525, 26.25, 551.25, NULL, 'Generated')
+        `,
+      );
+
+      const legacyInsert = await runQuery(
+        `
+          INSERT INTO restaurant_bills (
+            modern_bill_id, tableNumber, tokenId, entityType, waiter_name, customerName, phone,
+            subtotal, gst, discount, total, paymentMethod, invoiceStatus
+          )
+          VALUES (NULL, NULL, 1, 'Table', 'Waiter One', 'Legacy Walk In', '8888888888', 525, 26.25, 0, 551.25, NULL, 'Generated')
+        `,
+      );
+
+      const res = await api().get("/api/restaurant/bills");
+
+      expect(res.status).toBe(200);
+
+      const repairedRow = await runQuery(
+        "SELECT modern_bill_id, tableNumber, customerName, phone, total FROM restaurant_bills WHERE id = ?",
+        [legacyInsert.insertId],
+      );
+
+      expect(repairedRow).toHaveLength(1);
+      expect(Number(repairedRow[0].modern_bill_id)).toBe(Number(billInsert.insertId));
+      expect(repairedRow[0].tableNumber).toBe("T1");
+      expect(repairedRow[0].customerName).toBe("Legacy Walk In");
+      expect(repairedRow[0].phone).toBe("8888888888");
+      expect(Number(repairedRow[0].total)).toBeCloseTo(551.25);
     });
 
     test("returns saved bills", async () => {

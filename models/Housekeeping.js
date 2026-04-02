@@ -18,6 +18,11 @@ const columnExists = async (tableName, columnName) => {
   return Array.isArray(rows) && rows.length > 0;
 };
 
+const getColumnInfo = async (tableName, columnName) => {
+  const rows = await runQuery(`SHOW COLUMNS FROM ${tableName} LIKE ?`, [columnName]);
+  return Array.isArray(rows) && rows[0] ? rows[0] : null;
+};
+
 const mapHousekeepingToHotelStatus = (status) => {
   const s = String(status || "").toLowerCase();
 
@@ -77,9 +82,18 @@ const ensureSchema = async () => {
   await runQuery(`
     CREATE TABLE IF NOT EXISTS housekeeping (
       id INT NOT NULL AUTO_INCREMENT,
+      type VARCHAR(50) NOT NULL DEFAULT 'Accommodation',
       roomNo VARCHAR(50) NOT NULL,
+      building VARCHAR(50) NULL,
+      floor VARCHAR(20) NULL,
+      section VARCHAR(50) NULL,
+      guestStatus VARCHAR(50) NULL,
+      roomType VARCHAR(100) NULL,
       status VARCHAR(100) NOT NULL DEFAULT 'Vacant Dirty',
       assignee VARCHAR(100) NOT NULL DEFAULT 'No Housekeeper',
+      layout VARCHAR(50) NULL,
+      articles VARCHAR(50) NULL,
+      services VARCHAR(50) NULL,
       priority VARCHAR(50) NOT NULL DEFAULT 'Normal',
       notes TEXT NULL,
       cleaningStart DATETIME NULL,
@@ -91,6 +105,87 @@ const ensureSchema = async () => {
     )
   `);
 
+  const hasRoomNo = await columnExists("housekeeping", "roomNo");
+  const hasLegacyRoomNumber = await columnExists("housekeeping", "room_number");
+
+  // Migrate older schemas that used room_number instead of roomNo.
+  if (!hasRoomNo && hasLegacyRoomNumber) {
+    await runQuery(`
+      ALTER TABLE housekeeping
+      CHANGE COLUMN room_number roomNo VARCHAR(50) NOT NULL
+    `);
+  }
+
+  const roomNoInfo = await getColumnInfo("housekeeping", "roomNo");
+  if (roomNoInfo && !/^varchar\(50\)$/i.test(String(roomNoInfo.Type || ""))) {
+    await runQuery("ALTER TABLE housekeeping MODIFY COLUMN roomNo VARCHAR(50) NOT NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "type"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN type VARCHAR(50) NOT NULL DEFAULT 'Accommodation'");
+  }
+
+  if (!(await columnExists("housekeeping", "building"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN building VARCHAR(50) NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "floor"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN floor VARCHAR(20) NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "section"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN section VARCHAR(50) NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "guestStatus"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN guestStatus VARCHAR(50) NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "roomType"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN roomType VARCHAR(100) NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "layout"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN layout VARCHAR(50) NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "articles"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN articles VARCHAR(50) NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "services"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN services VARCHAR(50) NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "priority"))) {
+    await runQuery(`
+      ALTER TABLE housekeeping
+      ADD COLUMN priority ENUM('Urgent','High','Normal','Low') NOT NULL DEFAULT 'Normal'
+    `);
+  }
+
+  const notesInfo = await getColumnInfo("housekeeping", "notes");
+  if (!notesInfo) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN notes TEXT NULL");
+  } else if (/^tinyint/i.test(String(notesInfo.Type || ""))) {
+    await runQuery("ALTER TABLE housekeeping MODIFY COLUMN notes TEXT NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "cleaningStart"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN cleaningStart DATETIME NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "cleaningEnd"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN cleaningEnd DATETIME NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "updated_at"))) {
+    await runQuery(`
+      ALTER TABLE housekeeping
+      ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    `);
+  }
+
   await runQuery(`
     CREATE TABLE IF NOT EXISTS housekeeping_logs (
       id INT NOT NULL AUTO_INCREMENT,
@@ -100,6 +195,113 @@ const ensureSchema = async () => {
       assignee VARCHAR(100) NULL,
       notes TEXT NULL,
       changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id)
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS hk_parameters (
+      id INT NOT NULL AUTO_INCREMENT,
+      cleaning_time_minutes INT NOT NULL DEFAULT 30,
+      max_rooms_per_housekeeper INT NOT NULL DEFAULT 10,
+      shift_start_time VARCHAR(10) NOT NULL DEFAULT '08:00',
+      shift_end_time VARCHAR(10) NOT NULL DEFAULT '20:00',
+      auto_release_enabled TINYINT(1) NOT NULL DEFAULT 1,
+      inspection_required TINYINT(1) NOT NULL DEFAULT 1,
+      default_assignee VARCHAR(100) NOT NULL DEFAULT 'No Housekeeper',
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id)
+    )
+  `);
+
+  await runQuery("INSERT IGNORE INTO hk_parameters (id) VALUES (1)");
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS hk_messages (
+      id INT NOT NULL AUTO_INCREMENT,
+      room_id VARCHAR(100) NULL,
+      room_no VARCHAR(100) NULL,
+      message TEXT NOT NULL,
+      sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id)
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS hk_amenities_consumption (
+      id INT NOT NULL AUTO_INCREMENT,
+      room_id VARCHAR(100) NULL,
+      room_no VARCHAR(100) NULL,
+      category VARCHAR(120) NOT NULL,
+      item_name VARCHAR(255) NOT NULL,
+      quantity INT NOT NULL DEFAULT 1,
+      unit_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
+      total_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
+      notes TEXT NULL,
+      logged_by VARCHAR(120) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id)
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS hk_inspections (
+      id INT NOT NULL AUTO_INCREMENT,
+      room_id VARCHAR(100) NULL,
+      room_no VARCHAR(100) NULL,
+      inspector_name VARCHAR(255) NOT NULL,
+      priority VARCHAR(60) NOT NULL DEFAULT 'Normal',
+      checklist_json LONGTEXT NULL,
+      score INT NOT NULL DEFAULT 0,
+      notes TEXT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id)
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS hk_lost_found (
+      id INT NOT NULL AUTO_INCREMENT,
+      found_date DATE NOT NULL,
+      found_room VARCHAR(100) NULL,
+      room_id VARCHAR(100) NULL,
+      found_by VARCHAR(255) NOT NULL,
+      category VARCHAR(120) NOT NULL,
+      description TEXT NOT NULL,
+      guest_name VARCHAR(255) NULL,
+      storage_location VARCHAR(255) NULL,
+      status VARCHAR(60) NOT NULL DEFAULT 'Found',
+      notes TEXT NULL,
+      claimed_by VARCHAR(255) NULL,
+      claimed_date DATE NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id)
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS hk_shift_roster (
+      id INT NOT NULL AUTO_INCREMENT,
+      staff_name VARCHAR(255) NOT NULL,
+      shift_date DATE NOT NULL,
+      shift VARCHAR(120) NOT NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_hk_shift_roster_staff_date (staff_name, shift_date)
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS hk_room_costing (
+      id INT NOT NULL AUTO_INCREMENT,
+      room_id VARCHAR(100) NULL,
+      room_no VARCHAR(100) NULL,
+      staff_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
+      linen_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
+      toiletrie_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
+      misc_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
+      total_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
+      logged_by VARCHAR(120) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id)
     )
   `);
@@ -238,21 +440,46 @@ const Housekeeping = {
               CAST(hri.room_number AS CHAR) AS roomNo,
               COALESCE(hri.status, 'available') AS roomStatus
             FROM hotel_room_inventory hri
+            UNION ALL
+            SELECT
+              hk_base.id AS id,
+              CAST(hk_base.roomNo AS CHAR) AS roomNo,
+              COALESCE(NULLIF(hk_base.status, ''), 'Vacant Dirty') AS roomStatus
+            FROM housekeeping hk_base
           ) src
           GROUP BY src.roomNo
         `
         : `
           SELECT
-            r.id AS id,
-            ${roomsRoomNoExpr} AS roomNo,
-            ${roomStatusExpr} AS roomStatus
-          FROM rooms r
+            MIN(src.id) AS id,
+            src.roomNo AS roomNo,
+            MAX(src.roomStatus) AS roomStatus
+          FROM (
+            SELECT
+              r.id AS id,
+              ${roomsRoomNoExpr} AS roomNo,
+              ${roomStatusExpr} AS roomStatus
+            FROM rooms r
+            UNION ALL
+            SELECT
+              hk_base.id AS id,
+              CAST(hk_base.roomNo AS CHAR) AS roomNo,
+              COALESCE(NULLIF(hk_base.status, ''), 'Vacant Dirty') AS roomStatus
+            FROM housekeeping hk_base
+          ) src
+          GROUP BY src.roomNo
         `;
 
       const rows = await runQuery(`
         SELECT
           COALESCE(hk.id, base.id) AS id,
           base.roomNo AS roomNo,
+          COALESCE(NULLIF(hk.type, ''), 'Accommodation') AS type,
+          NULLIF(hk.building, '') AS building,
+          NULLIF(hk.floor, '') AS floor,
+          NULLIF(hk.section, '') AS section,
+          NULLIF(hk.guestStatus, '') AS guestStatus,
+          NULLIF(hk.roomType, '') AS roomType,
           COALESCE(
             NULLIF(hk.status, ''),
             CASE
@@ -267,6 +494,9 @@ const Housekeeping = {
           ${housekeepingNotesExpr} AS notes,
           ${housekeepingCleaningStartExpr} AS cleaningStart,
           ${housekeepingCleaningEndExpr} AS cleaningEnd,
+          NULLIF(hk.layout, '') AS layout,
+          NULLIF(hk.articles, '') AS articles,
+          NULLIF(hk.services, '') AS services,
           ${inventoryStatusExpr} AS hotelStatus,
           ${guestExpr} AS guest,
           ${checkInExpr} AS checkIn,
@@ -293,12 +523,21 @@ const Housekeeping = {
       const mapped = rows.map((room) => ({
         id: room.id,
         roomNo: room.roomNo,
+        type: room.type || "Accommodation",
+        building: room.building || "",
+        floor: room.floor || "",
+        section: room.section || "",
+        guestStatus: room.guestStatus || "",
+        roomType: room.roomType || "",
         status: room.status || mapHotelStatusToHousekeeping(room.hotelStatus),
         assignee: room.finalAssignee || "No Housekeeper",
         priority: room.priority || "Normal",
         notes: room.notes || "",
         cleaningStart: room.cleaningStart || null,
         cleaningEnd: room.cleaningEnd || null,
+        layout: room.layout || "",
+        articles: room.articles || "",
+        services: room.services || "",
         hotelStatus: room.hotelStatus || "available",
         guest: room.guest || "",
         checkIn: room.checkIn || null,
@@ -316,10 +555,19 @@ const Housekeeping = {
       const roomNo = String(data.roomNo || "").trim();
       const status = data.status || "Vacant Dirty";
       const assignee = data.assignee || "No Housekeeper";
+      const type = data.type || "Accommodation";
+      const building = data.building || null;
+      const floor = data.floor || null;
+      const section = data.section || null;
+      const guestStatus = data.guestStatus || null;
+      const roomType = data.roomType || null;
       const priority = data.priority || "Normal";
       const notes = data.notes || "";
       const cleaningStart = data.cleaningStart || null;
       const cleaningEnd = data.cleaningEnd || null;
+      const layout = data.layout || null;
+      const articles = data.articles || null;
+      const services = data.services || null;
 
       const existingRows = await runQuery(
         "SELECT id, status, assignee FROM housekeeping WHERE roomNo = ? LIMIT 1",
@@ -330,10 +578,29 @@ const Housekeeping = {
         await runQuery(
           `
           UPDATE housekeeping
-          SET status = ?, assignee = ?, priority = ?, notes = ?, cleaningStart = ?, cleaningEnd = ?
+          SET type = ?, building = ?, floor = ?, section = ?, guestStatus = ?, roomType = ?,
+              status = ?, assignee = ?, priority = ?, notes = ?, cleaningStart = ?, cleaningEnd = ?,
+              layout = ?, articles = ?, services = ?
           WHERE roomNo = ?
         `,
-          [status, assignee, priority, notes, cleaningStart, cleaningEnd, roomNo]
+          [
+            type,
+            building,
+            floor,
+            section,
+            guestStatus,
+            roomType,
+            status,
+            assignee,
+            priority,
+            notes,
+            cleaningStart,
+            cleaningEnd,
+            layout,
+            articles,
+            services,
+            roomNo,
+          ]
         );
 
         await syncOperationalStatus(roomNo, status);
@@ -362,18 +629,27 @@ const Housekeeping = {
 
       const sql = `
         INSERT INTO housekeeping
-        (roomNo, status, assignee, priority, notes, cleaningStart, cleaningEnd)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (type, roomNo, building, floor, section, guestStatus, roomType, status, assignee, priority, notes, cleaningStart, cleaningEnd, layout, articles, services)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       const result = await runQuery(sql, [
+        type,
         roomNo,
+        building,
+        floor,
+        section,
+        guestStatus,
+        roomType,
         status,
         assignee,
         priority,
         notes,
         cleaningStart,
         cleaningEnd,
+        layout,
+        articles,
+        services,
       ]);
 
       await syncOperationalStatus(roomNo, status);
@@ -400,21 +676,39 @@ const Housekeeping = {
         `
         UPDATE housekeeping
         SET
+          type = ?,
+          building = ?,
+          floor = ?,
+          section = ?,
+          guestStatus = ?,
+          roomType = ?,
           status = ?,
           assignee = ?,
           priority = ?,
           notes = ?,
           cleaningStart = ?,
-          cleaningEnd = ?
+          cleaningEnd = ?,
+          layout = ?,
+          articles = ?,
+          services = ?
         WHERE id = ? OR roomNo = ?
       `,
         [
+          data.type || "Accommodation",
+          data.building || null,
+          data.floor || null,
+          data.section || null,
+          data.guestStatus || null,
+          data.roomType || null,
           data.status,
           data.assignee,
           data.priority,
           data.notes,
           data.cleaningStart,
           data.cleaningEnd,
+          data.layout || null,
+          data.articles || null,
+          data.services || null,
           id,
           id,
         ]

@@ -41,6 +41,40 @@ const getBanquetHallRateColumn = async () => {
   return banquetHallRateColumnPromise;
 };
 
+let restaurantBillsColumnMapPromise = null;
+const getRestaurantBillsColumnMap = async () => {
+  if (!restaurantBillsColumnMapPromise) {
+    restaurantBillsColumnMapPromise = (async () => {
+      const hasRestaurantBills = await tableExists("restaurant_bills");
+      if (!hasRestaurantBills) return null;
+
+      const [
+        hasStatus,
+        hasInvoiceStatus,
+        hasPaymentMethodSnake,
+        hasPaymentMethodCamel,
+        hasTableNumberSnake,
+        hasTableNumberCamel,
+      ] = await Promise.all([
+        columnExists("restaurant_bills", "status"),
+        columnExists("restaurant_bills", "invoiceStatus"),
+        columnExists("restaurant_bills", "payment_method"),
+        columnExists("restaurant_bills", "paymentMethod"),
+        columnExists("restaurant_bills", "table_number"),
+        columnExists("restaurant_bills", "tableNumber"),
+      ]);
+
+      return {
+        status: hasStatus ? "status" : hasInvoiceStatus ? "invoiceStatus" : null,
+        paymentMethod: hasPaymentMethodSnake ? "payment_method" : hasPaymentMethodCamel ? "paymentMethod" : null,
+        tableNumber: hasTableNumberSnake ? "table_number" : hasTableNumberCamel ? "tableNumber" : null,
+      };
+    })();
+  }
+
+  return restaurantBillsColumnMapPromise;
+};
+
 const toISODate = (value) => {
   if (!value) return null;
   if (typeof value === "string") return value.slice(0, 10);
@@ -85,11 +119,15 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
 
   const hasRestaurantBills = await tableExists("restaurant_bills");
   const restaurantTable = hasRestaurantBills ? "restaurant_bills" : "bills";
-  const restaurantHasStatus = await columnExists(restaurantTable, "status");
+  const restaurantColumns = hasRestaurantBills ? await getRestaurantBillsColumnMap() : null;
   const restaurantHasCreatedAt = await columnExists(restaurantTable, "created_at");
 
   const restaurantSql = hasRestaurantBills
-    ? `SELECT id, DATE(created_at) AS billDate, COALESCE(total, 0) AS amount, payment_method AS paymentMode, ${restaurantHasStatus ? "status" : "'Paid'"} AS status FROM restaurant_bills`
+    ? `SELECT id, DATE(created_at) AS billDate, COALESCE(total, 0) AS amount, ${
+        restaurantColumns?.paymentMethod || "NULL"
+      } AS paymentMode, ${
+        restaurantColumns?.status || "'Paid'"
+      } AS status FROM restaurant_bills`
     : `SELECT id, ${restaurantHasCreatedAt ? "DATE(created_at)" : "NULL"} AS billDate, COALESCE(total, 0) AS amount, paymentMethod AS paymentMode, 'Paid' AS status FROM bills`;
 
   const restaurantRows = await runQuery(restaurantSql);
@@ -251,6 +289,13 @@ const getSummaryCounts = async () => {
 const getReportData = async ({ type, dateFrom, dateTo, status, hall, roomType, paymentMode }) => {
   let sql = "";
   let params = [];
+  const hasRoomTariffCategory = await columnExists("room_tariff", "category_name").catch(() => false);
+  const hasHotelInventory = await tableExists("hotel_room_inventory").catch(() => false);
+  const hasRoomCategories = await tableExists("hotel_room_categories").catch(() => false);
+  const hasLegacyRooms = await tableExists("rooms").catch(() => false);
+  const hasLegacyRoomType = hasLegacyRooms
+    ? await columnExists("rooms", "room_type").catch(() => false)
+    : false;
 
   const addDateFilter = (column) => {
     if (dateFrom) {
@@ -264,10 +309,18 @@ const getReportData = async ({ type, dateFrom, dateTo, status, hall, roomType, p
   };
 
   if (type === "room") {
+    const roomTypeExprParts = [];
+    if (hasRoomTariffCategory) roomTypeExprParts.push("NULLIF(rt.category_name, '')");
+    if (hasRoomCategories) roomTypeExprParts.push("NULLIF(hrc.name, '')");
+    if (hasLegacyRoomType) roomTypeExprParts.push("NULLIF(r.room_type, '')");
+    roomTypeExprParts.push("CAST(rt.room_number AS CHAR)");
+    const roomTypeExpr = `COALESCE(${roomTypeExprParts.join(", ")})`;
+
     sql = `SELECT
       CONCAT(g.id, '-', rt.id) as id,
       DATE(g.check_in) as date,
-      rt.room_number as roomType,
+      CAST(rt.room_number AS CHAR) as roomNumber,
+      ${roomTypeExpr} as roomType,
       g.booking_status as status,
       g.guest_name as guest,
       DATE(g.check_out) as checkOut,
@@ -275,10 +328,16 @@ const getReportData = async ({ type, dateFrom, dateTo, status, hall, roomType, p
       'N/A' as paymentMode
       FROM guests g
       LEFT JOIN room_tariff rt ON g.id = rt.booking_id
+      ${hasHotelInventory ? "LEFT JOIN hotel_room_inventory hri ON CAST(hri.room_number AS CHAR) = CAST(rt.room_number AS CHAR)" : ""}
+      ${hasRoomCategories ? "LEFT JOIN hotel_room_categories hrc ON hrc.id = hri.category_id" : ""}
+      ${hasLegacyRooms ? "LEFT JOIN rooms r ON CAST(r.room_number AS CHAR) = CAST(rt.room_number AS CHAR)" : ""}
       WHERE rt.room_number IS NOT NULL`;
     addDateFilter("g.check_in");
     if (status && status !== "All") { sql += " AND g.booking_status = ?"; params.push(status); }
-    if (roomType && roomType !== "All") { sql += " AND rt.room_number = ?"; params.push(roomType); }
+    if (roomType && roomType !== "All") {
+      sql += ` AND ${roomTypeExpr} = ?`;
+      params.push(roomType);
+    }
     sql += " ORDER BY g.id DESC, rt.room_number";
 
   } else if (type === "banquet") {
@@ -305,10 +364,20 @@ const getReportData = async ({ type, dateFrom, dateTo, status, hall, roomType, p
   } else if (type === "restaurant") {
     const hasRestaurantBills = await tableExists("restaurant_bills");
     if (hasRestaurantBills) {
+      const restaurantColumns = await getRestaurantBillsColumnMap();
       sql =
-        "SELECT id, DATE(created_at) as date, status, table_number as `table_number`, total as amount, payment_method as paymentMode FROM restaurant_bills WHERE 1=1";
+        `SELECT id, DATE(created_at) as date, ${
+          restaurantColumns?.status || "'Paid'"
+        } as status, ${
+          restaurantColumns?.tableNumber || "NULL"
+        } as \`table_number\`, total as amount, ${
+          restaurantColumns?.paymentMethod || "NULL"
+        } as paymentMode FROM restaurant_bills WHERE 1=1`;
       addDateFilter("created_at");
-      if (paymentMode && paymentMode !== "All") { sql += " AND payment_method = ?"; params.push(paymentMode); }
+      if (paymentMode && paymentMode !== "All" && restaurantColumns?.paymentMethod) {
+        sql += ` AND ${restaurantColumns.paymentMethod} = ?`;
+        params.push(paymentMode);
+      }
       sql += " ORDER BY id DESC";
     } else {
       const hasCreatedAt = await columnExists("bills", "created_at");
@@ -321,15 +390,19 @@ const getReportData = async ({ type, dateFrom, dateTo, status, hall, roomType, p
   } else if (type === "housekeeping") {
     sql = `SELECT
       id,
-      DATE(NOW()) as date,
-      CAST(roomNo AS CHAR) as roomType,
+      DATE(COALESCE(updated_at, created_at)) as date,
+      CAST(roomNo AS CHAR) as roomNo,
+      COALESCE(NULLIF(roomType, ''), CAST(roomNo AS CHAR)) as roomType,
       status,
       assignee,
       1 as rooms
       FROM housekeeping WHERE 1=1`;
     if (status && status !== "All") { sql += " AND status = ?"; params.push(status); }
-    if (roomType && roomType !== "All") { sql += " AND CAST(roomNo AS CHAR) = ?"; params.push(roomType); }
-    sql += " ORDER BY CAST(roomNo AS UNSIGNED), roomNo";
+    if (roomType && roomType !== "All") {
+      sql += " AND COALESCE(NULLIF(roomType, ''), CAST(roomNo AS CHAR)) = ?";
+      params.push(roomType);
+    }
+    sql += " ORDER BY COALESCE(updated_at, created_at) DESC, CAST(roomNo AS UNSIGNED), roomNo";
 
   } else if (type === "accounts") {
     sql = "SELECT id, DATE(date) as date, type, description, amount, payment_mode as paymentMode, 'Posted' as status FROM accounts_transactions WHERE 1=1";

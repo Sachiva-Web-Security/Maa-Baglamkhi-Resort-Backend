@@ -3,6 +3,44 @@ const connection = db.promise();
 const TABLES_TABLE = "restaurant_tables";
 
 const run = (sql, params = []) => connection.query(sql, params);
+const normalizeMatchValue = (value) => String(value || "").trim().toLowerCase();
+const normalizeEntityType = (value) => normalizeMatchValue(value || "Table");
+const toComparableTime = (value) => {
+  const timestamp = new Date(value || 0).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const scoreLegacyBillCandidate = (billRow, legacyRow) => {
+  const billTokenId = Number(billRow?.tokenId || 0);
+  const legacyTokenId = Number(legacyRow?.tokenId || 0);
+  const sameEntityType = normalizeEntityType(legacyRow?.entityType) === normalizeEntityType(billRow?.entityType);
+  const sameTable = normalizeMatchValue(legacyRow?.tableNumber) === normalizeMatchValue(billRow?.tableNumber);
+  let score = 0;
+
+  if (billTokenId && legacyTokenId === billTokenId && sameEntityType) score += 100;
+  if (sameTable && sameEntityType) score += 40;
+  if (Number(legacyRow?.total || 0) === Number(billRow?.total || 0)) score += 10;
+  if (Number(legacyRow?.subtotal || 0) === Number(billRow?.subtotal || 0)) score += 6;
+  if (normalizeMatchValue(legacyRow?.customerName) && normalizeMatchValue(legacyRow?.customerName) === normalizeMatchValue(billRow?.customerName)) score += 4;
+  if (normalizeMatchValue(legacyRow?.phone) && normalizeMatchValue(legacyRow?.phone) === normalizeMatchValue(billRow?.phone)) score += 4;
+  if (normalizeMatchValue(legacyRow?.paymentMethod) && normalizeMatchValue(legacyRow?.paymentMethod) === normalizeMatchValue(billRow?.paymentMethod)) score += 2;
+  if (normalizeMatchValue(legacyRow?.invoiceStatus) && normalizeMatchValue(legacyRow?.invoiceStatus) === normalizeMatchValue(billRow?.invoiceStatus)) score += 2;
+
+  return score;
+};
+
+const pickBestLegacyBillCandidate = (billRow, legacyRows) =>
+  [...legacyRows].sort((leftRow, rightRow) => {
+    const scoreDiff = scoreLegacyBillCandidate(billRow, rightRow) - scoreLegacyBillCandidate(billRow, leftRow);
+    if (scoreDiff !== 0) return scoreDiff;
+
+    const billTime = toComparableTime(billRow?.created_at);
+    const leftDiff = Math.abs(toComparableTime(leftRow?.created_at) - billTime);
+    const rightDiff = Math.abs(toComparableTime(rightRow?.created_at) - billTime);
+    if (leftDiff !== rightDiff) return leftDiff - rightDiff;
+
+    return Number(rightRow?.id || 0) - Number(leftRow?.id || 0);
+  })[0] || null;
 
 const ensureColumn = async (tableName, columnName, definition) => {
   const [rows] = await run(`SHOW COLUMNS FROM ${tableName} LIKE ?`, [columnName]);
@@ -114,17 +152,99 @@ const ensureSchema = async () => {
   await run(`
     CREATE TABLE IF NOT EXISTS restaurant_bills (
       id INT AUTO_INCREMENT PRIMARY KEY,
+      modern_bill_id INT DEFAULT NULL,
       tableNumber VARCHAR(50) DEFAULT NULL,
       tokenId INT DEFAULT NULL,
       entityType VARCHAR(30) DEFAULT 'Table',
+      waiter_name VARCHAR(191) DEFAULT NULL,
+      customerName VARCHAR(191) DEFAULT NULL,
+      phone VARCHAR(30) DEFAULT NULL,
       subtotal DECIMAL(10,2) DEFAULT 0,
       gst DECIMAL(10,2) DEFAULT 0,
       discount DECIMAL(10,2) DEFAULT 0,
       total DECIMAL(10,2) DEFAULT 0,
       paymentMethod VARCHAR(50) DEFAULT NULL,
       invoiceStatus VARCHAR(30) DEFAULT 'unpaid',
+      paid_at DATETIME DEFAULT NULL,
+      payment_id INT DEFAULT NULL,
+      account_transaction_id INT DEFAULT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
+  `);
+
+  await ensureColumn("restaurant_bills", "modern_bill_id", "INT DEFAULT NULL AFTER id");
+  await ensureColumn("restaurant_bills", "waiter_name", "VARCHAR(191) DEFAULT NULL AFTER entityType");
+  await ensureColumn("restaurant_bills", "customerName", "VARCHAR(191) DEFAULT NULL AFTER waiter_name");
+  await ensureColumn("restaurant_bills", "phone", "VARCHAR(30) DEFAULT NULL AFTER customerName");
+  await ensureColumn("restaurant_bills", "paid_at", "DATETIME DEFAULT NULL AFTER invoiceStatus");
+  await ensureColumn("restaurant_bills", "payment_id", "INT DEFAULT NULL AFTER paid_at");
+  await ensureColumn("restaurant_bills", "account_transaction_id", "INT DEFAULT NULL AFTER payment_id");
+  await ensureIndex("restaurant_bills", "uniq_restaurant_bills_modern_bill_id", "UNIQUE KEY uniq_restaurant_bills_modern_bill_id (modern_bill_id)");
+
+  await run(`
+    UPDATE restaurant_bills rb
+    INNER JOIN bills b ON b.id = rb.modern_bill_id
+    SET
+      rb.tableNumber = b.tableNumber,
+      rb.tokenId = b.token_id,
+      rb.entityType = b.entityType,
+      rb.waiter_name = b.waiter_name,
+      rb.customerName = b.customerName,
+      rb.phone = b.phone,
+      rb.subtotal = b.subtotal,
+      rb.gst = b.gst,
+      rb.discount = COALESCE(b.discountAmount, 0),
+      rb.total = b.total,
+      rb.paymentMethod = b.paymentMethod,
+      rb.invoiceStatus = b.invoiceStatus,
+      rb.paid_at = b.paid_at,
+      rb.payment_id = b.payment_id,
+      rb.account_transaction_id = b.account_transaction_id
+  `);
+
+  const [unlinkedBills] = await run(`
+    SELECT b.id
+    FROM bills b
+    LEFT JOIN restaurant_bills rb ON rb.modern_bill_id = b.id
+    WHERE rb.id IS NULL
+    ORDER BY b.created_at ASC, b.id ASC
+  `);
+
+  for (const billRow of unlinkedBills) {
+    await syncLegacyRestaurantBill(connection, billRow.id);
+  }
+
+  await run(`
+    UPDATE restaurant_bills rb
+    LEFT JOIN bills bt ON bt.token_id = rb.tokenId
+    LEFT JOIN bills bb ON bb.tableNumber = rb.tableNumber AND bb.entityType = rb.entityType
+    SET
+      rb.tableNumber = COALESCE(rb.tableNumber, bt.tableNumber, bb.tableNumber),
+      rb.waiter_name = COALESCE(rb.waiter_name, bt.waiter_name, bb.waiter_name),
+      rb.customerName = COALESCE(rb.customerName, bt.customerName, bb.customerName),
+      rb.phone = COALESCE(rb.phone, bt.phone, bb.phone),
+      rb.paymentMethod = COALESCE(rb.paymentMethod, bt.paymentMethod, bb.paymentMethod),
+      rb.invoiceStatus = COALESCE(NULLIF(rb.invoiceStatus, 'unpaid'), bt.invoiceStatus, bb.invoiceStatus, rb.invoiceStatus),
+      rb.paid_at = COALESCE(rb.paid_at, bt.paid_at, bb.paid_at),
+      rb.payment_id = COALESCE(rb.payment_id, bt.payment_id, bb.payment_id),
+      rb.account_transaction_id = COALESCE(rb.account_transaction_id, bt.account_transaction_id, bb.account_transaction_id),
+      rb.subtotal = CASE
+        WHEN COALESCE(rb.subtotal, 0) = 0 THEN COALESCE(bt.subtotal, bb.subtotal, rb.subtotal)
+        ELSE rb.subtotal
+      END,
+      rb.gst = CASE
+        WHEN COALESCE(rb.gst, 0) = 0 THEN COALESCE(bt.gst, bb.gst, rb.gst)
+        ELSE rb.gst
+      END,
+      rb.discount = CASE
+        WHEN COALESCE(rb.discount, 0) = 0 THEN COALESCE(bt.discountAmount, bb.discountAmount, rb.discount)
+        ELSE rb.discount
+      END,
+      rb.total = CASE
+        WHEN COALESCE(rb.total, 0) = 0 THEN COALESCE(bt.total, bb.total, rb.total)
+        ELSE rb.total
+      END
+    WHERE rb.modern_bill_id IS NULL
   `);
 
   await run(`
@@ -527,6 +647,191 @@ const findReusableOpenBill = async (conn, data) => {
   return rows[0] || null;
 };
 
+const findReusableLegacyBillRow = async (conn, billRow) => {
+  const tokenId = Number(billRow?.tokenId || 0) || null;
+  const entityType = billRow?.entityType || "Table";
+  const tableNumber = billRow?.tableNumber || null;
+
+  const [legacyRows] = await conn.query(
+    `
+      SELECT
+        id,
+        tableNumber,
+        tokenId,
+        entityType,
+        waiter_name,
+        customerName,
+        phone,
+        subtotal,
+        gst,
+        discount,
+        total,
+        paymentMethod,
+        invoiceStatus,
+        paid_at,
+        payment_id,
+        account_transaction_id,
+        created_at
+      FROM restaurant_bills
+      WHERE modern_bill_id IS NULL
+        AND (
+          (? IS NOT NULL AND tokenId = ? AND COALESCE(entityType, 'Table') = ?)
+          OR
+          (? IS NOT NULL AND tableNumber = ? AND COALESCE(entityType, 'Table') = ?)
+        )
+      ORDER BY created_at DESC, id DESC
+    `,
+    [tokenId, tokenId, entityType, tableNumber, tableNumber, entityType],
+  );
+
+  const candidates = Array.isArray(legacyRows)
+    ? legacyRows.filter((row) => scoreLegacyBillCandidate(billRow, row) > 0)
+    : [];
+
+  return pickBestLegacyBillCandidate(billRow, candidates);
+};
+
+const syncLegacyRestaurantBill = async (conn, modernBillId) => {
+  if (!modernBillId) return;
+
+  const [billRows] = await conn.query(
+    `
+      SELECT
+        id,
+        tableNumber,
+        token_id AS tokenId,
+        entityType,
+        waiter_name,
+        customerName,
+        phone,
+        subtotal,
+        gst,
+        discountAmount,
+        total,
+        paymentMethod,
+        invoiceStatus,
+        paid_at,
+        payment_id,
+        account_transaction_id,
+        created_at
+      FROM bills
+      WHERE id = ?
+      LIMIT 1
+    `,
+    [modernBillId],
+  );
+
+  const billRow = billRows?.[0];
+  if (!billRow) return;
+
+  const payload = [
+    billRow.tableNumber || null,
+    billRow.tokenId ? Number(billRow.tokenId) : null,
+    billRow.entityType || "Table",
+    billRow.waiter_name || null,
+    billRow.customerName || null,
+    billRow.phone || null,
+    Number(billRow.subtotal || 0),
+    Number(billRow.gst || 0),
+    Number(billRow.discountAmount || 0),
+    Number(billRow.total || 0),
+    billRow.paymentMethod || null,
+    billRow.invoiceStatus || "Saved",
+    billRow.paid_at || null,
+    billRow.payment_id || null,
+    billRow.account_transaction_id || null,
+    billRow.created_at || null,
+    Number(modernBillId),
+  ];
+
+  const [legacyRows] = await conn.query("SELECT id FROM restaurant_bills WHERE modern_bill_id = ? LIMIT 1", [modernBillId]);
+
+  if (legacyRows?.[0]?.id) {
+    await conn.query(
+      `
+        UPDATE restaurant_bills
+        SET
+          tableNumber = ?,
+          tokenId = ?,
+          entityType = ?,
+          waiter_name = ?,
+          customerName = ?,
+          phone = ?,
+          subtotal = ?,
+          gst = ?,
+          discount = ?,
+          total = ?,
+          paymentMethod = ?,
+          invoiceStatus = ?,
+          paid_at = ?,
+          payment_id = ?,
+          account_transaction_id = ?,
+          created_at = ?
+        WHERE modern_bill_id = ?
+      `,
+      payload,
+    );
+    return;
+  }
+
+  const reusableLegacyRow = await findReusableLegacyBillRow(conn, billRow);
+  if (reusableLegacyRow?.id) {
+    await conn.query(
+      `
+        UPDATE restaurant_bills
+        SET
+          modern_bill_id = ?,
+          tableNumber = ?,
+          tokenId = ?,
+          entityType = ?,
+          waiter_name = ?,
+          customerName = ?,
+          phone = ?,
+          subtotal = ?,
+          gst = ?,
+          discount = ?,
+          total = ?,
+          paymentMethod = ?,
+          invoiceStatus = ?,
+          paid_at = ?,
+          payment_id = ?,
+          account_transaction_id = ?,
+          created_at = ?
+        WHERE id = ?
+          AND modern_bill_id IS NULL
+      `,
+      [Number(modernBillId), ...payload.slice(0, -1), reusableLegacyRow.id],
+    );
+    return;
+  }
+
+  await conn.query(
+    `
+      INSERT INTO restaurant_bills (
+        tableNumber,
+        tokenId,
+        entityType,
+        waiter_name,
+        customerName,
+        phone,
+        subtotal,
+        gst,
+        discount,
+        total,
+        paymentMethod,
+        invoiceStatus,
+        paid_at,
+        payment_id,
+        account_transaction_id,
+        created_at,
+        modern_bill_id
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    payload,
+  );
+};
+
 const createBillRecord = async (conn, data, options = {}) => {
   const reusableBill = options.forceNew ? null : await findReusableOpenBill(conn, data);
   if (reusableBill?.id) {
@@ -564,6 +869,8 @@ const createBillRecord = async (conn, data, options = {}) => {
       ],
     );
 
+    await syncLegacyRestaurantBill(conn, reusableBill.id);
+
     return reusableBill.id;
   }
 
@@ -590,6 +897,8 @@ const createBillRecord = async (conn, data, options = {}) => {
     data.splitCount || null,
   ]);
 
+  await syncLegacyRestaurantBill(conn, result.insertId);
+
   return result.insertId;
 };
 
@@ -614,7 +923,32 @@ const processBillPayment = async (data) => {
     let billId = Number(data.billId || 0) || null;
     let billRow = null;
 
-  if (billId) {
+    if (!billId) {
+      const lookupTokenId = Number(data.tokenId || 0) || null;
+      const lookupEntityType = data.entityType || "Table";
+      const lookupTable = data.table || null;
+      const [matchedBills] = await conn.query(
+        `
+          SELECT *
+          FROM bills
+          WHERE (
+            (? IS NOT NULL AND token_id = ?)
+            OR
+            (? IS NOT NULL AND tableNumber = ? AND entityType = ?)
+          )
+          ORDER BY id DESC
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [lookupTokenId, lookupTokenId, lookupTable, lookupTable, lookupEntityType],
+      );
+
+      if (matchedBills?.[0]?.id) {
+        billId = Number(matchedBills[0].id);
+      }
+    }
+
+    if (billId) {
       const [existingBills] = await conn.query("SELECT * FROM bills WHERE id=? LIMIT 1 FOR UPDATE", [billId]);
       billRow = existingBills[0];
 
@@ -653,6 +987,8 @@ const processBillPayment = async (data) => {
           billId,
         ],
       );
+
+      await syncLegacyRestaurantBill(conn, billId);
 
       const [updatedBills] = await conn.query("SELECT * FROM bills WHERE id=? LIMIT 1", [billId]);
       billRow = updatedBills[0];
@@ -712,6 +1048,20 @@ const processBillPayment = async (data) => {
       `,
       [data.paymentMethod || billRow.paymentMethod || null, paymentResult.insertId, accountResult.insertId, billId],
     );
+
+    if (billRow.tableNumber) {
+      await conn.query(
+        "UPDATE tokens SET status='closed' WHERE tableNumber=? AND status='active'",
+        [billRow.tableNumber],
+      );
+
+      await conn.query(
+        "UPDATE orders SET status='paid' WHERE tableNumber=? AND status='pending'",
+        [billRow.tableNumber],
+      );
+    }
+
+    await syncLegacyRestaurantBill(conn, billId);
 
     await conn.commit();
 

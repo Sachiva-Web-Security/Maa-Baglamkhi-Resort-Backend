@@ -22,6 +22,7 @@ router.post("/advance/:id", bookingController.updateAdvance);
 // GET
 router.get("/all-bookings", bookingController.getAllBookings);
 router.get("/booking/:id", bookingController.getBookingById);
+router.get("/wizard/:id", bookingController.getBookingWizard);
 router.get("/rooms/setup", hotelRoomInventoryController.getRoomSetup);
 
 // UPDATE

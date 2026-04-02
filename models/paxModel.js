@@ -18,14 +18,58 @@ const ensureSchema = async () => {
   `);
 };
 
-const addPax = (data, callback) => {
-  const sql = `
-    INSERT INTO pax
-    (booking_id, adults, children, meal_plan)
-    VALUES (?,?,?,?)
-  `;
+const addPax = async (data, callback) => {
+  const bookingId = Number(data.booking_id);
+  const rows = Array.isArray(data.rows) && data.rows.length
+    ? data.rows
+    : [
+        {
+          roomNumber: data.roomNumber || null,
+          adults: data.adults,
+          children: data.children,
+          mealPlan: data.mealPlan,
+        },
+      ];
 
-  db.query(sql, [data.booking_id, data.adults, data.children, data.mealPlan], callback);
+  if (!bookingId) {
+    callback(new Error("Booking ID required"));
+    return;
+  }
+
+  try {
+    await ensureSchema();
+
+    for (const row of rows) {
+      const roomNumber = String(row.roomNumber || "").trim() || null;
+      const adults = Number(row.adults || 0);
+      const children = Number(row.children || 0);
+      const mealPlan = row.mealPlan || data.mealPlan || null;
+
+      if (roomNumber) {
+        const existingRows = await runQuery(
+          "SELECT id FROM pax WHERE booking_id = ? AND room_number = ? ORDER BY id DESC LIMIT 1",
+          [bookingId, roomNumber],
+        );
+
+        if (existingRows.length) {
+          await runQuery(
+            "UPDATE pax SET adults = ?, children = ?, meal_plan = ? WHERE id = ?",
+            [adults, children, mealPlan, existingRows[0].id],
+          );
+          continue;
+        }
+      }
+
+      await runQuery(
+        "INSERT INTO pax (booking_id, room_number, adults, children, meal_plan) VALUES (?,?,?,?,?)",
+        [bookingId, roomNumber, adults, children, mealPlan],
+      );
+    }
+
+    callback(null, { success: true, count: rows.length });
+  } catch (error) {
+    callback(error);
+  }
 };
 
 module.exports = {

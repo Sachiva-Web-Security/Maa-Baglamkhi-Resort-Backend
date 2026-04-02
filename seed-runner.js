@@ -4,7 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const mysql = require("mysql2/promise");
 
-const seedPath = path.join(__dirname, "seed.js");
+const seedPath = path.join(__dirname, "seed.sql");
 
 async function runSeed() {
   if (!fs.existsSync(seedPath)) {

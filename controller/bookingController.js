@@ -8,6 +8,7 @@ const AdvanceModel = require("../models/advanceModel");
 const ReferenceModel = require("../models/referenceModel");
 const RoomTariffModel = require("../models/roomTariffModel");
 const Paymentadvance = require("../models/Paymentadvance");
+const InvoiceModel = require("../models/InvoiceModel");
 const roomInventoryModel = require("../models/hotelRoomInventoryModel");
 
 const query = (sql, params = []) =>
@@ -52,6 +53,194 @@ const getBookingSummaryById = async (id) => {
   );
 
   return rows[0] || null;
+};
+
+const ensureBookingWizardSchema = async () => {
+  await Promise.all([
+    GuestModel.ensureSchema?.(),
+    OtherBookingModel.ensureSchema?.(),
+    ReferenceModel.ensureSchema?.(),
+    CompanyModel.ensureSchema?.(),
+    PaxModel.ensureSchema?.(),
+    RoomTariffModel.ensureSchema?.(),
+    AdvanceModel.ensureSchema?.(),
+  ]);
+};
+
+const getBookingWizardDataById = async (id) => {
+  await ensureBookingWizardSchema();
+
+  const [
+    guestRows,
+    otherBookingRows,
+    referenceRows,
+    companyRows,
+    paxRows,
+    tariffRows,
+    advanceRows,
+  ] = await Promise.all([
+    query(
+      `
+        SELECT
+          g.*,
+          DATE_FORMAT(g.check_in, '%Y-%m-%d') AS check_in,
+          DATE_FORMAT(g.check_out, '%Y-%m-%d') AS check_out
+        FROM guests g
+        WHERE g.id = ?
+        LIMIT 1
+      `,
+      [id],
+    ),
+    query("SELECT * FROM other_booking WHERE guest_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1", [id]),
+    query("SELECT * FROM reference_notes WHERE guest_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1", [id]),
+    query("SELECT * FROM companies WHERE booking_id = ? ORDER BY id DESC LIMIT 1", [id]),
+    query("SELECT * FROM pax WHERE booking_id = ? ORDER BY id DESC", [id]),
+    query(
+      `
+        SELECT
+          rt.*,
+          hri.category_id AS roomTypeId,
+          hrc.name AS roomTypeName,
+          hrc.unit_label AS unitLabel
+        FROM room_tariff rt
+        LEFT JOIN hotel_room_inventory hri
+          ON CAST(hri.room_number AS CHAR) = CAST(rt.room_number AS CHAR)
+        LEFT JOIN hotel_room_categories hrc
+          ON hrc.id = hri.category_id
+        WHERE rt.booking_id = ?
+        ORDER BY rt.id DESC
+      `,
+      [id],
+    ),
+    query("SELECT * FROM advance_payment WHERE booking_id = ? LIMIT 1", [id]),
+  ]);
+
+  const guest = guestRows[0] || null;
+  const otherBooking = otherBookingRows[0] || null;
+  const reference = referenceRows[0] || null;
+  const company = companyRows[0] || null;
+  const advance = advanceRows[0] || null;
+
+  const paxByRoom = paxRows.reduce((acc, row) => {
+    const key = String(row.room_number || "").trim();
+    if (!key || acc[key]) return acc;
+    acc[key] = {
+      adults: Number(row.adults || 0),
+      children: Number(row.children || 0),
+      mealPlan: row.meal_plan || "EP",
+    };
+    return acc;
+  }, {});
+
+  const uniqueTariffRows = [];
+  const seenRooms = new Set();
+
+  tariffRows.forEach((row) => {
+    const roomKey = String(row.room_number || "").trim();
+    if (!roomKey || seenRooms.has(roomKey)) return;
+    seenRooms.add(roomKey);
+    uniqueTariffRows.push(row);
+  });
+
+  const roomTypeMap = {};
+  const selectedRooms = {};
+  const paxRooms = [];
+  const roomTariff = uniqueTariffRows.map((row) => {
+    const roomNumber = String(row.room_number || "").trim();
+    const roomTypeId = row.roomTypeId ? String(row.roomTypeId) : "unassigned";
+    const roomTypeName = row.roomTypeName || `Room Type ${roomTypeId}`;
+
+    roomTypeMap[roomTypeId] = roomTypeName;
+    selectedRooms[roomTypeId] = [...(selectedRooms[roomTypeId] || []), roomNumber];
+
+    paxRooms.push({
+      name: roomNumber,
+      roomTypeId,
+      roomTypeName,
+    });
+
+    return {
+      roomNo: roomNumber,
+      roomType: roomTypeName,
+      roomTypeId,
+      quantity: Number(row.quantity || 1),
+      price: Number(row.tariff || 0),
+      gst: Number(row.gst || 0),
+      unitLabel: row.unitLabel || "PER NIGHT",
+    };
+  });
+
+  const totalAmount = roomTariff.reduce((sum, row) => {
+    const base = Number(row.price || 0) * Number(row.quantity || 0);
+    return sum + base + (base * Number(row.gst || 0)) / 100;
+  }, 0);
+
+  const paidAmount = Number(advance?.amount || 0);
+  const discountAmount = Number(advance?.discount_amount || 0);
+
+  return {
+    bookingId: guest?.id || Number(id),
+    bookingCode: guest?.booking_code || "",
+    guest: guest
+      ? {
+          agentBooking: false,
+          bookingPoint: guest.booking_point || "",
+          mobile: guest.mobile || "",
+          guestName: guest.guest_name || "",
+          guestEmail: guest.guest_email || "",
+          checkIn: guest.check_in || "",
+          checkOut: guest.check_out || "",
+          arrival: guest.arrival || "12:00",
+          departure: guest.departure || "10:00",
+          bookingStatus: guest.booking_status || "Pending",
+        }
+      : null,
+    otherBooking: otherBooking
+      ? {
+          bookingType: otherBooking.booking_type || "",
+          bookingSource: otherBooking.booking_source || "",
+          bookingReference: otherBooking.booking_reference || "",
+          address: otherBooking.address || "",
+          country: otherBooking.country || "",
+          state: otherBooking.state || "",
+          city: otherBooking.city || "",
+          pincode: otherBooking.pincode || "",
+        }
+      : null,
+    reference: reference
+      ? {
+          guestType: reference.guest_type || "",
+          guestNotes: reference.guest_notes || "",
+          internalNotes: reference.internal_notes || "",
+        }
+      : null,
+    company: company
+      ? {
+          companyName: company.company_name || "Direct Booking",
+          gst: company.gstin || "",
+        }
+      : null,
+    roomSelection: {
+      selectedRooms,
+      roomTypeMap,
+    },
+    pax: {
+      rooms: paxRooms,
+      paxData: paxByRoom,
+    },
+    roomTariff: {
+      rows: roomTariff,
+      totalAmount,
+    },
+    advance: {
+      paidAmount,
+      discountAmount,
+      paymentMode: advance?.payment_mode || "Cash",
+      notes: advance?.remarks || "",
+      totalAmount,
+      remainingAmount: Math.max(totalAmount - paidAmount - discountAmount, 0),
+    },
+  };
 };
 
 const updateRoomsForBooking = async (booking, nextStatus) => {
@@ -107,10 +296,17 @@ exports.createGuest = (req, res) => {
 };
 
 exports.updateOtherBooking = (req, res) => {
-  const data = { booking_id: req.params.id, ...req.body };
+  const data = {
+    guest_id: req.params.id,
+    booking_id: req.params.id,
+    ...req.body,
+  };
 
   OtherBookingModel.createOtherBooking(data, (err) => {
     if (err) {
+      if (process.env.NODE_ENV !== "test") {
+        console.error("Other booking save failed:", err);
+      }
       return res.status(500).json({ message: "Other booking failed" });
     }
 
@@ -191,14 +387,15 @@ exports.getAllBookings = async (_req, res) => {
         g.guest_name,
         g.mobile,
         g.guest_email,
-        g.check_in,
-        g.check_out,
+        DATE_FORMAT(g.check_in, '%Y-%m-%d') AS check_in,
+        DATE_FORMAT(g.check_out, '%Y-%m-%d') AS check_out,
         g.booking_status,
         c.company_name,
         COALESCE(SUM(rt.total), 0) AS totalAmount,
         IFNULL(a.amount, 0) AS paidAmount,
         IFNULL(a.discount_amount, 0) AS discountAmount,
         IFNULL(a.refund_amount, 0) AS refundAmount,
+        COALESCE(NULLIF(a.payment_mode, ''), 'Pending') AS paymentMode,
         (IFNULL(a.amount, 0) - IFNULL(a.refund_amount, 0)) AS netPaid,
         (
           SUM(rt.total) -
@@ -222,6 +419,7 @@ exports.getAllBookings = async (_req, res) => {
         c.company_name,
         a.amount,
         a.discount_amount,
+        a.payment_mode,
         a.refund_amount
       ORDER BY g.id DESC
     `);
@@ -238,6 +436,18 @@ exports.getBookingById = async (req, res) => {
     res.json(result[0] || null);
   } catch (error) {
     res.status(500).json(error);
+  }
+};
+
+exports.getBookingWizard = async (req, res) => {
+  try {
+    const payload = await getBookingWizardDataById(req.params.id);
+    res.json(payload);
+  } catch (error) {
+    if (process.env.NODE_ENV !== "test") {
+      console.error("Booking wizard fetch failed:", error);
+    }
+    res.status(500).json({ message: "Booking wizard fetch failed", error: error.message });
   }
 };
 
@@ -259,6 +469,8 @@ exports.getFullBooking = async (req, res) => {
   const id = req.params.id;
 
   try {
+    await ensureBookingWizardSchema();
+
     const summaryResult = await query(
       `
         SELECT
@@ -268,9 +480,10 @@ exports.getFullBooking = async (req, res) => {
           g.guest_name,
           g.mobile,
           g.guest_email,
-          g.check_in,
-          g.check_out,
+          DATE_FORMAT(g.check_in, '%Y-%m-%d') AS check_in,
+          DATE_FORMAT(g.check_out, '%Y-%m-%d') AS check_out,
           g.booking_status,
+          ob.booking_source,
           c.company_name,
           IFNULL(a.amount, 0) AS paidAmount,
           IFNULL(a.discount_amount, 0) AS discountAmount,
@@ -281,6 +494,7 @@ exports.getFullBooking = async (req, res) => {
             ((IFNULL(a.amount, 0) - IFNULL(a.refund_amount, 0)) + IFNULL(a.discount_amount, 0))
           ) AS remainingAmount
         FROM guests g
+        LEFT JOIN other_booking ob ON g.id = ob.guest_id
         LEFT JOIN companies c ON g.id = c.booking_id
         LEFT JOIN advance_payment a ON g.id = a.booking_id
         LEFT JOIN room_tariff rt ON g.id = rt.booking_id
@@ -294,6 +508,7 @@ exports.getFullBooking = async (req, res) => {
           g.check_in,
           g.check_out,
           g.booking_status,
+          ob.booking_source,
           c.company_name,
           a.amount,
           a.discount_amount,
@@ -498,9 +713,22 @@ exports.updateAdvance = (req, res) => {
             });
           }
 
-          return res.json({
-            message: "Payment Added + History Saved",
-          });
+          InvoiceModel.generateCustomerInvoice(Number(req.params.id))
+            .then(() =>
+              res.json({
+                message: "Payment Added + History Saved",
+              }),
+            )
+            .catch((invoiceError) => {
+              if (process.env.NODE_ENV !== "test") {
+                console.error(invoiceError);
+              }
+
+              return res.status(500).json({
+                message: "Invoice sync failed after payment save",
+                error: invoiceError.message,
+              });
+            });
         });
       });
     })
@@ -615,14 +843,16 @@ exports.getBookingHistory = async (_req, res) => {
         g.guest_name,
         g.mobile,
         g.guest_email,
-        g.check_in,
-        g.check_out,
+        DATE_FORMAT(g.check_in, '%Y-%m-%d') AS check_in,
+        DATE_FORMAT(g.check_out, '%Y-%m-%d') AS check_out,
         g.booking_status,
         c.company_name,
         COALESCE(SUM(rt.total), 0) AS totalAmount,
         IFNULL(a.amount, 0) AS paidAmount,
         IFNULL(a.discount_amount, 0) AS discountAmount,
         IFNULL(a.refund_amount, 0) AS refundAmount,
+        COALESCE(NULLIF(a.payment_mode, ''), 'Pending') AS paymentMode,
+        (IFNULL(a.amount, 0) - IFNULL(a.refund_amount, 0)) AS netPaid,
         (
           SUM(rt.total) -
           ((IFNULL(a.amount, 0) - IFNULL(a.refund_amount, 0)) + IFNULL(a.discount_amount, 0))
@@ -657,6 +887,7 @@ exports.getBookingHistory = async (_req, res) => {
         c.company_name,
         a.amount,
         a.discount_amount,
+        a.payment_mode,
         a.refund_amount
       ORDER BY g.id DESC
     `);

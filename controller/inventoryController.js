@@ -98,6 +98,24 @@ exports.getWasteLogs = (req, res) => {
   });
 };
 
+exports.updateWasteLog = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.updateWasteLog(req.params.id, req.body, (err) => {
+      if (err) return res.status(500).json({ message: "Failed to update waste log.", error: err });
+      res.json({ message: "Waste log updated." });
+    });
+  });
+};
+
+exports.deleteWasteLog = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.deleteWasteLog(req.params.id, (err) => {
+      if (err) return res.status(500).json({ message: "Failed to delete waste log.", error: err });
+      res.json({ message: "Waste log deleted." });
+    });
+  });
+};
+
 exports.createPurchaseOrder = (req, res) => {
   const data = { ...req.body, createdBy: req.user?.username || "system" };
   withInventorySchema(res, async () => {
@@ -181,6 +199,24 @@ exports.getTransfers = (req, res) => {
     Inventory.getTransfers((err, results) => {
       if (err) return res.status(500).json({ message: "Failed to fetch transfers.", error: err });
       res.json(results);
+    });
+  });
+};
+
+exports.updateTransfer = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.updateTransfer(req.params.id, req.body, (err) => {
+      if (err) return res.status(500).json({ message: "Failed to update transfer.", error: err });
+      res.json({ message: "Transfer updated." });
+    });
+  });
+};
+
+exports.deleteTransfer = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.deleteTransfer(req.params.id, (err) => {
+      if (err) return res.status(500).json({ message: "Failed to delete transfer.", error: err });
+      res.json({ message: "Transfer deleted." });
     });
   });
 };

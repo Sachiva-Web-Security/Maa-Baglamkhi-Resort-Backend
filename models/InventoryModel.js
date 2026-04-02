@@ -251,6 +251,32 @@ const Inventory = {
     );
   },
 
+  updateWasteLog: (id, data, callback) => {
+    const sql = `
+      UPDATE inventory_waste_log
+      SET item_name=?, quantity=?, unit=?, reason=?, store=?, remarks=?, waste_date=?
+      WHERE id=?
+    `;
+    db.query(
+      sql,
+      [
+        data.itemName,
+        data.quantity,
+        data.unit || null,
+        data.reason,
+        data.store || null,
+        data.remarks || null,
+        data.date || null,
+        id,
+      ],
+      callback,
+    );
+  },
+
+  deleteWasteLog: (id, callback) => {
+    db.query("DELETE FROM inventory_waste_log WHERE id = ?", [id], callback);
+  },
+
   createPurchaseOrder: (data, callback) => {
     const sql = `
       INSERT INTO inventory_purchase_orders
@@ -381,6 +407,33 @@ const Inventory = {
        ORDER BY transfer_date DESC, created_at DESC`,
       callback,
     );
+  },
+
+  updateTransfer: (id, data, callback) => {
+    const sql = `
+      UPDATE inventory_transfers
+      SET item_name=?, from_store=?, to_store=?, quantity=?, unit=?, approved_by=?, transfer_date=?, notes=?
+      WHERE id=?
+    `;
+    db.query(
+      sql,
+      [
+        data.itemName,
+        data.fromStore,
+        data.toStore,
+        data.quantity,
+        data.unit || null,
+        data.approvedBy || null,
+        data.date || null,
+        data.notes || null,
+        id,
+      ],
+      callback,
+    );
+  },
+
+  deleteTransfer: (id, callback) => {
+    db.query("DELETE FROM inventory_transfers WHERE id = ?", [id], callback);
   },
 };
 
