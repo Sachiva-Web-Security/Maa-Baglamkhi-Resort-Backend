@@ -1,10 +1,12 @@
 const express = require("express");
 const router = express.Router();
+const upload = require("../utils/upload");
 
 const bookingController = require("../controller/bookingController");
 const hotelRoomInventoryController = require("../controller/hotelRoomInventoryController");
 const folioController        = require("../controller/folioController");
 const roomBlockController    = require("../controller/roomBlockController");
+const guestDocumentController = require("../controller/guestDocumentController");
 const guestProfileController = require("../controller/guestProfileController");
 const groupBookingController = require("../controller/groupBookingController");
 
@@ -58,6 +60,8 @@ router.put("/room-block/:id",          roomBlockController.updateStatus);
 
 // Guest Profile / History
 router.get("/guest-profile",           guestProfileController.search);
+router.get("/guest-documents/:bookingId", guestDocumentController.listByBooking);
+router.post("/guest-documents/:bookingId", upload.single("document"), guestDocumentController.uploadByBooking);
 
 // Group Booking
 router.post("/group-booking",          groupBookingController.create);

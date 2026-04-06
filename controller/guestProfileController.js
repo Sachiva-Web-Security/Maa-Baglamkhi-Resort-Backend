@@ -8,6 +8,7 @@
  */
 
 const db = require("../config/db");
+const guestDocumentModel = require("../models/guestDocumentModel");
 
 const runQuery = (sql, params = []) =>
   new Promise((resolve, reject) => {
@@ -97,7 +98,17 @@ exports.search = async (req, res) => {
       { totalStays: 0, totalRevenue: 0, totalNights: 0 },
     );
 
-    res.json({ guest, bookings, stats });
+    const documents = guest.mobile
+      ? await guestDocumentModel.getDocumentsByMobile(guest.mobile)
+      : [];
+
+    res.json({
+      guest,
+      bookings,
+      stats,
+      documents,
+      latestDocument: documents[0] || null,
+    });
   } catch (err) {
     console.error("[guestProfile] search error:", err);
     res.status(500).json({ error: "Failed to search guest profile" });

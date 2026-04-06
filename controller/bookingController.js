@@ -421,6 +421,7 @@ exports.getAllBookings = async (_req, res) => {
         a.discount_amount,
         a.payment_mode,
         a.refund_amount
+      HAVING COUNT(DISTINCT rt.id) > 0
       ORDER BY g.id DESC
     `);
 

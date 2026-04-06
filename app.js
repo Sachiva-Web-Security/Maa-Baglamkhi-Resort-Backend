@@ -14,6 +14,9 @@ const {
   ensureSchema: ensureGuestSchema,
 } = require("./models/guestModel");
 const {
+  ensureSchema: ensureGuestDocumentSchema,
+} = require("./models/guestDocumentModel");
+const {
   ensureSchema: ensureAdvancePaymentSchema,
 } = require("./models/advanceModel");
 const {
@@ -175,6 +178,7 @@ async function initializeDatabase(options = {}) {
     await bootstrapSchema("Housekeeping schema init", ensureHousekeepingSchema);
     await bootstrapSchema("Hotel room inventory schema init", ensureHotelRoomInventorySchema);
     await bootstrapSchema("Guest schema init", ensureGuestSchema);
+    await bootstrapSchema("Guest documents schema init", ensureGuestDocumentSchema);
     await bootstrapSchema("Company schema init", ensureCompanySchema);
     await bootstrapSchema("Pax schema init", ensurePaxSchema);
     await bootstrapSchema("Room tariff schema init", ensureRoomTariffSchema);
