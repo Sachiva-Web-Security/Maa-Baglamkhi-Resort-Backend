@@ -979,6 +979,11 @@ const addBanquetHall = async (req, res) => {
   try {
     const hallRateColumn = await getHallRateColumn();
     const { name, capacity, ratePerHour, is_ac, image } = req.body;
+    const imageValue = req.file ? `/uploads/${req.file.filename}` : image || null;
+    const isAcValue =
+      typeof is_ac === "string"
+        ? is_ac === "true" || is_ac === "1"
+        : Boolean(is_ac);
 
     if (!name || !capacity || !ratePerHour) {
       return res.status(400).json({
@@ -995,8 +1000,8 @@ const addBanquetHall = async (req, res) => {
         name,
         Number(capacity),
         Number(ratePerHour),
-        is_ac ? 1 : 0,
-        image || null,
+        isAcValue ? 1 : 0,
+        imageValue,
         "Available",
       ]
     );
@@ -1022,6 +1027,11 @@ const updateBanquetHall = async (req, res) => {
     const hallRateColumn = await getHallRateColumn();
     const { id } = req.params;
     const { name, capacity, ratePerHour, is_ac, image, status } = req.body;
+    const imageValue = req.file ? `/uploads/${req.file.filename}` : image || null;
+    const isAcValue =
+      typeof is_ac === "string"
+        ? is_ac === "true" || is_ac === "1"
+        : Boolean(is_ac);
 
     if (!name || !capacity || !ratePerHour) {
       return res.status(400).json({
@@ -1044,8 +1054,8 @@ const updateBanquetHall = async (req, res) => {
         name,
         Number(capacity),
         Number(ratePerHour),
-        is_ac ? 1 : 0,
-        image || null,
+        isAcValue ? 1 : 0,
+        imageValue,
         status || "Available",
         id,
       ]

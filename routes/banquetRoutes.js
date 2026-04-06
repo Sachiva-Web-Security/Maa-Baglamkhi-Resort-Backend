@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const upload = require("../utils/upload");
 
 const {
   getBanquetPricingConfig,
@@ -27,8 +28,8 @@ router.put("/:id/refund", refundBanquetBooking);
 router.delete("/:id", deleteBanquetBooking);
 router.put("/:id/complete", completeBanquetBooking);
 router.put("/:id/bill", generateBanquetBill);
-router.post("/halls", addBanquetHall);
-router.put("/halls/:id", updateBanquetHall);
+router.post("/halls", upload.single("image"), addBanquetHall);
+router.put("/halls/:id", upload.single("image"), updateBanquetHall);
 router.delete("/halls/:id", deleteBanquetHall);
 
 module.exports = router;

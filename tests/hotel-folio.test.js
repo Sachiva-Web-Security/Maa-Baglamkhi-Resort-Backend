@@ -165,6 +165,24 @@ describe("Hotel Booking and Folio APIs", () => {
       expect(res.body.some((row) => row.bookingId === 2)).toBe(false);
     });
 
+    test("does not return guest-only draft rows in all-bookings", async () => {
+      const createRes = await api().post("/api/hotel/guest").send({
+        guestName: "Draft Only",
+        mobile: "9000011111",
+        guestEmail: "draft@test.com",
+        checkIn: "2026-03-31",
+        checkOut: "2026-04-02",
+        arrival: "12:00",
+        departure: "10:00",
+      });
+
+      expect(createRes.status).toBe(200);
+
+      const res = await api().get("/api/hotel/all-bookings");
+      expect(res.status).toBe(200);
+      expect(res.body.some((row) => row.bookingId === createRes.body.bookingId)).toBe(false);
+    });
+
     test("returns full booking details", async () => {
       const res = await api().get("/api/hotel/full-booking/1");
       expect(res.status).toBe(200);
