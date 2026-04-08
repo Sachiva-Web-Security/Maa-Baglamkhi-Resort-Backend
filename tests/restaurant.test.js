@@ -289,6 +289,122 @@ describe("Restaurant Order APIs", () => {
       expect(pendingOrders).toHaveLength(0);
     });
 
+    test("posts a restaurant table bill to an active room folio", async () => {
+      const checkInRes = await api().put("/api/hotel/check-in/1").send({});
+      expect(checkInRes.status).toBe(200);
+
+      const billRes = await api().post("/api/restaurant/bill").send({
+        table: "T1",
+        tokenId: 1,
+        entityType: "Table",
+        waiterName: "Waiter One",
+        customerName: "John Carter",
+        phone: "9990001111",
+        subtotal: 500,
+        gst: 25,
+        total: 525,
+        paymentMethod: null,
+        invoiceStatus: "Generated",
+      });
+
+      expect(billRes.status).toBe(200);
+
+      const chargeRes = await api()
+        .post(`/api/restaurant/bill/${billRes.body.id}/charge-to-room`)
+        .send({
+          roomNumber: "101",
+          bookingId: 1,
+          sourceTableNumber: "T1",
+          customerName: "John Carter",
+          phone: "9990001111",
+          total: 525,
+          discountAmount: 0,
+        });
+
+      expect(chargeRes.status).toBe(200);
+      expect(chargeRes.body.billId).toBe(billRes.body.id);
+      expect(chargeRes.body.bookingId).toBe(1);
+      expect(chargeRes.body.roomNumber).toBe("101");
+      expect(chargeRes.body.folioEntryId).toBeTruthy();
+
+      const bills = await runQuery(
+        `
+          SELECT
+            invoiceStatus,
+            paymentMethod,
+            posted_to_room,
+            posted_room_number,
+            room_booking_id,
+            folio_entry_id,
+            source_table_number,
+            posted_at
+          FROM bills
+          WHERE id = ?
+        `,
+        [billRes.body.id],
+      );
+      const legacyBills = await runQuery(
+        `
+          SELECT
+            invoiceStatus,
+            paymentMethod,
+            posted_to_room,
+            posted_room_number,
+            room_booking_id,
+            folio_entry_id,
+            source_table_number,
+            posted_at
+          FROM restaurant_bills
+          WHERE modern_bill_id = ?
+        `,
+        [billRes.body.id],
+      );
+      const folioRows = await runQuery(
+        `
+          SELECT booking_id, category, description, amount, created_by
+          FROM hotel_folio_entries
+          WHERE id = ?
+        `,
+        [chargeRes.body.folioEntryId],
+      );
+      const activeTokens = await runQuery(
+        "SELECT id FROM tokens WHERE tableNumber = 'T1' AND status = 'active'",
+      );
+      const pendingOrders = await runQuery(
+        "SELECT id FROM orders WHERE tableNumber = 'T1' AND status = 'pending'",
+      );
+
+      expect(bills).toHaveLength(1);
+      expect(bills[0].invoiceStatus).toBe("Posted To Room");
+      expect(bills[0].paymentMethod).toBe("Charge To Room");
+      expect(Number(bills[0].posted_to_room)).toBe(1);
+      expect(bills[0].posted_room_number).toBe("101");
+      expect(Number(bills[0].room_booking_id)).toBe(1);
+      expect(Number(bills[0].folio_entry_id)).toBe(Number(chargeRes.body.folioEntryId));
+      expect(bills[0].source_table_number).toBe("T1");
+      expect(bills[0].posted_at).toBeTruthy();
+
+      expect(legacyBills).toHaveLength(1);
+      expect(legacyBills[0].invoiceStatus).toBe("Posted To Room");
+      expect(legacyBills[0].paymentMethod).toBe("Charge To Room");
+      expect(Number(legacyBills[0].posted_to_room)).toBe(1);
+      expect(legacyBills[0].posted_room_number).toBe("101");
+      expect(Number(legacyBills[0].room_booking_id)).toBe(1);
+      expect(Number(legacyBills[0].folio_entry_id)).toBe(Number(chargeRes.body.folioEntryId));
+      expect(legacyBills[0].source_table_number).toBe("T1");
+      expect(legacyBills[0].posted_at).toBeTruthy();
+
+      expect(folioRows).toHaveLength(1);
+      expect(Number(folioRows[0].booking_id)).toBe(1);
+      expect(folioRows[0].category).toBe("Restaurant");
+      expect(folioRows[0].description).toMatch(/Table T1/i);
+      expect(Number(folioRows[0].amount)).toBe(525);
+      expect(folioRows[0].created_by).toBe("Restaurant POS");
+
+      expect(activeTokens).toHaveLength(0);
+      expect(pendingOrders).toHaveLength(0);
+    });
+
     test("generic pay endpoint reuses existing generated bill for the same token", async () => {
       const billRes = await api().post("/api/restaurant/bill").send({
         table: "T1",
