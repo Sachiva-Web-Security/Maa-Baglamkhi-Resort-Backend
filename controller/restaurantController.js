@@ -27,7 +27,7 @@ const withEffectivePrice = (item) => {
 
 const normalizeTableRow = (tableRow) => ({
   id: tableRow.id,
-  number: tableRow.table_number,
+  number: tableRow.table_number || tableRow.number,
   floorName: tableRow.floor_name || tableRow.floorName || "",
   sectionName: tableRow.section_name || tableRow.sectionName || "",
   seatCount: tableRow.seat_count || tableRow.seatCount || tableRow.guestCount || 4,
@@ -56,9 +56,9 @@ const getMergedTableRows = async () => {
   const merged = [];
 
   try {
-    const restaurantRows = await q("SELECT * FROM restaurant_tables ORDER BY CAST(table_number AS UNSIGNED), table_number ASC");
+    const restaurantRows = await q("SELECT * FROM restaurant_tables ORDER BY CAST(number AS UNSIGNED), number ASC");
     for (const row of restaurantRows) {
-      const key = String(row.table_number || "").trim().toLowerCase();
+      const key = String(row.number || row.table_number || "").trim().toLowerCase();
       if (key && !seen.has(key)) {
         seen.add(key);
         merged.push(normalizeTableRow(row));
@@ -97,7 +97,7 @@ exports.addTable = async (req, res) => {
 
     // ✅ duplicate check (safe)
     const existing = await q(
-      "SELECT id FROM restaurant_tables WHERE table_number = ? LIMIT 1",
+      "SELECT id FROM restaurant_tables WHERE number = ? LIMIT 1",
       [String(number)]
     );
 
@@ -109,7 +109,7 @@ exports.addTable = async (req, res) => {
 
     // ✅ CLEAN INSERT (guestCount removed)
  const result = await q(
-  "INSERT INTO restaurant_tables (table_number, status, guestCount, floor_name, section_name, seat_count, status_color) VALUES (?, 'available', ?, ?, ?, ?, ?)",
+  "INSERT INTO restaurant_tables (number, status, guestCount, floor_name, section_name, seat_count, status_color) VALUES (?, 'available', ?, ?, ?, ?, ?)",
   [
     String(number),
     Number(seatCount || 4),   // guestCount
@@ -530,6 +530,24 @@ exports.payBill = async (req, res) => {
   } catch (error) {
     res.status(Number(error.statusCode || 500)).json({
       message: error.message || "Bill payment failed",
+    });
+  }
+};
+
+exports.chargeBillToRoom = async (req, res) => {
+  try {
+    const result = await Restaurant.chargeBillToRoom({
+      ...req.body,
+      billId: req.body?.billId || req.params?.id || null,
+    });
+
+    res.json({
+      message: "Bill posted to room successfully",
+      ...result,
+    });
+  } catch (error) {
+    res.status(Number(error.statusCode || 500)).json({
+      message: error.message || "Unable to post bill to room",
     });
   }
 };
