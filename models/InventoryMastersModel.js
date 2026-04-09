@@ -255,11 +255,24 @@ const getDefinition = (sectionKey) => SECTION_DEFINITIONS[sectionKey] || null;
 
 const quoteIdentifier = (value) => `\`${String(value).replace(/`/g, "``")}\``;
 
+const generateAutoInvoiceNo = () => {
+  const now = new Date();
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+    String(now.getHours()).padStart(2, "0"),
+    String(now.getMinutes()).padStart(2, "0"),
+    String(now.getSeconds()).padStart(2, "0"),
+  ].join("");
+  return `PINV-${stamp}`;
+};
+
 const normalizePayload = (sectionKey, payload = {}) => {
   const definition = getDefinition(sectionKey);
   if (!definition) return null;
 
-  return definition.fields.reduce((acc, field) => {
+  const normalized = definition.fields.reduce((acc, field) => {
     const raw = payload[field.key];
     if (field.numeric) {
       acc[field.column] = Number(raw || 0);
@@ -270,6 +283,12 @@ const normalizePayload = (sectionKey, payload = {}) => {
     }
     return acc;
   }, {});
+
+  if (sectionKey === "purchase-items" && !normalized.invoice_no) {
+    normalized.invoice_no = generateAutoInvoiceNo();
+  }
+
+  return normalized;
 };
 
 const validatePayload = (sectionKey, payload = {}) => {
