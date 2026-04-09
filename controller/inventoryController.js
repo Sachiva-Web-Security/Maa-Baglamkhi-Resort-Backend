@@ -44,7 +44,8 @@ exports.getItem = (req, res) => {
 
 exports.updateItem = (req, res) => {
   withInventorySchema(res, async () => {
-    Inventory.update(req.params.id, req.body, (err) => {
+    const data = { ...req.body, createdBy: req.user?.username || "system" };
+    Inventory.update(req.params.id, data, (err) => {
       if (err) return res.status(500).json({ message: "Failed to update item.", error: err });
       res.json({ message: "Item updated successfully." });
     });
@@ -82,10 +83,12 @@ exports.getExpiringItems = (req, res) => {
 exports.logWaste = (req, res) => {
   const data = { ...req.body, createdBy: req.user?.username || "system" };
   withInventorySchema(res, async () => {
-    Inventory.logWaste(data, (err, result) => {
-      if (err) return res.status(500).json({ message: "Failed to log waste.", error: err });
-      res.status(201).json({ message: "Waste entry logged.", id: result.insertId });
-    });
+    try {
+      const result = await Inventory.createWasteEntry(data);
+      res.status(201).json({ message: "Waste entry logged.", id: result.id, stockUpdated: result.stockUpdated });
+    } catch (err) {
+      res.status(err?.statusCode || 500).json({ message: "Failed to log waste.", error: err });
+    }
   });
 };
 
@@ -100,19 +103,23 @@ exports.getWasteLogs = (req, res) => {
 
 exports.updateWasteLog = (req, res) => {
   withInventorySchema(res, async () => {
-    Inventory.updateWasteLog(req.params.id, req.body, (err) => {
-      if (err) return res.status(500).json({ message: "Failed to update waste log.", error: err });
+    try {
+      await Inventory.updateWasteEntry(req.params.id, req.body);
       res.json({ message: "Waste log updated." });
-    });
+    } catch (err) {
+      res.status(err?.statusCode || 500).json({ message: "Failed to update waste log.", error: err });
+    }
   });
 };
 
 exports.deleteWasteLog = (req, res) => {
   withInventorySchema(res, async () => {
-    Inventory.deleteWasteLog(req.params.id, (err) => {
-      if (err) return res.status(500).json({ message: "Failed to delete waste log.", error: err });
+    try {
+      await Inventory.deleteWasteEntry(req.params.id);
       res.json({ message: "Waste log deleted." });
-    });
+    } catch (err) {
+      res.status(err?.statusCode || 500).json({ message: "Failed to delete waste log.", error: err });
+    }
   });
 };
 
@@ -153,6 +160,130 @@ exports.deletePurchaseOrder = (req, res) => {
   });
 };
 
+exports.createVendorInward = (req, res) => {
+  const data = { ...req.body, createdBy: req.user?.username || "system" };
+  withInventorySchema(res, async () => {
+    try {
+      const result = await Inventory.createVendorInward(data);
+      res.status(201).json({
+        message: "Vendor inward recorded.",
+        id: result.id,
+        stockUpdated: result.stockUpdated,
+      });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to record vendor inward.", error: err });
+    }
+  });
+};
+
+exports.getVendorInwards = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.getVendorInwards((err, results) => {
+      if (err) return res.status(500).json({ message: "Failed to fetch vendor inwards.", error: err });
+      res.json(results);
+    });
+  });
+};
+
+exports.updateVendorInward = (req, res) => {
+  const data = { ...req.body, createdBy: req.user?.username || "system" };
+  withInventorySchema(res, async () => {
+    try {
+      const result = await Inventory.updateVendorInward(req.params.id, data);
+      res.json({
+        message: "Vendor inward updated.",
+        stockUpdated: result.stockUpdated,
+      });
+    } catch (err) {
+      const status = err?.statusCode || 500;
+      res.status(status).json({ message: "Failed to update vendor inward.", error: err });
+    }
+  });
+};
+
+exports.deleteVendorInward = (req, res) => {
+  withInventorySchema(res, async () => {
+    try {
+      await Inventory.deleteVendorInward(req.params.id);
+      res.json({ message: "Vendor inward deleted." });
+    } catch (err) {
+      const status = err?.statusCode || 500;
+      res.status(status).json({ message: "Failed to delete vendor inward.", error: err });
+    }
+  });
+};
+
+exports.createVendorPayment = (req, res) => {
+  const data = { ...req.body, createdBy: req.user?.username || "system" };
+  withInventorySchema(res, async () => {
+    Inventory.createVendorPayment(data, (err, result) => {
+      if (err) return res.status(500).json({ message: "Failed to create vendor payment.", error: err });
+      res.status(201).json({ message: "Vendor payment recorded.", id: result.insertId });
+    });
+  });
+};
+
+exports.getVendorPayments = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.getVendorPayments((err, results) => {
+      if (err) return res.status(500).json({ message: "Failed to fetch vendor payments.", error: err });
+      res.json(results);
+    });
+  });
+};
+
+exports.updateVendorPayment = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.updateVendorPayment(req.params.id, req.body, (err) => {
+      if (err) return res.status(500).json({ message: "Failed to update vendor payment.", error: err });
+      res.json({ message: "Vendor payment updated." });
+    });
+  });
+};
+
+exports.deleteVendorPayment = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.deleteVendorPayment(req.params.id, (err) => {
+      if (err) return res.status(500).json({ message: "Failed to delete vendor payment.", error: err });
+      res.json({ message: "Vendor payment deleted." });
+    });
+  });
+};
+
+exports.getStockLedger = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.getStockLedger((err, results) => {
+      if (err) return res.status(500).json({ message: "Failed to fetch stock ledger.", error: err });
+      res.json(results);
+    });
+  });
+};
+
+exports.getStockFlowReport = (req, res) => {
+  withInventorySchema(res, async () => {
+    try {
+      const result = await Inventory.getStockFlowReport({
+        dateFrom: req.query.dateFrom,
+        dateTo: req.query.dateTo,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch stock flow report.", error: err });
+    }
+  });
+};
+
+exports.getVendorInsights = (req, res) => {
+  withInventorySchema(res, async () => {
+    try {
+      const result = await Inventory.getVendorInsights();
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch vendor insights.", error: err });
+    }
+  });
+};
+
 exports.submitAudit = (req, res) => {
   const entries = req.body.entries || [];
   if (!entries.length) return res.status(400).json({ message: "No audit entries provided." });
@@ -187,10 +318,12 @@ exports.getAuditReport = (req, res) => {
 
 exports.recordTransfer = (req, res) => {
   withInventorySchema(res, async () => {
-    Inventory.recordTransfer(req.body, (err, result) => {
-      if (err) return res.status(500).json({ message: "Failed to record transfer.", error: err });
-      res.status(201).json({ message: "Transfer recorded.", id: result.insertId });
-    });
+    try {
+      const result = await Inventory.createTransferEntry(req.body);
+      res.status(201).json({ message: "Transfer recorded.", id: result.id });
+    } catch (err) {
+      res.status(err?.statusCode || 500).json({ message: "Failed to record transfer.", error: err });
+    }
   });
 };
 
@@ -205,18 +338,22 @@ exports.getTransfers = (req, res) => {
 
 exports.updateTransfer = (req, res) => {
   withInventorySchema(res, async () => {
-    Inventory.updateTransfer(req.params.id, req.body, (err) => {
-      if (err) return res.status(500).json({ message: "Failed to update transfer.", error: err });
+    try {
+      await Inventory.updateTransferEntry(req.params.id, req.body);
       res.json({ message: "Transfer updated." });
-    });
+    } catch (err) {
+      res.status(err?.statusCode || 500).json({ message: "Failed to update transfer.", error: err });
+    }
   });
 };
 
 exports.deleteTransfer = (req, res) => {
   withInventorySchema(res, async () => {
-    Inventory.deleteTransfer(req.params.id, (err) => {
-      if (err) return res.status(500).json({ message: "Failed to delete transfer.", error: err });
+    try {
+      await Inventory.deleteTransferEntry(req.params.id);
       res.json({ message: "Transfer deleted." });
-    });
+    } catch (err) {
+      res.status(err?.statusCode || 500).json({ message: "Failed to delete transfer.", error: err });
+    }
   });
 };
