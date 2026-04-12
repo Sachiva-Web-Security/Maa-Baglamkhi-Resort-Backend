@@ -1,9 +1,35 @@
 const db = require("../config/db");
+const {
+  getRequestActor,
+  namesMatch,
+} = require("../utils/requestActor");
 
 const query = (sql, params = []) =>
   new Promise((resolve, reject) =>
     db.query(sql, params, (err, results) => (err ? reject(err) : resolve(results)))
   );
+
+const ASSIGNEE_ROLES = new Set(["housekeeping", "accountant", "staff"]);
+const MANAGER_ROLES = new Set(["admin", "manager", "receptionist"]);
+
+const isAssigneeRole = (role) => ASSIGNEE_ROLES.has(String(role || "").toLowerCase());
+const isManagerRole = (role) => MANAGER_ROLES.has(String(role || "").toLowerCase());
+
+const getVisibilityContext = (req) => {
+  const actor = getRequestActor(req);
+
+  return {
+    actor,
+    restrictToOwnAssignments: isAssigneeRole(actor.role) && actor.normalizedName,
+  };
+};
+
+const ensureColumn = async (tableName, columnName, definition) => {
+  const rows = await query(`SHOW COLUMNS FROM ${tableName} LIKE ?`, [columnName]);
+  if (!Array.isArray(rows) || rows.length === 0) {
+    await query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  }
+};
 
 const ensureSchema = async () => {
   await query(`
@@ -20,6 +46,12 @@ const ensureSchema = async () => {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  await ensureColumn(
+    "assignments",
+    "updated_at",
+    "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+  );
 };
 
 exports.bootstrap = async (_req, _res, next) => {
@@ -33,21 +65,19 @@ exports.bootstrap = async (_req, _res, next) => {
 
 /* ── GET ALL (with role-based filtering) ───────────────────────── */
 exports.getAll = async (req, res) => {
-  const { role, name } = req.query;
+  const { actor, restrictToOwnAssignments } = getVisibilityContext(req);
 
   try {
     let sql, params;
 
-    // Housekeeping staff: only see their own assignments
-    if (role === "housekeeping" && name) {
+    if (restrictToOwnAssignments) {
       sql = `
         SELECT * FROM assignments
         WHERE staff_name = ?
         ORDER BY FIELD(priority,'Urgent','High','Normal','Low'), created_at DESC
       `;
-      params = [name];
+      params = [actor.name];
     } else {
-      // Admins, managers, etc. see everything, sorted by priority
       sql = `
         SELECT * FROM assignments
         ORDER BY FIELD(priority,'Urgent','High','Normal','Low'), created_at DESC
@@ -70,26 +100,44 @@ exports.getAll = async (req, res) => {
 
 /* ── GET STATS ─────────────────────────────────────────────────── */
 exports.getStats = async (req, res) => {
-  const { role, name } = req.query;
+  const { actor, restrictToOwnAssignments } = getVisibilityContext(req);
   try {
     let sql, params;
 
-    if (role === "housekeeping" && name) {
+    if (restrictToOwnAssignments) {
       sql = `
         SELECT
           COUNT(*) AS total,
           SUM(CASE WHEN LOWER(COALESCE(status,'pending')) = 'completed' THEN 1 ELSE 0 END) AS completed,
-          SUM(CASE WHEN LOWER(COALESCE(status,'pending')) <> 'completed' THEN 1 ELSE 0 END) AS pending
+          SUM(CASE WHEN LOWER(COALESCE(status,'pending')) = 'in progress' THEN 1 ELSE 0 END) AS in_progress,
+          SUM(CASE WHEN LOWER(COALESCE(status,'pending')) = 'pending' THEN 1 ELSE 0 END) AS pending,
+          SUM(
+            CASE
+              WHEN due_time IS NOT NULL
+               AND due_time < NOW()
+               AND LOWER(COALESCE(status,'pending')) NOT IN ('completed', 'cancelled')
+              THEN 1 ELSE 0
+            END
+          ) AS overdue
         FROM assignments
         WHERE staff_name = ?
       `;
-      params = [name];
+      params = [actor.name];
     } else {
       sql = `
         SELECT
           COUNT(*) AS total,
           SUM(CASE WHEN LOWER(COALESCE(status,'pending')) = 'completed' THEN 1 ELSE 0 END) AS completed,
-          SUM(CASE WHEN LOWER(COALESCE(status,'pending')) <> 'completed' THEN 1 ELSE 0 END) AS pending
+          SUM(CASE WHEN LOWER(COALESCE(status,'pending')) = 'in progress' THEN 1 ELSE 0 END) AS in_progress,
+          SUM(CASE WHEN LOWER(COALESCE(status,'pending')) = 'pending' THEN 1 ELSE 0 END) AS pending,
+          SUM(
+            CASE
+              WHEN due_time IS NOT NULL
+               AND due_time < NOW()
+               AND LOWER(COALESCE(status,'pending')) NOT IN ('completed', 'cancelled')
+              THEN 1 ELSE 0
+            END
+          ) AS overdue
         FROM assignments
       `;
       params = [];
@@ -100,7 +148,9 @@ exports.getStats = async (req, res) => {
     res.json({
       total:     Number(stats.total     || 0),
       completed: Number(stats.completed || 0),
+      inProgress: Number(stats.in_progress || 0),
       pending:   Number(stats.pending   || 0),
+      overdue: Number(stats.overdue || 0),
     });
   } catch (err) {
     res.status(500).json({ message: "Stats fetch failed", error: err });
@@ -144,6 +194,7 @@ exports.create = async (req, res) => {
 /* ── UPDATE ────────────────────────────────────────────────────── */
 exports.update = async (req, res) => {
   const { id } = req.params;
+  const actor = getRequestActor(req);
   const {
     status, priority, task,
     staffName, staff_name,
@@ -167,8 +218,31 @@ exports.update = async (req, res) => {
 
   if (!fields.length) return res.status(400).json({ message: "No fields to update" });
 
-  values.push(id);
   try {
+    const rows = await query("SELECT * FROM assignments WHERE id = ? LIMIT 1", [id]);
+    const existingAssignment = rows[0];
+
+    if (!existingAssignment) {
+      return res.status(404).json({ message: "Assignment not found" });
+    }
+
+    if (isAssigneeRole(actor.role) && !isManagerRole(actor.role)) {
+      const isOwnAssignment = namesMatch(existingAssignment.staff_name, actor.name);
+      const requestedFields = Object.keys(req.body || {});
+      const statusOnlyUpdate =
+        requestedFields.length === 1 &&
+        Object.prototype.hasOwnProperty.call(req.body || {}, "status");
+
+      if (!isOwnAssignment) {
+        return res.status(403).json({ message: "You can only update your own assignments" });
+      }
+
+      if (!statusOnlyUpdate) {
+        return res.status(403).json({ message: "You can only update assignment status" });
+      }
+    }
+
+    values.push(id);
     await query(`UPDATE assignments SET ${fields.join(", ")} WHERE id = ?`, values);
     res.json({ message: "Assignment updated" });
   } catch (err) {

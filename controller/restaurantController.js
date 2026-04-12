@@ -1,10 +1,23 @@
 const Restaurant = require("../models/RestaurantModel");
 const db = require("../config/db");
+const { getRequestActor, isWaiterActor, namesMatch } = require("../utils/requestActor");
 
 const q = (sql, params = []) =>
   new Promise((resolve, reject) =>
     db.query(sql, params, (err, res) => (err ? reject(err) : resolve(res)))
   );
+
+const resolveAssignedWaiterName = (req, fallbackEntityType = "Table") => {
+  const actor = getRequestActor(req);
+  if (isWaiterActor(actor) && actor.name) {
+    return actor.name;
+  }
+
+  const bodyWaiterName = String(req.body?.waiterName || req.body?.waiter || "").trim();
+  if (bodyWaiterName) return bodyWaiterName;
+
+  return String(fallbackEntityType || "Table").toLowerCase() === "room" ? "Room Service" : "Waiter";
+};
 
 const isHappyHourActive = (item) => {
   if (!item.happy_hour_price || !item.happy_hour_start || !item.happy_hour_end) return false;
@@ -86,6 +99,11 @@ const getMergedTableRows = async () => {
 
 /* ================= TABLE ================= */
 exports.addTable = async (req, res) => {
+  const actor = getRequestActor(req);
+  if (isWaiterActor(actor)) {
+    return res.status(403).json({ message: "Waiter cannot add restaurant tables" });
+  }
+
   const { number, floorName, sectionName, seatCount, statusColor } = req.body || {};
 
   if (!number) {
@@ -151,6 +169,11 @@ exports.getTables = async (req, res) => {
 };
 
 exports.updateTable = async (req, res) => {
+  const actor = getRequestActor(req);
+  if (isWaiterActor(actor)) {
+    return res.status(403).json({ message: "Waiter cannot update restaurant tables" });
+  }
+
   const { id } = req.params;
   const { floorName, sectionName, seatCount, statusColor, status } = req.body || {};
 
@@ -166,6 +189,11 @@ exports.updateTable = async (req, res) => {
 };
 
 exports.deleteTable = async (req, res) => {
+  const actor = getRequestActor(req);
+  if (isWaiterActor(actor)) {
+    return res.status(403).json({ message: "Waiter cannot remove restaurant tables" });
+  }
+
   const { id } = req.params;
 
   try {
@@ -196,6 +224,11 @@ exports.deleteTable = async (req, res) => {
 /* ================= MENU ================= */
 
 exports.addMenuItem = async (req, res) => {
+  const actor = getRequestActor(req);
+  if (isWaiterActor(actor)) {
+    return res.status(403).json({ message: "Waiter cannot create menu items" });
+  }
+
   const name = req.body.name;
   const price = Number(req.body.price);
   const category = req.body.category || "Others";
@@ -252,6 +285,11 @@ exports.getMenuItems = async (req, res) => {
 };
 
 exports.updateMenuItem = async (req, res) => {
+  const actor = getRequestActor(req);
+  if (isWaiterActor(actor)) {
+    return res.status(403).json({ message: "Waiter cannot update menu items" });
+  }
+
   const {
     name,
     price,
@@ -289,6 +327,11 @@ exports.updateMenuItem = async (req, res) => {
 };
 
 exports.deleteMenuItem = (req, res) => {
+  const actor = getRequestActor(req);
+  if (isWaiterActor(actor)) {
+    return res.status(403).json({ message: "Waiter cannot delete menu items" });
+  }
+
   Restaurant.deleteMenuItem(req.params.id, (err) => {
     if (err) return res.status(500).json(err);
     res.json({ message: "Menu item deleted" });
@@ -298,17 +341,28 @@ exports.deleteMenuItem = (req, res) => {
 /* ================= ORDER ================= */
 
 exports.addOrderItem = async (req, res) => {
+  const actor = getRequestActor(req);
   const { tableNumber, item } = req.body || {};
   if (!tableNumber || !item) return res.status(400).json({ message: "tableNumber and item required" });
+  const waiterName = resolveAssignedWaiterName(req);
 
   try {
     let created = false;
-    let order = (await q("SELECT id FROM orders WHERE tableNumber=? AND status='pending' ORDER BY id DESC LIMIT 1", [tableNumber]))[0];
+    let order = (await q("SELECT id, waiter_name FROM orders WHERE tableNumber=? AND status='pending' ORDER BY id DESC LIMIT 1", [tableNumber]))[0];
+
+    if (isWaiterActor(actor) && order?.waiter_name && !namesMatch(order.waiter_name, actor.name)) {
+      return res.status(403).json({ message: "This table is already running under another waiter" });
+    }
 
     if (!order) {
-      const result = await q("INSERT INTO orders (tableNumber, status) VALUES (?, 'pending')", [tableNumber]);
+      const result = await q(
+        "INSERT INTO orders (tableNumber, waiter_name, status) VALUES (?, ?, 'pending')",
+        [tableNumber, waiterName || null],
+      );
       order = { id: result.insertId };
       created = true;
+    } else if (!order.waiter_name && waiterName) {
+      await q("UPDATE orders SET waiter_name = ? WHERE id = ?", [waiterName, order.id]);
     }
 
     await q(
@@ -326,21 +380,33 @@ exports.addOrderItem = async (req, res) => {
 };
 
 exports.getOrders = async (req, res) => {
+  const actor = getRequestActor(req);
   try {
+    const conditions = [];
+    const params = [];
+
+    if (isWaiterActor(actor) && actor.name) {
+      conditions.push("LOWER(COALESCE(o.waiter_name, '')) = LOWER(?)");
+      params.push(actor.name);
+    }
+
     const rows = await q(
       `
         SELECT
           o.id,
           o.tableNumber,
+          o.waiter_name AS waiterName,
           o.status,
           o.created_at,
           COUNT(oi.id) AS itemCount,
           COALESCE(SUM(COALESCE(oi.price, 0) * COALESCE(oi.quantity, 0)), 0) AS totalAmount
         FROM orders o
         LEFT JOIN order_items oi ON oi.order_id = o.id
-        GROUP BY o.id, o.tableNumber, o.status, o.created_at
+        ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+        GROUP BY o.id, o.tableNumber, o.waiter_name, o.status, o.created_at
         ORDER BY o.id DESC
-      `
+      `,
+      params,
     );
     res.json(rows);
   } catch (err) {
@@ -349,9 +415,17 @@ exports.getOrders = async (req, res) => {
 };
 
 exports.getOrder = async (req, res) => {
+  const actor = getRequestActor(req);
   const { tableNumber } = req.params;
   try {
-    const rows = await q("SELECT * FROM orders WHERE tableNumber=? AND status='pending' ORDER BY id DESC LIMIT 1", [tableNumber]);
+    const params = [tableNumber];
+    let sql = "SELECT * FROM orders WHERE tableNumber=? AND status='pending'";
+    if (isWaiterActor(actor) && actor.name) {
+      sql += " AND LOWER(COALESCE(waiter_name, '')) = LOWER(?)";
+      params.push(actor.name);
+    }
+    sql += " ORDER BY id DESC LIMIT 1";
+    const rows = await q(sql, params);
     res.json(rows[0] || {});
   } catch (err) {
     res.status(500).json({ message: "Failed to load order", error: err.message });
@@ -369,13 +443,17 @@ exports.getOrderItems = async (req, res) => {
 };
 
 exports.updateOrder = async (req, res) => {
+  const actor = getRequestActor(req);
   const { orderId } = req.params;
   const { status, tableNumber } = req.body || {};
 
   try {
-    const existing = await q("SELECT id FROM orders WHERE id = ? LIMIT 1", [orderId]);
+    const existing = await q("SELECT id, waiter_name FROM orders WHERE id = ? LIMIT 1", [orderId]);
     if (!existing.length) {
       return res.status(404).json({ message: "Order not found" });
+    }
+    if (isWaiterActor(actor) && existing[0]?.waiter_name && !namesMatch(existing[0].waiter_name, actor.name)) {
+      return res.status(403).json({ message: "You can update only your own order" });
     }
 
     const fields = [];
@@ -404,12 +482,18 @@ exports.updateOrder = async (req, res) => {
 };
 
 exports.deleteOrder = async (req, res) => {
+  const actor = getRequestActor(req);
   const { orderId } = req.params;
   try {
-    const result = await q("DELETE FROM orders WHERE id = ?", [orderId]);
-    if (!result.affectedRows) {
+    const existing = await q("SELECT id, waiter_name FROM orders WHERE id = ? LIMIT 1", [orderId]);
+    if (!existing.length) {
       return res.status(404).json({ message: "Order not found" });
     }
+    if (isWaiterActor(actor) && existing[0]?.waiter_name && !namesMatch(existing[0].waiter_name, actor.name)) {
+      return res.status(403).json({ message: "You can delete only your own order" });
+    }
+
+    const result = await q("DELETE FROM orders WHERE id = ?", [orderId]);
     res.json({ message: "Order deleted" });
   } catch (err) {
     res.status(500).json({ message: "Failed to delete order", error: err.message });
@@ -417,9 +501,16 @@ exports.deleteOrder = async (req, res) => {
 };
 
 exports.payOrder = async (req, res) => {
+  const actor = getRequestActor(req);
   const { tableNumber } = req.params;
   try {
-    const result = await q("UPDATE orders SET status='paid' WHERE tableNumber=? AND status='pending'", [tableNumber]);
+    const params = [tableNumber];
+    let sql = "UPDATE orders SET status='paid' WHERE tableNumber=? AND status='pending'";
+    if (isWaiterActor(actor) && actor.name) {
+      sql += " AND LOWER(COALESCE(waiter_name, '')) = LOWER(?)";
+      params.push(actor.name);
+    }
+    const result = await q(sql, params);
     if (!result.affectedRows) {
       return res.json({ message: "Order already settled" });
     }
@@ -434,13 +525,14 @@ exports.payOrder = async (req, res) => {
 exports.createBill = async (req, res) => {
   try {
     await Restaurant.ensureSchema();
+    const actor = getRequestActor(req);
 
     Restaurant.createBill(
       {
         table: req.body.table || req.body.tableNumber,
         tokenId: req.body.tokenId || null,
         entityType: req.body.entityType || "Table",
-        waiterName: req.body.waiterName || null,
+        waiterName: isWaiterActor(actor) ? actor.name || req.body.waiterName || null : req.body.waiterName || null,
         customerName: req.body.customerName || "",
         phone: req.body.phone || "",
         subtotal: Number(req.body.subtotal || 0),
@@ -472,12 +564,17 @@ exports.createBill = async (req, res) => {
 exports.getBills = async (req, res) => {
   try {
     await Restaurant.ensureSchema();
+    const actor = getRequestActor(req);
 
     Restaurant.getBills((err, rows) => {
       if (err) {
         return res.status(500).json({ message: "Failed to load bills", error: err.message });
       }
-      res.json(Array.isArray(rows) ? rows : []);
+      let resultRows = Array.isArray(rows) ? rows : [];
+      if (isWaiterActor(actor) && actor.name) {
+        resultRows = resultRows.filter((row) => namesMatch(row.waiter_name, actor.name));
+      }
+      res.json(resultRows);
     });
   } catch {
     try {
@@ -509,7 +606,12 @@ exports.getBills = async (req, res) => {
           LIMIT 200
         `
       );
-      res.json(rows);
+      const actor = getRequestActor(req);
+      let resultRows = rows;
+      if (isWaiterActor(actor) && actor.name) {
+        resultRows = rows.filter((row) => namesMatch(row.waiter_name, actor.name));
+      }
+      res.json(resultRows);
     } catch (err) {
       res.status(500).json({ message: "Failed to load bills", error: err.message });
     }
@@ -535,6 +637,11 @@ exports.payBill = async (req, res) => {
 };
 
 exports.chargeBillToRoom = async (req, res) => {
+  const actor = getRequestActor(req);
+  if (isWaiterActor(actor)) {
+    return res.status(403).json({ message: "Waiter cannot charge bill to room" });
+  }
+
   try {
     const result = await Restaurant.chargeBillToRoom({
       ...req.body,
@@ -555,13 +662,20 @@ exports.chargeBillToRoom = async (req, res) => {
 /* ================= ITEM ACTION / SPLIT / METRICS ================= */
 
 exports.addItemActionRequest = (req, res) => {
+  const actor = getRequestActor(req);
   const { tokenItemId, tableNumber, actionType, reason, requestedBy } = req.body || {};
   if (!tokenItemId || !tableNumber || !actionType || !reason) {
     return res.status(400).json({ message: "Missing action request fields" });
   }
 
   Restaurant.addItemActionRequest(
-    { tokenItemId, tableNumber, actionType, reason, requestedBy },
+    {
+      tokenItemId,
+      tableNumber,
+      actionType,
+      reason,
+      requestedBy: isWaiterActor(actor) ? actor.name || requestedBy : requestedBy,
+    },
     (err, result) => {
       if (err) return res.status(500).json(err);
       res.json({ message: "Item action request created", id: result.insertId });
@@ -572,11 +686,16 @@ exports.addItemActionRequest = (req, res) => {
 exports.getItemActionRequests = async (req, res) => {
   try {
     await Restaurant.ensureSchema();
+    const actor = getRequestActor(req);
     Restaurant.getItemActionRequests((err, rows) => {
       if (err) {
         return res.status(500).json({ message: "Failed to load item action requests", error: err.message });
       }
-      res.json(Array.isArray(rows) ? rows : []);
+      let resultRows = Array.isArray(rows) ? rows : [];
+      if (isWaiterActor(actor) && actor.name) {
+        resultRows = resultRows.filter((row) => namesMatch(row.requested_by, actor.name));
+      }
+      res.json(resultRows);
     });
   } catch (err) {
     res.status(500).json({ message: "Failed to load item action requests", error: err.message });
@@ -584,6 +703,11 @@ exports.getItemActionRequests = async (req, res) => {
 };
 
 exports.reviewItemActionRequest = (req, res) => {
+  const actor = getRequestActor(req);
+  if (isWaiterActor(actor)) {
+    return res.status(403).json({ message: "Waiter cannot review action requests" });
+  }
+
   const { id } = req.params;
   const { status, managerNote, approvedBy } = req.body || {};
   if (!status) {
@@ -643,9 +767,14 @@ exports.createSplitBill = (req, res) => {
 exports.getWaiterPerformance = async (req, res) => {
   try {
     await Restaurant.ensureSchema();
+    const actor = getRequestActor(req);
     Restaurant.getWaiterPerformance((err, rows) => {
       if (err) return res.json([]);
-      res.json(Array.isArray(rows) ? rows : []);
+      let resultRows = Array.isArray(rows) ? rows : [];
+      if (isWaiterActor(actor) && actor.name) {
+        resultRows = resultRows.filter((row) => namesMatch(row.waiterName, actor.name));
+      }
+      res.json(resultRows);
     });
   } catch {
     res.json([]);

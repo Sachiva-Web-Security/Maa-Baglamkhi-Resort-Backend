@@ -3,6 +3,11 @@ require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
 const mysql = require("mysql2/promise");
+const {
+  getDatabaseName,
+  getDbBaseConfig,
+  getDbConnectionLabel,
+} = require("./config/databaseConfig");
 
 const requiredEnvVars = ["DB_HOST", "DB_USER", "DB_NAME", "JWT_SECRET"];
 
@@ -27,11 +32,8 @@ async function runSchemaFile() {
   }
 
   const connection = await mysql.createConnection({
-    host: process.env.DB_HOST || "127.0.0.1",
-    user: process.env.DB_USER || "root",
-    password: process.env.DB_PASSWORD || "",
-    database: process.env.DB_NAME,
-    connectTimeout: 10000,
+    ...getDbBaseConfig(),
+    database: getDatabaseName(),
     multipleStatements: true,
   });
 
@@ -44,13 +46,10 @@ async function runSchemaFile() {
 
 async function ensureDatabaseExists() {
   const connection = await mysql.createConnection({
-    host: process.env.DB_HOST || "127.0.0.1",
-    user: process.env.DB_USER || "root",
-    password: process.env.DB_PASSWORD || "",
-    connectTimeout: 10000,
+    ...getDbBaseConfig(),
   });
 
-  const databaseName = process.env.DB_NAME;
+  const databaseName = getDatabaseName();
   await connection.query(`CREATE DATABASE IF NOT EXISTS \`${databaseName}\``);
   await connection.end();
 }
@@ -67,7 +66,8 @@ async function run() {
 
   console.log("Starting backend initialization...");
   console.log(`Environment: ${process.env.NODE_ENV}`);
-  console.log(`Database: ${process.env.DB_NAME}`);
+  console.log(`Database: ${getDatabaseName()}`);
+  console.log(`MySQL target: ${getDbConnectionLabel()}`);
 
   try {
     await ensureDatabaseExists();
@@ -86,7 +86,10 @@ async function run() {
     console.log("Backend initialization finished successfully.");
     process.exit(0);
   } catch (error) {
-    console.error("Initialization failed:", error.message || error);
+    console.error(
+      `Initialization failed while connecting to ${getDbConnectionLabel()}:`,
+      error.message || error,
+    );
     process.exit(1);
   }
 }

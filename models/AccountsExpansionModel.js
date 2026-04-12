@@ -16,6 +16,93 @@ const ensureColumn = async (tableName, columnName, definition) => {
   }
 };
 
+const getInvoiceSchemaConfig = async () => {
+  const [
+    hasCustomerName,
+    hasGuestName,
+    hasTotalAmount,
+    hasFinalTotal,
+    hasSubtotal,
+    hasPaymentMode,
+    hasPaymentStatus,
+    hasStatus,
+    hasDate,
+    hasCreatedAt,
+    hasRoomNo,
+  ] = await Promise.all([
+    columnExists("invoices", "customer_name"),
+    columnExists("invoices", "guest_name"),
+    columnExists("invoices", "total_amount"),
+    columnExists("invoices", "final_total"),
+    columnExists("invoices", "subtotal"),
+    columnExists("invoices", "payment_mode"),
+    columnExists("invoices", "payment_status"),
+    columnExists("invoices", "status"),
+    columnExists("invoices", "date"),
+    columnExists("invoices", "created_at"),
+    columnExists("invoices", "room_no"),
+  ]);
+
+  const customerNameExpr = hasCustomerName && hasGuestName
+    ? "COALESCE(NULLIF(i.customer_name, ''), NULLIF(i.guest_name, ''), 'Walk-in Guest')"
+    : hasCustomerName
+      ? "COALESCE(NULLIF(i.customer_name, ''), 'Walk-in Guest')"
+      : hasGuestName
+        ? "COALESCE(NULLIF(i.guest_name, ''), 'Walk-in Guest')"
+        : "'Walk-in Guest'";
+
+  const sourceAmountParts = [];
+  if (hasTotalAmount) sourceAmountParts.push("NULLIF(i.total_amount, 0)");
+  if (hasFinalTotal) sourceAmountParts.push("NULLIF(i.final_total, 0)");
+  if (hasSubtotal) sourceAmountParts.push("NULLIF(i.subtotal, 0)");
+
+  const sourceAmountExpr = sourceAmountParts.length
+    ? `COALESCE(${sourceAmountParts.join(", ")}, 0)`
+    : "0";
+
+  const paymentModeExpr = hasPaymentMode
+    ? "COALESCE(NULLIF(i.payment_mode, ''), 'Unknown')"
+    : "'Unknown'";
+
+  const sourceStatusExpr = hasPaymentStatus && hasStatus
+    ? "COALESCE(NULLIF(i.payment_status, ''), NULLIF(i.status, ''), 'Pending')"
+    : hasPaymentStatus
+      ? "COALESCE(NULLIF(i.payment_status, ''), 'Pending')"
+      : hasStatus
+        ? "COALESCE(NULLIF(i.status, ''), 'Pending')"
+        : "'Pending'";
+
+  const paidFilterExpr = hasPaymentStatus && hasStatus
+    ? "LOWER(COALESCE(i.payment_status, i.status, 'pending')) = 'paid'"
+    : hasPaymentStatus
+      ? "LOWER(COALESCE(i.payment_status, 'pending')) = 'paid'"
+      : hasStatus
+        ? "LOWER(COALESCE(i.status, 'pending')) = 'paid'"
+        : "1 = 0";
+
+  const sourceDateExpr = hasDate && hasCreatedAt
+    ? "COALESCE(i.date, DATE(i.created_at))"
+    : hasDate
+      ? "i.date"
+      : hasCreatedAt
+        ? "DATE(i.created_at)"
+        : "CURDATE()";
+
+  const sourceLabelExpr = hasRoomNo
+    ? "CONCAT('Room ', COALESCE(NULLIF(i.room_no, ''), '-'))"
+    : "'Room -'";
+
+  return {
+    customerNameExpr,
+    sourceAmountExpr,
+    paymentModeExpr,
+    sourceStatusExpr,
+    paidFilterExpr,
+    sourceDateExpr,
+    sourceLabelExpr,
+  };
+};
+
 const getLedgerAmount = (row = {}) =>
   Number(row.amount || 0) || Number(row.credit || 0) || Number(row.debit || 0) || 0;
 
@@ -281,20 +368,21 @@ const getBankLedgerBySource = async (sourceType, sourceId) => {
 };
 
 const getReconciliationSourceRows = async () => {
+  const invoiceConfig = await getInvoiceSchemaConfig();
   const sourceRows = await runQuery(`
     SELECT
       'invoice' AS source_type,
       i.id AS source_id,
       COALESCE(NULLIF(i.invoice_no, ''), CONCAT('Invoice #', i.id)) AS source_reference,
-      COALESCE(NULLIF(i.customer_name, ''), 'Walk-in Guest') AS party_name,
-      COALESCE(NULLIF(i.total_amount, 0), NULLIF(i.final_total, 0), NULLIF(i.subtotal, 0), 0) AS source_amount,
-      COALESCE(NULLIF(i.payment_mode, ''), 'Unknown') AS payment_mode,
-      COALESCE(NULLIF(i.payment_status, ''), NULLIF(i.status, ''), 'Pending') AS source_status,
-      COALESCE(i.date, DATE(i.created_at)) AS source_date,
-      CONCAT('Room ', COALESCE(NULLIF(i.room_no, ''), '-')) AS source_label,
+      ${invoiceConfig.customerNameExpr} AS party_name,
+      ${invoiceConfig.sourceAmountExpr} AS source_amount,
+      ${invoiceConfig.paymentModeExpr} AS payment_mode,
+      ${invoiceConfig.sourceStatusExpr} AS source_status,
+      ${invoiceConfig.sourceDateExpr} AS source_date,
+      ${invoiceConfig.sourceLabelExpr} AS source_label,
       'in' AS direction
     FROM invoices i
-    WHERE LOWER(COALESCE(i.payment_status, i.status, 'pending')) = 'paid'
+    WHERE ${invoiceConfig.paidFilterExpr}
 
     UNION ALL
 
