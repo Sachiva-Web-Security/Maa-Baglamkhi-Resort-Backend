@@ -385,12 +385,6 @@ const ensureSchema = async () => {
     await runQuery("ALTER TABLE inventory_transfers ADD COLUMN item_id INT NULL AFTER id");
   }
   await ensureAccountsMirrorSchema();
-  if (!(await columnExists("inventory_vendor_inwards", "batch_no"))) {
-    await runQuery("ALTER TABLE inventory_vendor_inwards ADD COLUMN batch_no VARCHAR(120) NULL AFTER invoice_no");
-  }
-  if (!(await columnExists("inventory_vendor_inwards", "expiry_date"))) {
-    await runQuery("ALTER TABLE inventory_vendor_inwards ADD COLUMN expiry_date DATE NULL AFTER batch_no");
-  }
 
   await runQuery(`
     CREATE TABLE IF NOT EXISTS inventory_vendor_inwards (
@@ -416,6 +410,13 @@ const ensureSchema = async () => {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
+
+  if (!(await columnExists("inventory_vendor_inwards", "batch_no"))) {
+    await runQuery("ALTER TABLE inventory_vendor_inwards ADD COLUMN batch_no VARCHAR(120) NULL AFTER invoice_no");
+  }
+  if (!(await columnExists("inventory_vendor_inwards", "expiry_date"))) {
+    await runQuery("ALTER TABLE inventory_vendor_inwards ADD COLUMN expiry_date DATE NULL AFTER batch_no");
+  }
 
   await runQuery(`
     CREATE TABLE IF NOT EXISTS inventory_vendor_payments (

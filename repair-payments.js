@@ -3,8 +3,13 @@ require("dotenv").config({ quiet: true });
 const fs = require("fs");
 const path = require("path");
 const mysql = require("mysql2/promise");
+const {
+  getDatabaseName,
+  getDbBaseConfig,
+  getDbConnectionLabel,
+} = require("./config/databaseConfig");
 
-const dbName = process.env.DB_NAME || "employee";
+const dbName = getDatabaseName();
 
 const createPaymentsTableSql = `
   CREATE TABLE payments (
@@ -21,11 +26,8 @@ async function main() {
 
   try {
     connection = await mysql.createConnection({
-      host: process.env.DB_HOST || "127.0.0.1",
-      user: process.env.DB_USER || "root",
-      password: process.env.DB_PASSWORD || "",
+      ...getDbBaseConfig(),
       database: dbName,
-      connectTimeout: 10000,
     });
 
     console.log(`Checking payments table in database: ${dbName}`);
@@ -79,7 +81,10 @@ async function main() {
       process.exit(1);
     }
   } catch (error) {
-    console.error("Payments repair failed:", error.message || error);
+    console.error(
+      `Payments repair failed while connecting to ${getDbConnectionLabel()}:`,
+      error.message || error,
+    );
     process.exit(1);
   } finally {
     if (connection) {

@@ -21,6 +21,100 @@ const ensureColumn = async (tableName, columnName, definition) => {
   }
 };
 
+const getInvoiceSchemaConfig = async () => {
+  const [
+    hasBookingId,
+    hasCustomerId,
+    hasCustomerName,
+    hasGuestName,
+    hasTotalAmount,
+    hasFinalTotal,
+    hasSubtotal,
+    hasDiscount,
+    hasGst,
+    hasRoomNo,
+    hasDate,
+    hasCreatedAt,
+    hasPaymentMode,
+    hasPaymentStatus,
+    hasStatus,
+    hasPricePerDay,
+    hasExtraCharge,
+    hasFoodCharge,
+  ] = await Promise.all([
+    columnExists("invoices", "booking_id"),
+    columnExists("invoices", "customer_id"),
+    columnExists("invoices", "customer_name"),
+    columnExists("invoices", "guest_name"),
+    columnExists("invoices", "total_amount"),
+    columnExists("invoices", "final_total"),
+    columnExists("invoices", "subtotal"),
+    columnExists("invoices", "discount"),
+    columnExists("invoices", "gst"),
+    columnExists("invoices", "room_no"),
+    columnExists("invoices", "date"),
+    columnExists("invoices", "created_at"),
+    columnExists("invoices", "payment_mode"),
+    columnExists("invoices", "payment_status"),
+    columnExists("invoices", "status"),
+    columnExists("invoices", "price_per_day"),
+    columnExists("invoices", "extra_charge"),
+    columnExists("invoices", "food_charge"),
+  ]);
+
+  const paidStatusExpr = hasPaymentStatus && hasStatus
+    ? "LOWER(COALESCE(payment_status, status, 'pending'))"
+    : hasPaymentStatus
+      ? "LOWER(COALESCE(payment_status, 'pending'))"
+      : hasStatus
+        ? "LOWER(COALESCE(status, 'pending'))"
+        : "'pending'";
+
+  const invoiceAmountExprParts = [];
+  if (hasTotalAmount) invoiceAmountExprParts.push("NULLIF(total_amount, 0)");
+  if (hasFinalTotal) invoiceAmountExprParts.push("NULLIF(final_total, 0)");
+  if (hasSubtotal && hasGst && hasDiscount) {
+    invoiceAmountExprParts.push("NULLIF(subtotal + gst - discount, 0)");
+  } else if (hasSubtotal) {
+    invoiceAmountExprParts.push("NULLIF(subtotal, 0)");
+  }
+
+  const invoiceAmountExpr = invoiceAmountExprParts.length
+    ? `COALESCE(${invoiceAmountExprParts.join(", ")}, 0)`
+    : "0";
+
+  const customerNameExpr = hasCustomerName && hasGuestName
+    ? "COALESCE(NULLIF(customer_name, ''), NULLIF(guest_name, ''), 'Walk-in Guest')"
+    : hasCustomerName
+      ? "COALESCE(NULLIF(customer_name, ''), 'Walk-in Guest')"
+      : hasGuestName
+        ? "COALESCE(NULLIF(guest_name, ''), 'Walk-in Guest')"
+        : "'Walk-in Guest'";
+
+  const bookingJoinConditions = [];
+  if (hasBookingId) bookingJoinConditions.push("i.booking_id = ?");
+  if (hasCustomerId) bookingJoinConditions.push("i.customer_id = ?");
+
+  return {
+    hasBookingId,
+    hasCustomerId,
+    hasGst,
+    hasRoomNo,
+    hasDate,
+    hasCreatedAt,
+    hasPaymentMode,
+    hasPricePerDay,
+    hasExtraCharge,
+    hasFoodCharge,
+    paidStatusExpr,
+    invoiceAmountExpr,
+    customerNameExpr,
+    bookingJoinConditionSql: bookingJoinConditions.length
+      ? `(${bookingJoinConditions.join(" OR ")})`
+      : null,
+  };
+};
+
 const ROOM_REGEX = /room|hotel|housekeeping|laundry|stay|folio/i;
 const RESTAURANT_REGEX = /restaurant|food|kitchen|dining|meal|menu|beverage|snack/i;
 const BANQUET_SQL_FILTER = "(LOWER(COALESCE(source_module, '')) LIKE '%banquet%' OR LOWER(COALESCE(description, '')) REGEXP 'banquet|hall|event|catering|decor')";
@@ -86,6 +180,18 @@ const ensureSchema = async () => {
 const getTransactions = async (callback) => {
   try {
     const hasPaymentHistory = await tableExists("payment_history");
+    const hasInvoices = await tableExists("invoices");
+    const invoiceConfig = hasInvoices ? await getInvoiceSchemaConfig() : null;
+    const invoiceJoinSql =
+      hasInvoices && invoiceConfig?.bookingJoinConditionSql
+        ? `
+        LEFT JOIN invoices i
+          ON ${invoiceConfig.bookingJoinConditionSql.replace(/\?/g, "ph.booking_id")}
+         AND ${invoiceConfig.paidStatusExpr} = 'paid'
+      `
+        : "";
+    const invoiceJoinFilter =
+      hasInvoices && invoiceConfig?.bookingJoinConditionSql ? "WHERE i.id IS NULL" : "";
     const paymentHistoryUnion = hasPaymentHistory
       ? `
         UNION ALL
@@ -109,10 +215,8 @@ const getTransactions = async (callback) => {
           ph.id AS sortId
         FROM payment_history ph
         LEFT JOIN guests g ON g.id = ph.booking_id
-        LEFT JOIN invoices i
-          ON (i.booking_id = ph.booking_id OR i.customer_id = ph.booking_id)
-         AND LOWER(COALESCE(i.payment_status, i.status, 'pending')) = 'paid'
-        WHERE i.id IS NULL
+        ${invoiceJoinSql}
+        ${invoiceJoinFilter}
       `
       : "";
 
@@ -163,18 +267,33 @@ const createTransaction = (data, callback) => {
 };
 
 const getSummary = (callback) => {
-  const sql = `
+  (async () => {
+    const hasInvoices = await tableExists("invoices");
+    const invoiceConfig = hasInvoices ? await getInvoiceSchemaConfig() : null;
+    const invoicePaidFilter = invoiceConfig ? `${invoiceConfig.paidStatusExpr} = 'paid'` : "1 = 0";
+    const invoiceAmountExpr = invoiceConfig?.invoiceAmountExpr || "0";
+    const invoiceGstExpr = invoiceConfig?.hasGst ? "COALESCE(gst, 0)" : "0";
+    const advanceInvoiceJoin =
+      invoiceConfig?.bookingJoinConditionSql
+        ? `
+        LEFT JOIN invoices i
+          ON ${invoiceConfig.bookingJoinConditionSql.replace(/\?/g, "ap.booking_id")}
+         AND ${invoicePaidFilter}
+      `
+        : "LEFT JOIN invoices i ON 1 = 0";
+
+    const sql = `
     SELECT
       COALESCE((
-        SELECT SUM(COALESCE(total_amount, final_total, subtotal + gst - discount, 0))
+        SELECT SUM(${invoiceAmountExpr})
         FROM invoices
-        WHERE LOWER(COALESCE(payment_status, status, 'pending')) = 'paid'
+        WHERE ${invoicePaidFilter}
       ), 0) AS invoiceIncome,
 
       COALESCE((
-        SELECT SUM(COALESCE(gst, 0))
+        SELECT SUM(${invoiceGstExpr})
         FROM invoices
-        WHERE LOWER(COALESCE(payment_status, status, 'pending')) = 'paid'
+        WHERE ${invoicePaidFilter}
       ), 0) AS invoiceGst,
 
       COALESCE((
@@ -186,9 +305,7 @@ const getSummary = (callback) => {
       COALESCE((
         SELECT SUM(GREATEST(COALESCE(ap.amount, 0) - COALESCE(ap.refund_amount, 0), 0))
         FROM advance_payment ap
-        LEFT JOIN invoices i
-          ON (i.booking_id = ap.booking_id OR i.customer_id = ap.booking_id)
-         AND LOWER(COALESCE(i.payment_status, i.status, 'pending')) = 'paid'
+        ${advanceInvoiceJoin}
         WHERE i.id IS NULL
       ), 0) AS hotelAdvanceIncome,
 
@@ -211,9 +328,7 @@ const getSummary = (callback) => {
           FROM room_tariff
           GROUP BY booking_id
         ) rt ON rt.booking_id = ap.booking_id
-        LEFT JOIN invoices i
-          ON (i.booking_id = ap.booking_id OR i.customer_id = ap.booking_id)
-         AND LOWER(COALESCE(i.payment_status, i.status, 'pending')) = 'paid'
+        ${advanceInvoiceJoin}
         WHERE i.id IS NULL
       ), 0) AS hotelAdvanceGst,
 
@@ -255,29 +370,50 @@ const getSummary = (callback) => {
         WHERE type = 'Expense'
       ), 0) AS totalExpense
   `;
-  db.query(sql, callback);
+    db.query(sql, callback);
+  })().catch((error) => callback(error));
 };
 
 const getDepartmentSummary = (callback) => {
-  const sql = `
+  (async () => {
+    const hasInvoices = await tableExists("invoices");
+    const invoiceConfig = hasInvoices ? await getInvoiceSchemaConfig() : null;
+    const invoicePaidFilter = invoiceConfig ? `${invoiceConfig.paidStatusExpr} = 'paid'` : "1 = 0";
+    const invoiceAmountExpr = invoiceConfig?.invoiceAmountExpr || "0";
+    const invoiceRoomBaseExpr =
+      invoiceConfig && (invoiceConfig.hasPricePerDay || invoiceConfig.hasExtraCharge)
+        ? `${invoiceConfig.hasPricePerDay ? "COALESCE(price_per_day, 0)" : "0"} + ${invoiceConfig.hasExtraCharge ? "COALESCE(extra_charge, 0)" : "0"}`
+        : "0";
+    const invoiceFoodChargeExpr =
+      invoiceConfig?.hasFoodCharge ? "COALESCE(food_charge, 0)" : "0";
+    const advanceInvoiceJoin =
+      invoiceConfig?.bookingJoinConditionSql
+        ? `
+        LEFT JOIN invoices i
+          ON ${invoiceConfig.bookingJoinConditionSql.replace(/\?/g, "ap.booking_id")}
+         AND ${invoicePaidFilter}
+      `
+        : "LEFT JOIN invoices i ON 1 = 0";
+
+    const sql = `
     SELECT
       COALESCE((
         SELECT SUM(
           CASE
-            WHEN COALESCE(food_charge, 0) <= 0
-              THEN COALESCE(total_amount, final_total, subtotal + gst - discount, COALESCE(price_per_day, 0) + COALESCE(extra_charge, 0))
-            WHEN COALESCE(price_per_day, 0) + COALESCE(extra_charge, 0) <= 0
+            WHEN ${invoiceFoodChargeExpr} <= 0
+              THEN COALESCE(${invoiceAmountExpr}, ${invoiceRoomBaseExpr})
+            WHEN ${invoiceRoomBaseExpr} <= 0
               THEN 0
             ELSE ROUND(
-              COALESCE(total_amount, final_total, subtotal + gst - discount, 0)
-              * ((COALESCE(price_per_day, 0) + COALESCE(extra_charge, 0))
-              / NULLIF(COALESCE(price_per_day, 0) + COALESCE(extra_charge, 0) + COALESCE(food_charge, 0), 0)),
+              ${invoiceAmountExpr}
+              * ((${invoiceRoomBaseExpr})
+              / NULLIF(${invoiceRoomBaseExpr} + ${invoiceFoodChargeExpr}, 0)),
               2
             )
           END
         )
         FROM invoices
-        WHERE LOWER(COALESCE(payment_status, status, 'pending')) = 'paid'
+        WHERE ${invoicePaidFilter}
       ), 0)
       +
       COALESCE((
@@ -289,9 +425,7 @@ const getDepartmentSummary = (callback) => {
       COALESCE((
         SELECT SUM(GREATEST(COALESCE(ap.amount, 0) - COALESCE(ap.refund_amount, 0), 0))
         FROM advance_payment ap
-        LEFT JOIN invoices i
-          ON (i.booking_id = ap.booking_id OR i.customer_id = ap.booking_id)
-         AND LOWER(COALESCE(i.payment_status, i.status, 'pending')) = 'paid'
+        ${advanceInvoiceJoin}
         WHERE i.id IS NULL
       ), 0) AS roomIncome,
 
@@ -299,18 +433,18 @@ const getDepartmentSummary = (callback) => {
         COALESCE((
           SELECT SUM(
             CASE
-              WHEN COALESCE(food_charge, 0) <= 0
+              WHEN ${invoiceFoodChargeExpr} <= 0
                 THEN 0
               ELSE ROUND(
-                COALESCE(total_amount, final_total, subtotal + gst - discount, 0)
-                * (COALESCE(food_charge, 0)
-                / NULLIF(COALESCE(price_per_day, 0) + COALESCE(extra_charge, 0) + COALESCE(food_charge, 0), 0)),
+                ${invoiceAmountExpr}
+                * (${invoiceFoodChargeExpr}
+                / NULLIF(${invoiceRoomBaseExpr} + ${invoiceFoodChargeExpr}, 0)),
                 2
               )
             END
           )
           FROM invoices
-          WHERE LOWER(COALESCE(payment_status, status, 'pending')) = 'paid'
+          WHERE ${invoicePaidFilter}
         ), 0)
         +
         COALESCE((
@@ -359,7 +493,8 @@ const getDepartmentSummary = (callback) => {
           AND ${BANQUET_SQL_FILTER}
       ), 0) AS banquetExpense
   `;
-  db.query(sql, callback);
+    db.query(sql, callback);
+  })().catch((error) => callback(error));
 };
 
 const getHotelBillingRecords = async (callback) => {

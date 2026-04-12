@@ -1,5 +1,6 @@
 require("dotenv").config({ quiet: process.env.NODE_ENV === "test" });
 const express = require("express");
+const bcrypt = require("bcryptjs");
 const cors = require("cors");
 const helmet = require("helmet");
 const path = require("path");
@@ -7,6 +8,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 
 const db = require("./config/db");
+const { getDbConnectionLabel } = require("./config/databaseConfig");
 const {
   ensureSchema: ensureHotelRoomInventorySchema,
 } = require("./models/hotelRoomInventoryModel");
@@ -164,6 +166,34 @@ async function bootstrapSchema(label, task) {
   }
 }
 
+async function ensureDefaultWaiterLogin() {
+  await db.promise().query(`
+    CREATE TABLE IF NOT EXISTS register (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(191) NOT NULL,
+      email VARCHAR(191) NOT NULL UNIQUE,
+      password VARCHAR(255) NOT NULL,
+      role VARCHAR(50) NOT NULL DEFAULT 'staff',
+      avatar_url VARCHAR(255) DEFAULT NULL
+    )
+  `);
+
+  const [existingRows] = await db.promise().query(
+    "SELECT id FROM register WHERE LOWER(email) = LOWER(?) LIMIT 1",
+    ["waiter@resort.com"],
+  );
+
+  if (existingRows.length > 0) {
+    return;
+  }
+
+  const hashedPassword = await bcrypt.hash("password", 10);
+  await db.promise().query(
+    "INSERT INTO register (name, email, password, role) VALUES (?, ?, ?, ?)",
+    ["Ramu Waiter", "waiter@resort.com", hashedPassword, "waiter"],
+  );
+}
+
 async function initializeDatabase(options = {}) {
   try {
     const skipPaymentSchema =
@@ -199,8 +229,12 @@ async function initializeDatabase(options = {}) {
     await bootstrapSchema("Accounts expansion schema init", ensureAccountsExpansionSchema);
     await bootstrapSchema("Inventory masters schema init", ensureInventoryMastersSchema);
     await bootstrapSchema("Menu recipe schema init", ensureMenuRecipeSchema);
+    await bootstrapSchema("Default waiter login bootstrap", ensureDefaultWaiterLogin);
   } catch (error) {
-    console.error("Database connection failed:", error.code || error.message || error);
+    console.error(
+      `Database connection failed (${getDbConnectionLabel()}):`,
+      error.code || error.message || error,
+    );
     console.error("Skipping schema bootstrap until MySQL is available.");
   }
 }

@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const { getRequestActor, isWaiterActor } = require("../utils/requestActor");
 
 const q = (sql, params = []) =>
   new Promise((resolve, reject) =>
@@ -53,6 +54,7 @@ const inferEntityType = (orderLike = {}) => {
 };
 
 exports.createOrder = async (req, res) => {
+  const actor = getRequestActor(req);
   const { table, waiter, items, prepTimeMinutes, entityType, kotNo } = req.body;
   if (!String(table || "").trim()) {
     return res.status(400).json({ message: "Table reference is required" });
@@ -66,12 +68,21 @@ exports.createOrder = async (req, res) => {
   const kot = kotNo || `KOT-${Date.now()}`;
 
   try {
+    const createdWaiter = isWaiterActor(actor) ? actor.name || waiter || "Waiter" : waiter || "Waiter";
     const result = await q(
       `INSERT INTO kitchen_orders
         (waiter_name, table_number, items, status, token_status, kot_no, entity_type, prep_time_minutes, expected_ready_at)
         VALUES (?, ?, ?, 'Pending', 'Active', ?, ?, ?, ?)`,
-      [waiter || "Waiter", String(table || ""), itemsJson, kot, entityType || "Table", prepMinutes, expectedAt]
+      [createdWaiter, String(table || ""), itemsJson, kot, entityType || "Table", prepMinutes, expectedAt]
     );
+    global.io?.emit("kitchen-order-created", {
+      id: result.insertId,
+      table: String(table || ""),
+      waiter: createdWaiter,
+      entityType: entityType || "Table",
+      prepTimeMinutes: prepMinutes,
+      expectedReadyAt: expectedAt,
+    });
     res.json({
       id: result.insertId,
       message: "Kitchen order created",
@@ -79,7 +90,7 @@ exports.createOrder = async (req, res) => {
       order: {
         id: result.insertId,
         table: String(table || ""),
-        waiter: waiter || "Waiter",
+        waiter: createdWaiter,
         entityType: entityType || "Table",
         prepTimeMinutes: prepMinutes,
         expectedReadyAt: expectedAt,
@@ -92,10 +103,16 @@ exports.createOrder = async (req, res) => {
 
 // ── GET ORDERS ──────────────────────────────────────────────────────────────
 exports.getOrders = async (req, res) => {
+  const actor = getRequestActor(req);
   try {
-    const rows = await q(
-      "SELECT * FROM kitchen_orders WHERE COALESCE(token_status, 'Active') != 'Closed' ORDER BY created_at DESC"
-    );
+    const params = [];
+    let sql = "SELECT * FROM kitchen_orders WHERE COALESCE(token_status, 'Active') != 'Closed'";
+    if (isWaiterActor(actor) && actor.name) {
+      sql += " AND LOWER(COALESCE(waiter_name, '')) = LOWER(?)";
+      params.push(actor.name);
+    }
+    sql += " ORDER BY created_at DESC";
+    const rows = await q(sql, params);
     res.json(rows.map(normalizeOrder));
   } catch (err) {
     res.status(500).json({ message: "Failed to get kitchen orders", error: err.message });
@@ -104,6 +121,11 @@ exports.getOrders = async (req, res) => {
 
 // ── UPDATE ORDER STATUS ─────────────────────────────────────────────────────
 exports.updateOrderStatus = async (req, res) => {
+  const actor = getRequestActor(req);
+  if (isWaiterActor(actor)) {
+    return res.status(403).json({ message: "Waiter cannot change kitchen status" });
+  }
+
   const { id } = req.params;
   const { status, prepTimeMinutes, readyMessage } = req.body;
   try {
@@ -129,6 +151,28 @@ exports.updateOrderStatus = async (req, res) => {
     if (!fields.length) return res.status(400).json({ message: "Nothing to update" });
     vals.push(id);
     await q(`UPDATE kitchen_orders SET ${fields.join(", ")} WHERE id = ?`, vals);
+    const updatedRows = await q("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const updatedOrder = normalizeOrder(updatedRows[0] || {});
+    global.io?.emit("kitchen-order-updated", {
+      id: updatedOrder.id,
+      table: updatedOrder.table,
+      waiter: updatedOrder.waiter_name,
+      entityType: updatedOrder.entityType,
+      status: updatedOrder.status,
+      readyMessage: updatedOrder.readyMessage,
+      prepTimeMinutes: updatedOrder.prepTimeMinutes,
+      expectedReadyAt: updatedOrder.expectedReadyAt,
+    });
+    if (String(status || "").toLowerCase() === "ready") {
+      global.io?.emit("kitchen-order-ready", {
+        id: updatedOrder.id,
+        table: updatedOrder.table,
+        waiter: updatedOrder.waiter_name,
+        entityType: updatedOrder.entityType,
+        readyMessage: updatedOrder.readyMessage,
+        referenceLabel: `${updatedOrder.entityType} ${updatedOrder.table || "--"}`,
+      });
+    }
     res.json({ message: "Order status updated" });
   } catch (err) {
     res.status(500).json({ message: "Failed to update order", error: err.message });
@@ -137,6 +181,11 @@ exports.updateOrderStatus = async (req, res) => {
 
 // ── SAVE ORDER ──────────────────────────────────────────────────────────────
 exports.saveOrder = async (req, res) => {
+  const actor = getRequestActor(req);
+  if (isWaiterActor(actor)) {
+    return res.status(403).json({ message: "Waiter cannot save kitchen orders" });
+  }
+
   const { id } = req.params;
   try {
     const rows = await q("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
@@ -185,6 +234,11 @@ exports.saveOrder = async (req, res) => {
 
 // ── CANCEL ORDER ────────────────────────────────────────────────────────────
 exports.cancelOrder = async (req, res) => {
+  const actor = getRequestActor(req);
+  if (isWaiterActor(actor)) {
+    return res.status(403).json({ message: "Waiter cannot cancel kitchen orders" });
+  }
+
   const { id } = req.params;
   try {
     const result = await q("UPDATE kitchen_orders SET status = 'Cancelled' WHERE id = ?", [id]);
@@ -199,6 +253,11 @@ exports.cancelOrder = async (req, res) => {
 
 // ── REMOVE ORDER (DELETE) — FIX: was missing ───────────────────────────────
 exports.removeOrder = async (req, res) => {
+  const actor = getRequestActor(req);
+  if (isWaiterActor(actor)) {
+    return res.status(403).json({ message: "Waiter cannot remove kitchen orders" });
+  }
+
   const { id } = req.params;
   try {
     const result = await q("DELETE FROM kitchen_orders WHERE id = ?", [id]);

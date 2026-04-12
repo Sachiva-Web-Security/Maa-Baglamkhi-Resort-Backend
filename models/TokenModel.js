@@ -142,6 +142,12 @@ const getTokenByTable = (table, callback) => {
   });
 };
 
+const getTokenById = (tokenId, callback) => {
+  db.query("SELECT * FROM tokens WHERE id = ? LIMIT 1", [tokenId], (err, result) => {
+    callback(err, result?.[0] || null);
+  });
+};
+
 const addTokenItem = (data, callback) => {
   const sql = `
     INSERT INTO token_items (token_id, item_name, qty, rate)
@@ -153,6 +159,24 @@ const addTokenItem = (data, callback) => {
 const getTokenItems = (tokenId, callback) => {
   const sql = "SELECT * FROM token_items WHERE token_id=?";
   db.query(sql, [tokenId], callback);
+};
+
+const getTokenItemWithToken = (itemId, callback) => {
+  const sql = `
+    SELECT
+      ti.*,
+      t.id AS token_row_id,
+      t.tableNumber,
+      t.waiter,
+      t.status AS token_status
+    FROM token_items ti
+    INNER JOIN tokens t ON t.id = ti.token_id
+    WHERE ti.id = ?
+    LIMIT 1
+  `;
+  db.query(sql, [itemId], (err, result) => {
+    callback(err, result?.[0] || null);
+  });
 };
 
 const updateTokenItem = (data, callback) => {
@@ -182,8 +206,10 @@ module.exports = {
   getActiveTokenByTable,
   createToken,
   getTokenByTable,
+  getTokenById,
   addTokenItem,
   getTokenItems,
+  getTokenItemWithToken,
   updateTokenItem,
   deleteTokenItem,
   closeActiveToken,

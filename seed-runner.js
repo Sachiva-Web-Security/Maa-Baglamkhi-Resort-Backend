@@ -3,6 +3,7 @@ require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
 const mysql = require("mysql2/promise");
+const { getDatabaseName, getDbBaseConfig } = require("./config/databaseConfig");
 
 const seedPath = path.join(__dirname, "seed.sql");
 
@@ -17,16 +18,13 @@ async function runSeed() {
   }
 
   const connection = await mysql.createConnection({
-    host: process.env.DB_HOST || "127.0.0.1",
-    user: process.env.DB_USER || "root",
-    password: process.env.DB_PASSWORD || "",
-    database: process.env.DB_NAME || "employee",
-    connectTimeout: 10000,
+    ...getDbBaseConfig(),
+    database: getDatabaseName(),
     multipleStatements: true,
   });
 
   try {
-    console.log(`Seeding database: ${process.env.DB_NAME || "employee"}`);
+    console.log(`Seeding database: ${getDatabaseName()}`);
     await connection.query(sql);
     console.log("Database seed completed successfully.");
   } finally {

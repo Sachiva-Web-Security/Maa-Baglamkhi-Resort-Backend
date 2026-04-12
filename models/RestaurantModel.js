@@ -103,9 +103,21 @@ const ensureSchema = async () => {
     CREATE TABLE IF NOT EXISTS orders (
       id INT AUTO_INCREMENT PRIMARY KEY,
       tableNumber VARCHAR(50) NOT NULL,
+      waiter_name VARCHAR(191) DEFAULT NULL,
       status VARCHAR(30) NOT NULL DEFAULT 'pending',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
+  `);
+
+  await ensureColumn("orders", "waiter_name", "VARCHAR(191) DEFAULT NULL AFTER tableNumber");
+  await ensureIndex("orders", "idx_orders_waiter_name", "INDEX idx_orders_waiter_name (waiter_name)");
+  await run(`
+    UPDATE orders o
+    LEFT JOIN tokens t
+      ON t.tableNumber = o.tableNumber
+     AND t.status = 'active'
+    SET o.waiter_name = COALESCE(NULLIF(o.waiter_name, ''), t.waiter)
+    WHERE o.waiter_name IS NULL OR o.waiter_name = ''
   `);
 
   await run(`
