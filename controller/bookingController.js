@@ -391,37 +391,42 @@ exports.getAllBookings = async (_req, res) => {
         DATE_FORMAT(g.check_out, '%Y-%m-%d') AS check_out,
         g.booking_status,
         c.company_name,
-        COALESCE(SUM(rt.total), 0) AS totalAmount,
+        COALESCE(rt.totalAmount, 0) AS totalAmount,
         IFNULL(a.amount, 0) AS paidAmount,
         IFNULL(a.discount_amount, 0) AS discountAmount,
         IFNULL(a.refund_amount, 0) AS refundAmount,
         COALESCE(NULLIF(a.payment_mode, ''), 'Pending') AS paymentMode,
         (IFNULL(a.amount, 0) - IFNULL(a.refund_amount, 0)) AS netPaid,
         (
-          SUM(rt.total) -
+          COALESCE(rt.totalAmount, 0) -
           ((IFNULL(a.amount, 0) - IFNULL(a.refund_amount, 0)) + IFNULL(a.discount_amount, 0))
         ) AS remainingAmount,
-        GROUP_CONCAT(rt.room_number) AS rooms
+        COALESCE(NULLIF(rt.rooms, ''), NULLIF(px.rooms, ''), '') AS rooms,
+        COALESCE(NULLIF(rt.rooms, ''), NULLIF(px.rooms, ''), '') AS roomDetails
       FROM guests g
-      LEFT JOIN companies c ON g.id = c.booking_id
+      LEFT JOIN (
+        SELECT booking_id, MAX(company_name) AS company_name
+        FROM companies
+        GROUP BY booking_id
+      ) c ON g.id = c.booking_id
       LEFT JOIN advance_payment a ON g.id = a.booking_id
-      LEFT JOIN room_tariff rt ON g.id = rt.booking_id
+      LEFT JOIN (
+        SELECT
+          booking_id,
+          COALESCE(SUM(total), 0) AS totalAmount,
+          GROUP_CONCAT(DISTINCT CAST(room_number AS CHAR) ORDER BY room_number SEPARATOR ' || ') AS rooms
+        FROM room_tariff
+        GROUP BY booking_id
+      ) rt ON g.id = rt.booking_id
+      LEFT JOIN (
+        SELECT
+          booking_id,
+          GROUP_CONCAT(DISTINCT CAST(room_number AS CHAR) ORDER BY room_number SEPARATOR ' || ') AS rooms
+        FROM pax
+        WHERE NULLIF(TRIM(CAST(room_number AS CHAR)), '') IS NOT NULL
+        GROUP BY booking_id
+      ) px ON g.id = px.booking_id
       WHERE LOWER(IFNULL(g.booking_status, 'confirmed')) NOT IN ('checked out', 'cancelled')
-      GROUP BY
-        g.id,
-        g.booking_code,
-        g.guest_name,
-        g.mobile,
-        g.guest_email,
-        g.check_in,
-        g.check_out,
-        g.booking_status,
-        c.company_name,
-        a.amount,
-        a.discount_amount,
-        a.payment_mode,
-        a.refund_amount
-      HAVING COUNT(DISTINCT rt.id) > 0
       ORDER BY g.id DESC
     `);
 

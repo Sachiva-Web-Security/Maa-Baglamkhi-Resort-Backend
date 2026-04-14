@@ -95,13 +95,31 @@ function getJwtSecret() {
   return secret;
 }
 
+function isLocalRequest(req) {
+  const origin = String(req.get("origin") || "").trim();
+  const host = String(req.get("host") || "").trim().toLowerCase();
+  const forwardedFor = String(req.ip || "").trim().toLowerCase();
+
+  return (
+    isLocalDevelopmentOrigin(origin) ||
+    host.startsWith("localhost:") ||
+    host.startsWith("127.0.0.1:") ||
+    forwardedFor === "::1" ||
+    forwardedFor === "::ffff:127.0.0.1" ||
+    forwardedFor === "127.0.0.1"
+  );
+}
+
 const authRateLimiter = rateLimit({
   windowMs: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
   limit: Number(process.env.AUTH_RATE_LIMIT_MAX || 10),
   standardHeaders: "draft-8",
   legacyHeaders: false,
   skipSuccessfulRequests: true,
-  skip: () => process.env.NODE_ENV === "test",
+  skip: (req) =>
+    process.env.NODE_ENV === "test" ||
+    String(process.env.AUTH_RATE_LIMIT_DISABLED || "").toLowerCase() === "true" ||
+    isLocalRequest(req),
   message: {
     message: "Too many authentication attempts. Please try again later.",
   },
