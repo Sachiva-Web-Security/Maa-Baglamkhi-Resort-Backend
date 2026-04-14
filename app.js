@@ -166,7 +166,7 @@ async function bootstrapSchema(label, task) {
   }
 }
 
-async function ensureDefaultWaiterLogin() {
+async function ensureDefaultStaffLogins() {
   await db.promise().query(`
     CREATE TABLE IF NOT EXISTS register (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -178,20 +178,31 @@ async function ensureDefaultWaiterLogin() {
     )
   `);
 
-  const [existingRows] = await db.promise().query(
-    "SELECT id FROM register WHERE LOWER(email) = LOWER(?) LIMIT 1",
-    ["waiter@resort.com"],
-  );
-
-  if (existingRows.length > 0) {
-    return;
-  }
-
   const hashedPassword = await bcrypt.hash("password", 10);
-  await db.promise().query(
-    "INSERT INTO register (name, email, password, role) VALUES (?, ?, ?, ?)",
-    ["Ramu Waiter", "waiter@resort.com", hashedPassword, "waiter"],
-  );
+  const defaultUsers = [
+    ["Admin User", "admin@resort.com", "admin"],
+    ["Rajesh Manager", "manager@resort.com", "manager"],
+    ["Priya Reception", "reception@resort.com", "receptionist"],
+    ["CA Accounts", "accounts@resort.com", "accountant"],
+    ["Tarun HK", "tarun@resort.com", "housekeeping"],
+    ["Ramu Waiter", "waiter@resort.com", "waiter"],
+  ];
+
+  for (const [name, email, role] of defaultUsers) {
+    const [existingRows] = await db.promise().query(
+      "SELECT id FROM register WHERE LOWER(email) = LOWER(?) LIMIT 1",
+      [email],
+    );
+
+    if (existingRows.length > 0) {
+      continue;
+    }
+
+    await db.promise().query(
+      "INSERT INTO register (name, email, password, role) VALUES (?, ?, ?, ?)",
+      [name, email, hashedPassword, role],
+    );
+  }
 }
 
 async function initializeDatabase(options = {}) {
@@ -229,7 +240,7 @@ async function initializeDatabase(options = {}) {
     await bootstrapSchema("Accounts expansion schema init", ensureAccountsExpansionSchema);
     await bootstrapSchema("Inventory masters schema init", ensureInventoryMastersSchema);
     await bootstrapSchema("Menu recipe schema init", ensureMenuRecipeSchema);
-    await bootstrapSchema("Default waiter login bootstrap", ensureDefaultWaiterLogin);
+    await bootstrapSchema("Default staff login bootstrap", ensureDefaultStaffLogins);
   } catch (error) {
     console.error(
       `Database connection failed (${getDbConnectionLabel()}):`,

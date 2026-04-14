@@ -28,6 +28,12 @@ const columnExists = async (tableName, columnName) => {
   return Array.isArray(rows) && rows.length > 0;
 };
 
+const normalizeDateValue = (value) => {
+  if (!value) return null;
+  const text = String(value).trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+};
+
 // ─── Schema bootstrap ──────────────────────────────────────────────────────────
 const ensureSchema = async () => {
   await runQuery(`
@@ -87,7 +93,7 @@ const ensureSchema = async () => {
 // ─── getRoomSetup — returns categories with rooms + status ────────────────────
 // BUG FIX: now returns room status, guest, checkIn, checkOut for each room
 // so Room.jsx can correctly mark Occupied/Blocked rooms as unavailable.
-const getRoomSetup = async () => {
+const getRoomSetup = async ({ checkIn = null, checkOut = null } = {}) => {
   await ensureSchema();
 
   const categories = await runQuery(`
@@ -114,6 +120,41 @@ const getRoomSetup = async () => {
     ORDER BY CAST(room_number AS UNSIGNED), room_number
   `);
 
+  const selectedCheckIn = normalizeDateValue(checkIn);
+  const selectedCheckOut = normalizeDateValue(checkOut) || selectedCheckIn;
+
+  const occupiedRows =
+    selectedCheckIn && selectedCheckOut
+      ? await runQuery(
+          `
+            SELECT
+              CAST(rt.room_number AS CHAR) AS roomNumber,
+              g.guest_name AS guest,
+              DATE_FORMAT(g.check_in, '%Y-%m-%d') AS checkIn,
+              DATE_FORMAT(g.check_out, '%Y-%m-%d') AS checkOut,
+              'Occupied' AS status
+            FROM guests g
+            INNER JOIN room_tariff rt ON rt.booking_id = g.id
+            WHERE LOWER(COALESCE(g.booking_status, 'confirmed')) NOT IN ('checked out', 'cancelled')
+              AND DATE(COALESCE(g.check_in, ?)) <= DATE(?)
+              AND DATE(COALESCE(g.check_out, ?)) >= DATE(?)
+          `,
+          [selectedCheckIn, selectedCheckOut, selectedCheckOut, selectedCheckIn],
+        )
+      : [];
+
+  const occupiedByRoom = new Map(
+    occupiedRows.map((row) => [
+      String(row.roomNumber || "").trim(),
+      {
+        status: "Occupied",
+        guest: row.guest || null,
+        checkIn: row.checkIn || null,
+        checkOut: row.checkOut || null,
+      },
+    ]),
+  );
+
   return categories.map((category) => {
     const categoryRooms = rooms.filter(
       (room) => Number(room.categoryId) === Number(category.id),
@@ -125,13 +166,26 @@ const getRoomSetup = async () => {
       rooms: categoryRooms.map((room) => room.roomNumber),
 
       // NEW: full room objects with status — used by Room.jsx availability logic
-      roomDetails: categoryRooms.map((room) => ({
-        roomNumber: room.roomNumber,
-        status:     room.status   || "Available",
-        guest:      room.guest    || null,
-        checkIn:    room.checkIn  || null,
-        checkOut:   room.checkOut || null,
-      })),
+      roomDetails: categoryRooms.map((room) => {
+        const occupiedRoom = occupiedByRoom.get(String(room.roomNumber || "").trim());
+        const resolvedRoom = occupiedRoom
+          ? {
+              ...room,
+              status: occupiedRoom.status,
+              guest: occupiedRoom.guest,
+              checkIn: occupiedRoom.checkIn,
+              checkOut: occupiedRoom.checkOut,
+            }
+          : room;
+
+        return {
+          roomNumber: resolvedRoom.roomNumber,
+          status: resolvedRoom.status || "Available",
+          guest: resolvedRoom.guest || null,
+          checkIn: resolvedRoom.checkIn || null,
+          checkOut: resolvedRoom.checkOut || null,
+        };
+      }),
     };
   });
 };

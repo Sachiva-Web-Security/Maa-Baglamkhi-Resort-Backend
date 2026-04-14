@@ -9,9 +9,12 @@ exports.bootstrap = async (_req, _res, next) => {
   }
 };
 
-exports.getRoomSetup = async (_req, res) => {
+exports.getRoomSetup = async (req, res) => {
   try {
-    const setup = await roomInventoryModel.getRoomSetup();
+    const setup = await roomInventoryModel.getRoomSetup({
+      checkIn: req.query?.checkIn || null,
+      checkOut: req.query?.checkOut || null,
+    });
     res.json(setup);
   } catch (error) {
     console.error(error);
