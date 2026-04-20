@@ -126,6 +126,9 @@ app.use("/api/dashboard", require("./routes/dashboardRoutes"));
 app.use("/api/token", require("./routes/tokenRoutes"));
 app.use("/api/payment", require("./routes/paymentRoutes"));
 
+
+
+
 const invoiceRoutes = require("./routes/InvoiceRoutes");
 app.use("/api/invoices", invoiceRoutes);
 app.use("/api/invoice", invoiceRoutes);
