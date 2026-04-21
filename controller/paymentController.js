@@ -1,4 +1,4 @@
-const Payment = require("../models/PaymentModel");
+const Payment = require("../models/paymentModel");
 
 exports.createPayment = (req, res) => {
   const { table, total, method } = req.body;
