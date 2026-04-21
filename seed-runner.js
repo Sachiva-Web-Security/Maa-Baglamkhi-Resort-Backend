@@ -58,6 +58,15 @@ async function ensureSeedCompatibility(connection) {
         await connection.query(`ALTER TABLE \`guests\` ADD COLUMN \`${columnName}\` ${definition}`);
       }
     }
+
+    // Some deployments created booking_code as NOT NULL DEFAULT ''.
+    // Seed inserts don't provide booking_code, so this causes duplicate '' on UNIQUE index.
+    // Make it nullable so missing values are stored as NULL (allowed multiple times in UNIQUE).
+    if (await columnExists(connection, "guests", "booking_code")) {
+      await connection.query(
+        "ALTER TABLE `guests` MODIFY COLUMN `booking_code` VARCHAR(40) NULL DEFAULT NULL",
+      );
+    }
   }
 }
 
