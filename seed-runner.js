@@ -21,21 +21,21 @@ async function ensureSeedCompatibility(connection) {
   // Older deployments may have a minimal `rooms` table created by legacy code.
   // Add columns expected by seed.sql without dropping live data.
   const hasRooms = await tableExists(connection, "rooms");
-  if (!hasRooms) return;
+  if (hasRooms) {
+    const requiredRoomColumns = {
+      room_type: "VARCHAR(50) DEFAULT NULL",
+      price: "DECIMAL(10,2) DEFAULT NULL",
+      category_id: "INT DEFAULT NULL",
+      room_name: "VARCHAR(120) DEFAULT NULL",
+      floor_name: "VARCHAR(50) DEFAULT NULL",
+      housekeeping_status: "VARCHAR(50) NOT NULL DEFAULT 'Vacant Clean'",
+    };
 
-  const requiredRoomColumns = {
-    room_type: "VARCHAR(50) DEFAULT NULL",
-    price: "DECIMAL(10,2) DEFAULT NULL",
-    category_id: "INT DEFAULT NULL",
-    room_name: "VARCHAR(120) DEFAULT NULL",
-    floor_name: "VARCHAR(50) DEFAULT NULL",
-    housekeeping_status: "VARCHAR(50) NOT NULL DEFAULT 'Vacant Clean'",
-  };
-
-  for (const [columnName, definition] of Object.entries(requiredRoomColumns)) {
-    const exists = await columnExists(connection, "rooms", columnName);
-    if (!exists) {
-      await connection.query(`ALTER TABLE \`rooms\` ADD COLUMN \`${columnName}\` ${definition}`);
+    for (const [columnName, definition] of Object.entries(requiredRoomColumns)) {
+      const exists = await columnExists(connection, "rooms", columnName);
+      if (!exists) {
+        await connection.query(`ALTER TABLE \`rooms\` ADD COLUMN \`${columnName}\` ${definition}`);
+      }
     }
   }
 
@@ -65,6 +65,39 @@ async function ensureSeedCompatibility(connection) {
     if (await columnExists(connection, "guests", "booking_code")) {
       await connection.query(
         "ALTER TABLE `guests` MODIFY COLUMN `booking_code` VARCHAR(40) NULL DEFAULT NULL",
+      );
+    }
+  }
+
+  // Banquet schema differs across modules (`guest_name` vs `customer_name`, etc.).
+  // Add seed-required columns so seed.sql can run on either variant.
+  const hasBanquetBookings = await tableExists(connection, "banquet_bookings");
+  if (hasBanquetBookings) {
+    const requiredBanquetBookingColumns = {
+      guest_name: "VARCHAR(200) DEFAULT NULL",
+      mobile: "VARCHAR(20) DEFAULT NULL",
+      event_date: "DATE DEFAULT NULL",
+      guest_count: "INT DEFAULT 0",
+      advance_paid: "DECIMAL(10,2) DEFAULT 0",
+      total_amount: "DECIMAL(10,2) DEFAULT 0",
+    };
+
+    for (const [columnName, definition] of Object.entries(requiredBanquetBookingColumns)) {
+      const exists = await columnExists(connection, "banquet_bookings", columnName);
+      if (!exists) {
+        await connection.query(
+          `ALTER TABLE \`banquet_bookings\` ADD COLUMN \`${columnName}\` ${definition}`,
+        );
+      }
+    }
+  }
+
+  const hasBanquetHalls = await tableExists(connection, "banquet_halls");
+  if (hasBanquetHalls) {
+    const hasRatePerHour = await columnExists(connection, "banquet_halls", "rate_per_hour");
+    if (!hasRatePerHour) {
+      await connection.query(
+        "ALTER TABLE `banquet_halls` ADD COLUMN `rate_per_hour` DECIMAL(10,2) DEFAULT 0",
       );
     }
   }
