@@ -41,7 +41,7 @@ const {
 } = require("./models/paxModel");
 const {
   ensureSchema: ensurePaymentSchema,
-} = require("./models/PaymentModel");
+} = require("./models/paymentModel");
 const {
   ensureSchema: ensureRoomServiceSchema,
 } = require("./models/RoomServiceModel");
