@@ -38,6 +38,27 @@ async function ensureSeedCompatibility(connection) {
       await connection.query(`ALTER TABLE \`rooms\` ADD COLUMN \`${columnName}\` ${definition}`);
     }
   }
+
+  // `guests` table can differ between booking modules (guest_name/guest_email)
+  // and seed data (name/email/id docs). Add seed-required columns if missing.
+  const hasGuests = await tableExists(connection, "guests");
+  if (hasGuests) {
+    const requiredGuestColumns = {
+      name: "VARCHAR(200) DEFAULT NULL",
+      email: "VARCHAR(150) DEFAULT NULL",
+      id_type: "VARCHAR(50) DEFAULT NULL",
+      id_number: "VARCHAR(100) DEFAULT NULL",
+      address: "TEXT DEFAULT NULL",
+      city: "VARCHAR(100) DEFAULT NULL",
+    };
+
+    for (const [columnName, definition] of Object.entries(requiredGuestColumns)) {
+      const exists = await columnExists(connection, "guests", columnName);
+      if (!exists) {
+        await connection.query(`ALTER TABLE \`guests\` ADD COLUMN \`${columnName}\` ${definition}`);
+      }
+    }
+  }
 }
 
 async function runSeed() {
