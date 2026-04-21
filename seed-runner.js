@@ -101,6 +101,48 @@ async function ensureSeedCompatibility(connection) {
       );
     }
   }
+
+  // Attendance schema differs (`employee_name/check_in/check_out`) vs seed (`staff_name/in_time/out_time`).
+  const hasAttendance = await tableExists(connection, "attendance_records");
+  if (hasAttendance) {
+    const requiredAttendanceColumns = {
+      staff_name: "VARCHAR(100) DEFAULT NULL",
+      role: "VARCHAR(50) DEFAULT NULL",
+      date: "DATE DEFAULT NULL",
+      status: "VARCHAR(20) DEFAULT NULL",
+      in_time: "VARCHAR(10) DEFAULT NULL",
+      out_time: "VARCHAR(10) DEFAULT NULL",
+    };
+
+    for (const [columnName, definition] of Object.entries(requiredAttendanceColumns)) {
+      const exists = await columnExists(connection, "attendance_records", columnName);
+      if (!exists) {
+        await connection.query(
+          `ALTER TABLE \`attendance_records\` ADD COLUMN \`${columnName}\` ${definition}`,
+        );
+      }
+    }
+  }
+
+  const hasAssignments = await tableExists(connection, "assignments");
+  if (hasAssignments) {
+    const requiredAssignmentColumns = {
+      staff_name: "VARCHAR(100) DEFAULT NULL",
+      room_number: "VARCHAR(50) DEFAULT NULL",
+      task: "TEXT DEFAULT NULL",
+      assigned_by: "VARCHAR(100) DEFAULT NULL",
+      status: "VARCHAR(50) DEFAULT 'Pending'",
+    };
+
+    for (const [columnName, definition] of Object.entries(requiredAssignmentColumns)) {
+      const exists = await columnExists(connection, "assignments", columnName);
+      if (!exists) {
+        await connection.query(
+          `ALTER TABLE \`assignments\` ADD COLUMN \`${columnName}\` ${definition}`,
+        );
+      }
+    }
+  }
 }
 
 async function runSeed() {
