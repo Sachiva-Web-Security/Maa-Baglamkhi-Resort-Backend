@@ -58,15 +58,19 @@ function isOriginAllowed(origin, allowedOrigins) {
     return true;
   }
 
+  if (isLocalDevelopmentOrigin(origin)) {
+    return true;
+  }
+
   if (allowedOrigins.includes(origin)) {
     return true;
   }
 
   if (!allowedOrigins.length) {
-    return isLocalDevelopmentOrigin(origin);
+    return false;
   }
 
-  return process.env.NODE_ENV !== "production" && isLocalDevelopmentOrigin(origin);
+  return process.env.NODE_ENV !== "production";
 }
 
 function createCorsOriginHandler() {

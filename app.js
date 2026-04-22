@@ -6,7 +6,7 @@ const helmet = require("helmet");
 const path = require("path");
 const http = require("http");
 const { Server } = require("socket.io");
-
+// we use cors
 const db = require("./config/db");
 const { getDbConnectionLabel } = require("./config/databaseConfig");
 const {
@@ -108,6 +108,23 @@ app.use("/api", (req, res, next) => {
   res.set("Expires", "0");
   next();
 });
+
+
+
+const webPaymentRoutes = require("./routes/webPaymentRoutes");
+
+app.use("/api/web-payment", webPaymentRoutes);
+const webBookingRoutes = require("./routes/webBookingRoutes");
+
+app.use("/api/web", webBookingRoutes);
+
+
+const roomRoutes = require("./routes/roomRoutes");
+
+app.use("/api/rooms", roomRoutes);
+
+
+
 app.use(auditLogger);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
@@ -127,7 +144,7 @@ app.use("/api/token", require("./routes/tokenRoutes"));
 app.use("/api/payment", require("./routes/paymentRoutes"));
 
 
-
+app.use("/api/website", require("./routes/websiteRoutes"));
 
 const invoiceRoutes = require("./routes/InvoiceRoutes");
 app.use("/api/invoices", invoiceRoutes);
