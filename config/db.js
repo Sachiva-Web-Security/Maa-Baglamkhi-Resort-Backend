@@ -7,6 +7,10 @@ const db = mysql.createPool({
   waitForConnections: true,
   connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 10),
   queueLimit: 0,
+
+  // 🔥 ADD THESE 2 LINES (MOST IMPORTANT)
+  timezone: "Z",
+  dateStrings: true
 });
 
 module.exports = db;

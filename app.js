@@ -75,6 +75,9 @@ const {
 const {
   ensureSchema: ensureMenuRecipeSchema,
 } = require("./models/MenuRecipeModel");
+const {
+  ensureSchema: ensureWebsiteTableReservationSchema,
+} = require("./models/WebsiteTableReservationModel");
 const auditLogger = require("./middleware/auditLogger");
 const { getCorsOptions } = require("./config/security");
 
@@ -100,6 +103,19 @@ app.use(
   }),
 );
 app.use(cors(corsOptions));
+
+
+
+// i am also this line add for a puspose of a this will cant be brackdown my code ok 
+
+
+
+
+
+app.use("/api/web-payment/webhook", express.raw({ type: "application/json" }));
+
+
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use("/api", (req, res, next) => {
@@ -114,10 +130,25 @@ app.use("/api", (req, res, next) => {
 const webPaymentRoutes = require("./routes/webPaymentRoutes");
 
 app.use("/api/web-payment", webPaymentRoutes);
+
+
+// web booking routes
 const webBookingRoutes = require("./routes/webBookingRoutes");
+const websiteTableReservationRoutes = require("./routes/websiteTableReservationRoutes");
 
 app.use("/api/web", webBookingRoutes);
+app.use("/api/web/dining", websiteTableReservationRoutes);
 
+
+// web inquiry routes 
+const inquiryRoutes = require("./routes/inquiryRoutes");
+app.use("/api/web/inquiries",inquiryRoutes);
+
+
+const banquetInquiryRoutes = require("./routes/banquetInquiryRoutes");
+const BanquetInquiryModel = require("./models/banquetInquiryModel");
+
+app.use("/api/banquet-inquiries", banquetInquiryRoutes);
 
 const roomRoutes = require("./routes/roomRoutes");
 
@@ -260,6 +291,7 @@ async function initializeDatabase(options = {}) {
     await bootstrapSchema("Accounts expansion schema init", ensureAccountsExpansionSchema);
     await bootstrapSchema("Inventory masters schema init", ensureInventoryMastersSchema);
     await bootstrapSchema("Menu recipe schema init", ensureMenuRecipeSchema);
+    await bootstrapSchema("Website table reservation schema init", ensureWebsiteTableReservationSchema);
     await bootstrapSchema("Default staff login bootstrap", ensureDefaultStaffLogins);
   } catch (error) {
     console.error(

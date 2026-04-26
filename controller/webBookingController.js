@@ -2,7 +2,7 @@ const bookingService = require("../services/webBookingService");
 
 exports.bookRoomFromWebsite = async (req, res) => {
   try {
-    const result = await bookingService.createWebsiteBooking(req.body);
+const result = await bookingService.createWebsiteBooking(req.body, req.user);
     res.json({ success: true, message: "Booking successful", ...result });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -11,7 +11,7 @@ exports.bookRoomFromWebsite = async (req, res) => {
 
 exports.getWebsiteBookingById = async (req, res) => {
   try {
-    const booking = await bookingService.getWebsiteBookingById(req.params.id);
+    const booking = await bookingService.getWebsiteBookingById(req.params.id,req.user);
     if (!booking) {
       return res.status(404).json({ success: false, message: "Booking not found" });
     }
@@ -32,7 +32,8 @@ exports.getAllWebsiteBookings = async (_req, res) => {
 
 exports.confirmWebsiteBooking = async (req, res) => {
   try {
-    const booking = await bookingService.confirmWebsiteBooking(req.params.id);
+    const booking = await bookingService.confirmWebsiteBooking(req.params.id ,
+  req.user);
     res.json({ success: true, message: "Booking confirmed", booking });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -41,9 +42,33 @@ exports.confirmWebsiteBooking = async (req, res) => {
 
 exports.cancelWebsiteBooking = async (req, res) => {
   try {
-    await bookingService.cancelWebsiteBooking(req.params.id);
+  await bookingService.cancelWebsiteBooking(
+  req.params.id,
+  req.user
+);
     res.json({ success: true, message: "Booking cancelled" });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+
+exports.getMyBookings = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+  const bookings = await bookingService.getMyBookings(userId);
+
+    res.json({
+      success: true,
+      data: bookings
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
