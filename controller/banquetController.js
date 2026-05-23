@@ -2,6 +2,11 @@ const db = require("../config/db");
 const {
   DEFAULT_BANQUET_PRICING_CONFIG,
 } = require("../models/BanquetModel");
+const { sendTemplate, getPublicBaseUrl } = require("../utils/whatsappNotify");
+const {
+  generateBanquetBookingPdf,
+  generateBanquetBillPdf,
+} = require("../utils/banquetPdfGenerator");
 
 const runQuery = (sql, params = []) =>
   new Promise((resolve, reject) => {
@@ -26,6 +31,58 @@ const getHallRateColumn = async () => {
   }
 
   return hallRateColumnPromise;
+};
+
+const hoursBetween = (startTime, endTime) => {
+  if (!startTime || !endTime) return 0;
+  const [sh, sm] = String(startTime).split(":").map(Number);
+  const [eh, em] = String(endTime).split(":").map(Number);
+  if ([sh, sm, eh, em].some((n) => Number.isNaN(n))) return 0;
+  const diff = (eh * 60 + em) - (sh * 60 + sm);
+  if (diff <= 0) return 0;
+  return Math.max(1, Math.ceil(diff / 60));
+};
+
+/**
+ * Compute banquet financials from raw inputs (hall rate, hours, guests, package)
+ * mirroring what the frontend wizard does — so the DB stores the authoritative
+ * totals and downstream PDFs / bills aren't zero when the FE omits them.
+ */
+const computeBanquetTotals = ({
+  hallRatePerHour,
+  startTime,
+  endTime,
+  guests,
+  perGuest,
+  decorationFee = 0,
+  customMenuCharge = 0,
+  lightingCharge = 0,
+  eventSupportFee = 0,
+  discount = 0,
+  gstPercent = 5,
+}) => {
+  const hours = hoursBetween(startTime, endTime);
+  const hallCharge = toNumber(hallRatePerHour) * hours;
+  const mealCharge = toNumber(guests) * toNumber(perGuest);
+  const decor = toNumber(decorationFee);
+  const customMenu = toNumber(customMenuCharge);
+  const lighting = toNumber(lightingCharge);
+  const support = toNumber(eventSupportFee);
+  const subTotal = hallCharge + mealCharge + decor + customMenu + lighting + support;
+  const safeDiscount = Math.min(subTotal, toNumber(discount));
+  const taxable = Math.max(0, subTotal - safeDiscount);
+  const gstAmt = Math.round((taxable * toNumber(gstPercent || 5)) / 100);
+  const grandTotal = taxable + gstAmt;
+
+  return {
+    hours,
+    hallCharge,
+    mealCharge,
+    subtotalAmount: subTotal,
+    discount: safeDiscount,
+    gstAmount: gstAmt,
+    grandTotal,
+  };
 };
 
 const hasTimeOverlap = (startA, endA, startB, endB) => {
@@ -274,6 +331,208 @@ const checkBookingOverlap = async ({ hallId, date, startTime, endTime, excludeId
   return conflicts.some((row) => hasTimeOverlap(startTime, endTime, row.start_time, row.end_time));
 };
 
+/**
+ * Resolve hall rate + menu package per-guest price for a given payload,
+ * then derive the financial totals server-side so the DB row is authoritative
+ * (frontend wizard sometimes omits them and the bill PDF reads zeros).
+ */
+const deriveMissingFinancials = async (payload, existing = null) => {
+  const hallId = payload.hallId ?? existing?.hall_id;
+  const startTime = payload.startTime ?? existing?.start_time;
+  const endTime = payload.endTime ?? existing?.end_time;
+  const guests = payload.guests ?? existing?.guests;
+  const menuPackageId =
+    payload.menuPackageId ?? existing?.menu_package_id ?? "standard";
+
+  const incomingGrand = toNumber(
+    payload.grandTotal ?? payload.grand_total ?? existing?.grand_total ?? 0,
+  );
+  // If FE sent a non-zero grand total, trust it.
+  if (incomingGrand > 0) return payload;
+
+  const hallRateCol = await getHallRateColumn();
+  const [hallRow] = await runQuery(
+    `SELECT ${hallRateCol} AS ratePerHour FROM banquet_halls WHERE id = ? LIMIT 1`,
+    [hallId],
+  );
+  const pricingConfig = await getBanquetPricingConfig();
+  const pkg = (pricingConfig.menuPackages || []).find((p) => p.id === menuPackageId) ||
+    pricingConfig.menuPackages?.[0];
+
+  const totals = computeBanquetTotals({
+    hallRatePerHour: hallRow?.ratePerHour,
+    startTime,
+    endTime,
+    guests,
+    perGuest: pkg?.perGuest,
+    decorationFee: payload.decorationFee ?? existing?.decoration_fee,
+    customMenuCharge: payload.customMenuCharge ?? existing?.custom_menu_charge,
+    lightingCharge: payload.lightingCharge ?? existing?.lighting_charge,
+    eventSupportFee: payload.eventSupportFee ?? existing?.event_support_fee,
+    discount: payload.discount ?? existing?.discount,
+    gstPercent: payload.gstPercent ?? existing?.gst_percent ?? 5,
+  });
+
+  return {
+    ...payload,
+    hallCharge: toNumber(payload.hallCharge) || totals.hallCharge,
+    mealCharge: toNumber(payload.mealCharge) || totals.mealCharge,
+    subtotalAmount: toNumber(payload.subtotalAmount) || totals.subtotalAmount,
+    gstAmount: toNumber(payload.gstAmount) || totals.gstAmount,
+    grandTotal: totals.grandTotal,
+    discount: payload.discount ?? totals.discount,
+  };
+};
+
+/**
+ * Builds an enriched booking object (joins hall + menu package details) that
+ * the PDF generator can render with food list and full event info.
+ */
+const buildBookingForPdf = async (bookingId, payloadOverrides = {}) => {
+  const hallRateColumn = await getHallRateColumn();
+  const rows = await runQuery(
+    `
+    SELECT b.*, h.name AS hallName, h.${hallRateColumn} AS hallRatePerHour
+    FROM banquet_bookings b
+    JOIN banquet_halls h ON b.hall_id = h.id
+    WHERE b.id = ?
+    LIMIT 1
+    `,
+    [bookingId],
+  );
+  const row = rows[0];
+  if (!row) return null;
+
+  const pricingConfig = await getBanquetPricingConfig();
+  const pkg = (pricingConfig.menuPackages || []).find(
+    (p) => p.id === row.menu_package_id,
+  ) || null;
+
+  return {
+    id: row.id,
+    customerName: row.customer_name,
+    phone: row.phone,
+    guestEmail: row.guest_email,
+    eventType: row.event_type,
+    eventTitle: row.event_title,
+    hallName: row.hallName,
+    hallRatePerHour: Number(row.hallRatePerHour || 0),
+    guests: row.guests,
+    menuPackageId: row.menu_package_id,
+    menuPackageName: pkg?.name || row.menu_package_id,
+    menuPackagePerGuest: pkg?.perGuest,
+    menuHighlights: pkg?.highlights || [],
+    mealSection: row.meal_section,
+    customMenuItems: row.custom_menu_items,
+    lightingSystem: row.lighting_system,
+    decorationFee: Number(row.decoration_fee || 0),
+    eventSupportFee: Number(row.event_support_fee || 0),
+    lightingCharge: Number(row.lighting_charge || 0),
+    customMenuCharge: Number(row.custom_menu_charge || 0),
+    hallCharge: Number(row.hall_charge || 0),
+    mealCharge: Number(row.meal_charge || 0),
+    notes: row.notes,
+    date: row.date,
+    startTime: row.start_time,
+    endTime: row.end_time,
+    discount: Number(row.discount || 0),
+    gstPercent: Number(row.gst_percent || 5),
+    subtotalAmount: Number(row.subtotal_amount || 0),
+    gstAmount: Number(row.gst_amount || 0),
+    grandTotal: Number(row.grand_total || 0),
+    invoiceNo: row.invoice_no,
+    advance: Number(row.advance || 0),
+    refundAmount: Number(row.refund_amount || 0),
+    netReceived: Number(row.net_received || 0),
+    balanceDue: Number(row.balance_due || 0),
+    paymentMode: row.payment_mode,
+    paymentStatus: row.payment_status,
+    paymentReferenceNo: row.payment_reference_no,
+    ...payloadOverrides,
+  };
+};
+
+const sendBanquetBookingWhatsApp = async (req, bookingId) => {
+  try {
+    const booking = await buildBookingForPdf(bookingId);
+    if (!booking || !booking.phone) return;
+
+    const { fileName } = await generateBanquetBookingPdf(booking);
+    const publicBase = await getPublicBaseUrl(req);
+    const fileUrl = `${publicBase}/uploads/banquet/${fileName}`;
+
+    await sendTemplate({
+      code: "banquet_booking_confirmation",
+      autoFlag: "auto_send_banquet_booking",
+      number: booking.phone,
+      fileUrl,
+      fileName,
+      vars: {
+        customer_name: booking.customerName || "Guest",
+        hall_name: booking.hallName || "—",
+        event_type: booking.eventType || "—",
+        guests: String(booking.guests || 0),
+        event_date: booking.date ? new Date(booking.date).toLocaleDateString("en-IN") : "—",
+        start_time: booking.startTime || "—",
+        end_time: booking.endTime || "—",
+        menu_package: booking.menuPackageName || booking.menuPackageId || "—",
+        amount: Number(booking.grandTotal || 0).toFixed(2),
+        advance: Number(booking.advance || 0).toFixed(2),
+        balance: Number(booking.balanceDue || 0).toFixed(2),
+      },
+    });
+  } catch (err) {
+    if (process.env.NODE_ENV !== "test") {
+      console.error("Banquet booking WhatsApp send failed:", err.message || err);
+    }
+  }
+};
+
+const sendBanquetBillWhatsApp = async (req, bookingId) => {
+  try {
+    const booking = await buildBookingForPdf(bookingId);
+    if (!booking || !booking.phone) return;
+
+    const { fileName } = await generateBanquetBillPdf(booking);
+    const publicBase = await getPublicBaseUrl(req);
+    const fileUrl = `${publicBase}/uploads/banquet/${fileName}`;
+
+    // Bill PDF
+    await sendTemplate({
+      code: "banquet_bill",
+      autoFlag: "auto_send_banquet_bill",
+      number: booking.phone,
+      fileUrl,
+      fileName,
+      vars: {
+        customer_name: booking.customerName || "Guest",
+        invoice_no: booking.invoiceNo || "—",
+        event_type: booking.eventType || "—",
+        event_date: booking.date ? new Date(booking.date).toLocaleDateString("en-IN") : "—",
+        hall_name: booking.hallName || "—",
+        amount: Number(booking.grandTotal || 0).toFixed(2),
+        balance: Number(booking.balanceDue || 0).toFixed(2),
+      },
+    });
+
+    // Follow-up thank-you (text-only)
+    await sendTemplate({
+      code: "banquet_thanks",
+      autoFlag: "auto_send_banquet_thanks",
+      number: booking.phone,
+      vars: {
+        customer_name: booking.customerName || "Guest",
+        event_type: booking.eventType || "—",
+        hall_name: booking.hallName || "—",
+      },
+    });
+  } catch (err) {
+    if (process.env.NODE_ENV !== "test") {
+      console.error("Banquet bill WhatsApp send failed:", err.message || err);
+    }
+  }
+};
+
 const getBanquetPricingConfigHandler = async (req, res) => {
   try {
     const pricingConfig = await getBanquetPricingConfig();
@@ -485,7 +744,12 @@ const createBanquetBooking = async (req, res) => {
       });
     }
 
-    const financials = buildFinancialSnapshot({
+    const enriched = await deriveMissingFinancials({
+      hallId,
+      startTime,
+      endTime,
+      guests,
+      menuPackageId,
       customMenuCharge,
       lightingCharge,
       eventSupportFee,
@@ -497,6 +761,19 @@ const createBanquetBooking = async (req, res) => {
       subtotalAmount,
       gstAmount,
       grandTotal,
+    });
+    const financials = buildFinancialSnapshot({
+      customMenuCharge: enriched.customMenuCharge,
+      lightingCharge: enriched.lightingCharge,
+      eventSupportFee: enriched.eventSupportFee,
+      hallCharge: enriched.hallCharge,
+      mealCharge: enriched.mealCharge,
+      decorationFee: enriched.decorationFee,
+      discount: enriched.discount,
+      gstPercent: enriched.gstPercent,
+      subtotalAmount: enriched.subtotalAmount,
+      gstAmount: enriched.gstAmount,
+      grandTotal: enriched.grandTotal,
       advance,
       refundAmount,
       paymentMode,
@@ -582,6 +859,9 @@ const createBanquetBooking = async (req, res) => {
         financials.paymentReferenceNo,
       ]
     );
+
+    // Fire-and-forget: generate booking-confirmation PDF + send via WhatsApp.
+    sendBanquetBookingWhatsApp(req, result.insertId);
 
     res.status(201).json({
       message: "Banquet booking created successfully",
@@ -670,8 +950,13 @@ const updateBanquetBooking = async (req, res) => {
       });
     }
 
-    const financials = buildFinancialSnapshot(
+    const enriched = await deriveMissingFinancials(
       {
+        hallId,
+        startTime,
+        endTime,
+        guests,
+        menuPackageId,
         customMenuCharge,
         lightingCharge,
         eventSupportFee,
@@ -683,6 +968,22 @@ const updateBanquetBooking = async (req, res) => {
         subtotalAmount,
         gstAmount,
         grandTotal,
+      },
+      existingBooking,
+    );
+    const financials = buildFinancialSnapshot(
+      {
+        customMenuCharge: enriched.customMenuCharge,
+        lightingCharge: enriched.lightingCharge,
+        eventSupportFee: enriched.eventSupportFee,
+        hallCharge: enriched.hallCharge,
+        mealCharge: enriched.mealCharge,
+        decorationFee: enriched.decorationFee,
+        discount: enriched.discount,
+        gstPercent: enriched.gstPercent,
+        subtotalAmount: enriched.subtotalAmount,
+        gstAmount: enriched.gstAmount,
+        grandTotal: enriched.grandTotal,
         advance,
         refundAmount,
         paymentMode,
@@ -936,16 +1237,15 @@ const completeBanquetBooking = async (req, res) => {
 const generateBanquetBill = async (req, res) => {
   try {
     const { id } = req.params;
-    const { invoiceNo } = req.body;
-
-    if (!invoiceNo) {
-      return res.status(400).json({ message: "invoiceNo is required" });
-    }
-
     const booking = await getBookingById(id);
     if (!booking) {
       return res.status(404).json({ message: "Booking not found" });
     }
+
+    // Auto-generate invoice number if one is not provided/persisted.
+    const incoming = String(req.body?.invoiceNo || "").trim();
+    const existing = String(booking.invoice_no || "").trim();
+    const invoiceNo = incoming || existing || `BNQ-${new Date().getFullYear()}-${String(id).padStart(4, "0")}`;
 
     const paymentStatus = normalizePaymentStatus({
       grandTotal: booking.grand_total || booking.total_amount || 0,
@@ -967,7 +1267,10 @@ const generateBanquetBill = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    res.status(200).json({ message: "Bill generated successfully" });
+    // Fire-and-forget: generate bill PDF + send WhatsApp (bill + thank-you).
+    sendBanquetBillWhatsApp(req, id);
+
+    res.status(200).json({ message: "Bill generated successfully", invoiceNo });
   } catch (error) {
     console.error("generateBanquetBill error:", error);
     res.status(500).json({ message: "Failed to generate bill" });
