@@ -33,6 +33,18 @@ const ensureSchema = async () => {
     )
   `);
 
+  await runQuery("ALTER TABLE inventory_vendors ADD COLUMN IF NOT EXISTS address VARCHAR(255) DEFAULT NULL AFTER name").catch(() => {});
+  await runQuery("ALTER TABLE inventory_vendors ADD COLUMN IF NOT EXISTS city VARCHAR(100) DEFAULT NULL AFTER address").catch(() => {});
+  await runQuery("ALTER TABLE inventory_vendors ADD COLUMN IF NOT EXISTS contact_person VARCHAR(150) DEFAULT NULL AFTER city").catch(() => {});
+  await runQuery("ALTER TABLE inventory_vendors ADD COLUMN IF NOT EXISTS mobile_number VARCHAR(32) DEFAULT NULL AFTER contact_person").catch(() => {});
+  await runQuery("ALTER TABLE inventory_vendors ADD COLUMN IF NOT EXISTS landline_number VARCHAR(32) DEFAULT NULL AFTER mobile_number").catch(() => {});
+  await runQuery("ALTER TABLE inventory_vendors ADD COLUMN IF NOT EXISTS gstin VARCHAR(20) DEFAULT NULL AFTER landline_number").catch(() => {});
+  await runQuery("ALTER TABLE inventory_vendors ADD COLUMN IF NOT EXISTS email VARCHAR(191) DEFAULT NULL AFTER gstin").catch(() => {});
+  await runQuery("ALTER TABLE inventory_vendors ADD COLUMN IF NOT EXISTS opening_balance DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER email").catch(() => {});
+  await runQuery("ALTER TABLE inventory_vendors ADD COLUMN IF NOT EXISTS is_active TINYINT(1) NOT NULL DEFAULT 1 AFTER opening_balance").catch(() => {});
+  await runQuery("ALTER TABLE inventory_vendors ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP AFTER is_active").catch(() => {});
+  await runQuery("ALTER TABLE inventory_vendors ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at").catch(() => {});
+
   const rows = await runQuery("SELECT COUNT(*) AS count FROM inventory_vendors");
   if (Number(rows?.[0]?.count || 0) === 0) {
     for (const s of SEEDS) {
