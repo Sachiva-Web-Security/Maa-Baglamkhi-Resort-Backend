@@ -120,6 +120,29 @@ const getRoomSetup = async ({ checkIn = null, checkOut = null } = {}) => {
     ORDER BY CAST(room_number AS UNSIGNED), room_number
   `);
 
+  const legacyRooms = await runQuery(`
+    SELECT
+      r.id,
+      r.room_number AS roomNumber,
+      r.room_type AS roomType,
+      r.price,
+      r.status,
+      r.category_id AS categoryId,
+      r.room_name,
+      r.floor_name,
+      r.housekeeping_status,
+      r.guest,
+      r.check_in AS checkIn,
+      r.check_out AS checkOut,
+      c.name AS categoryName,
+      c.default_price AS categoryDefaultPrice,
+      c.unit_label AS categoryUnitLabel
+    FROM rooms r
+    LEFT JOIN hotel_room_categories c
+      ON c.id = r.category_id
+    ORDER BY CAST(r.room_number AS UNSIGNED), r.room_number
+  `);
+
   const selectedCheckIn = normalizeDateValue(checkIn);
   const selectedCheckOut = normalizeDateValue(checkOut) || selectedCheckIn;
 
@@ -155,18 +178,49 @@ const getRoomSetup = async ({ checkIn = null, checkOut = null } = {}) => {
     ]),
   );
 
+  const legacyRoomByCategory = new Map();
+  legacyRooms.forEach((room) => {
+    const roomNumber = String(room.roomNumber || "").trim();
+    if (!roomNumber) return;
+
+    const resolvedCategoryId = room.categoryId || categories.find((category) => String(category.name || "").toUpperCase() === String(room.roomType || room.categoryName || "").toUpperCase())?.id || null;
+    const categoryKey = String(resolvedCategoryId || room.roomType || room.categoryName || "UNCATEGORIZED").trim();
+    if (!legacyRoomByCategory.has(categoryKey)) legacyRoomByCategory.set(categoryKey, []);
+    legacyRoomByCategory.get(categoryKey).push({
+      roomNumber,
+      status: room.status || room.housekeeping_status || "Available",
+      guest: room.guest || null,
+      checkIn: room.checkIn || null,
+      checkOut: room.checkOut || null,
+      categoryId: resolvedCategoryId,
+      categoryName: room.categoryName || room.roomType || "",
+      defaultPrice: room.categoryDefaultPrice || room.price || 0,
+      unitLabel: room.categoryUnitLabel || "PER NIGHT",
+    });
+  });
+
   return categories.map((category) => {
     const categoryRooms = rooms.filter(
       (room) => Number(room.categoryId) === Number(category.id),
     );
 
+    const fallbackRooms = legacyRoomByCategory.get(String(category.id)) || [];
+    const mergedRooms = categoryRooms.length > 0 ? categoryRooms : fallbackRooms.map((room) => ({
+      categoryId: category.id,
+      roomNumber: room.roomNumber,
+      status: room.status,
+      guest: room.guest,
+      checkIn: room.checkIn,
+      checkOut: room.checkOut,
+    }));
+
     return {
       ...category,
       // Backward-compatible: keep as string array for any existing code that uses it
-      rooms: categoryRooms.map((room) => room.roomNumber),
+      rooms: mergedRooms.map((room) => room.roomNumber),
 
       // NEW: full room objects with status — used by Room.jsx availability logic
-      roomDetails: categoryRooms.map((room) => {
+      roomDetails: mergedRooms.map((room) => {
         const occupiedRoom = occupiedByRoom.get(String(room.roomNumber || "").trim());
         const resolvedRoom = occupiedRoom
           ? {

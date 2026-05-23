@@ -34,9 +34,18 @@ router.put("/booking/:id", bookingController.updateBooking);
 router.put("/full-booking/:id", bookingController.updateFullBooking);
 router.put("/check-in/:id", bookingController.checkInBooking);
 router.put("/check-out/:id", bookingController.checkOutBooking);
+router.post("/checkout", async (req, res, next) => {
+	if (!req.body?.id) {
+		return res.status(400).json({ message: "Booking id is required" });
+	}
+
+	req.params = { ...req.params, id: req.body.id };
+	return bookingController.checkOutBooking(req, res, next);
+});
 router.put("/cancel/:id", bookingController.cancelBooking);
 router.put("/rooms/category/:id/price", hotelRoomInventoryController.updateCategoryPrice);
 router.put("/rooms/state/:roomNumber", hotelRoomInventoryController.updateRoomOperationalState);
+router.put("/room/:roomNumber/status", hotelRoomInventoryController.updateRoomOperationalState);
 
 // FULL GET
 router.get("/full-booking/:id", bookingController.getFullBooking);
