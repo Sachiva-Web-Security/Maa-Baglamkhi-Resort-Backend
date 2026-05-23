@@ -196,6 +196,12 @@ const {
   const {
     ensureSchema: ensureInventoryIngredientSchema,
   } = require("./models/inventoryIngredientModel");
+  const {
+    ensureSchema: ensureInventoryStockLocationSchema,
+  } = require("./models/inventoryStockLocationModel");
+  const {
+    ensureSchema: ensureInventoryOpeningStockSchema,
+  } = require("./models/inventoryOpeningStockModel");
 const auditLogger = require("./middleware/auditLogger");
 const { getCorsOptions } = require("./config/security");
 
@@ -300,6 +306,8 @@ app.use("/api/fb-quick-sales-settings", require("./routes/fbQuickSalesSettingsRo
 app.use("/api/inventory-vendors", require("./routes/inventoryVendorRoutes"));
 app.use("/api/inventory-item-groups", require("./routes/inventoryItemGroupRoutes"));
 app.use("/api/inventory-ingredients", require("./routes/inventoryIngredientRoutes"));
+app.use("/api/inventory-stock-locations", require("./routes/inventoryStockLocationRoutes"));
+app.use("/api/inventory-opening-stock", require("./routes/inventoryOpeningStockRoutes"));
 app.use("/api/wasend", require("./routes/wasendRoutes"));
 
 app.get("/api/health", (req, res) => {
@@ -446,6 +454,8 @@ async function initializeDatabase(options = {}) {
     await bootstrapSchema("Inventory vendors schema init", ensureInventoryVendorSchema);
     await bootstrapSchema("Inventory item groups schema init", ensureInventoryItemGroupSchema);
     await bootstrapSchema("Inventory ingredients schema init", ensureInventoryIngredientSchema);
+    await bootstrapSchema("Inventory stock locations schema init", ensureInventoryStockLocationSchema);
+    await bootstrapSchema("Inventory opening stock schema init", ensureInventoryOpeningStockSchema);
   } catch (error) {
     console.error(
       `Database connection failed (${getDbConnectionLabel()}):`,

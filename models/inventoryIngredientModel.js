@@ -5,27 +5,39 @@ const runQuery = (sql, params = []) =>
     db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
   });
 
+const columnExists = async (column) => {
+  const rows = await runQuery(
+    "SHOW COLUMNS FROM inventory_ingredients LIKE ?",
+    [column],
+  );
+  return Array.isArray(rows) && rows.length > 0;
+};
+
+const addColumnIfMissing = async (column, definition) => {
+  if (!(await columnExists(column))) {
+    await runQuery(
+      `ALTER TABLE inventory_ingredients ADD COLUMN ${column} ${definition}`,
+    );
+  }
+};
+
 const ensureSchema = async () => {
   await runQuery(`
     CREATE TABLE IF NOT EXISTS inventory_ingredients (
       id INT AUTO_INCREMENT PRIMARY KEY,
-      item_group_id INT DEFAULT NULL,
-      item_code VARCHAR(64) DEFAULT NULL,
       name VARCHAR(191) NOT NULL,
-      unit_id INT DEFAULT NULL,
-      current_stock DECIMAL(12,3) NOT NULL DEFAULT 0,
-      reorder_level DECIMAL(12,3) NOT NULL DEFAULT 0,
-      avg_rate DECIMAL(12,2) NOT NULL DEFAULT 0,
-      vendor_id INT DEFAULT NULL,
-      is_active TINYINT(1) NOT NULL DEFAULT 1,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      UNIQUE KEY uq_ingredient_code (item_code),
-      FOREIGN KEY (item_group_id) REFERENCES fb_item_groups(id) ON DELETE SET NULL,
-      FOREIGN KEY (unit_id) REFERENCES fb_units(id) ON DELETE SET NULL,
-      FOREIGN KEY (vendor_id) REFERENCES inventory_vendors(id) ON DELETE SET NULL
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
+  await addColumnIfMissing("item_group_id", "INT DEFAULT NULL");
+  await addColumnIfMissing("item_code", "VARCHAR(64) DEFAULT NULL");
+  await addColumnIfMissing("unit_id", "INT DEFAULT NULL");
+  await addColumnIfMissing("current_stock", "DECIMAL(12,3) NOT NULL DEFAULT 0");
+  await addColumnIfMissing("reorder_level", "DECIMAL(12,3) NOT NULL DEFAULT 0");
+  await addColumnIfMissing("avg_rate", "DECIMAL(12,2) NOT NULL DEFAULT 0");
+  await addColumnIfMissing("vendor_id", "INT DEFAULT NULL");
+  await addColumnIfMissing("is_active", "TINYINT(1) NOT NULL DEFAULT 1");
 };
 
 const mapRow = (r) => ({

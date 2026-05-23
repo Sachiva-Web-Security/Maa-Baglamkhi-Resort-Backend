@@ -5,19 +5,35 @@ const runQuery = (sql, params = []) =>
     db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
   });
 
+const columnExists = async (column) => {
+  const rows = await runQuery(
+    "SHOW COLUMNS FROM inventory_item_groups LIKE ?",
+    [column],
+  );
+  return Array.isArray(rows) && rows.length > 0;
+};
+
+const addColumnIfMissing = async (column, definition) => {
+  if (!(await columnExists(column))) {
+    await runQuery(
+      `ALTER TABLE inventory_item_groups ADD COLUMN ${column} ${definition}`,
+    );
+  }
+};
+
 const ensureSchema = async () => {
   await runQuery(`
     CREATE TABLE IF NOT EXISTS inventory_item_groups (
       id INT AUTO_INCREMENT PRIMARY KEY,
-      name VARCHAR(191) NOT NULL UNIQUE,
-      description VARCHAR(255) DEFAULT NULL,
-      parent_id INT DEFAULT NULL,
-      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      name VARCHAR(191) NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      FOREIGN KEY (parent_id) REFERENCES inventory_item_groups(id) ON DELETE SET NULL
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
+  // Migrate older schemas — these add columns only if missing.
+  await addColumnIfMissing("description", "VARCHAR(255) DEFAULT NULL");
+  await addColumnIfMissing("parent_id", "INT DEFAULT NULL");
+  await addColumnIfMissing("is_active", "TINYINT(1) NOT NULL DEFAULT 1");
 };
 
 const mapRow = (r) => ({
