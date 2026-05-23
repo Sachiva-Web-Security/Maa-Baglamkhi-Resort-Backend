@@ -181,6 +181,21 @@ const {
   const {
     ensureSchema: ensureFbOwnerSmsSettingsSchema,
   } = require("./models/fbOwnerSmsSettingsModel");
+  const {
+    ensureSchema: ensureFbRestaurantSettingsSchema,
+  } = require("./models/fbRestaurantSettingsModel");
+  const {
+    ensureSchema: ensureFbQuickSalesSettingsSchema,
+  } = require("./models/fbQuickSalesSettingsModel");
+  const {
+    ensureSchema: ensureInventoryVendorSchema,
+  } = require("./models/inventoryVendorModel");
+  const {
+    ensureSchema: ensureInventoryItemGroupSchema,
+  } = require("./models/inventoryItemGroupModel");
+  const {
+    ensureSchema: ensureInventoryIngredientSchema,
+  } = require("./models/inventoryIngredientModel");
 const auditLogger = require("./middleware/auditLogger");
 const { getCorsOptions } = require("./config/security");
 
@@ -280,6 +295,11 @@ app.use("/api/fb-room-service-settings", require("./routes/fbRoomServiceSettings
 app.use("/api/fb-modifiers", require("./routes/fbModifierRoutes"));
 app.use("/api/fb-bar-to-food", require("./routes/fbBarToFoodRoutes"));
 app.use("/api/fb-owner-sms-settings", require("./routes/fbOwnerSmsSettingsRoutes"));
+app.use("/api/fb-restaurant-settings", require("./routes/fbRestaurantSettingsRoutes"));
+app.use("/api/fb-quick-sales-settings", require("./routes/fbQuickSalesSettingsRoutes"));
+app.use("/api/inventory-vendors", require("./routes/inventoryVendorRoutes"));
+app.use("/api/inventory-item-groups", require("./routes/inventoryItemGroupRoutes"));
+app.use("/api/inventory-ingredients", require("./routes/inventoryIngredientRoutes"));
 app.use("/api/wasend", require("./routes/wasendRoutes"));
 
 app.get("/api/health", (req, res) => {
@@ -421,6 +441,11 @@ async function initializeDatabase(options = {}) {
     await bootstrapSchema("FB modifiers schema init", ensureFbModifierSchema);
     await bootstrapSchema("FB bar-to-food schema init", ensureFbBarToFoodSchema);
     await bootstrapSchema("FB owner SMS settings schema init", ensureFbOwnerSmsSettingsSchema);
+    await bootstrapSchema("FB restaurant settings schema init", ensureFbRestaurantSettingsSchema);
+    await bootstrapSchema("FB quick sales settings schema init", ensureFbQuickSalesSettingsSchema);
+    await bootstrapSchema("Inventory vendors schema init", ensureInventoryVendorSchema);
+    await bootstrapSchema("Inventory item groups schema init", ensureInventoryItemGroupSchema);
+    await bootstrapSchema("Inventory ingredients schema init", ensureInventoryIngredientSchema);
   } catch (error) {
     console.error(
       `Database connection failed (${getDbConnectionLabel()}):`,

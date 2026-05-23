@@ -208,21 +208,32 @@ const baseSelect = `
 const list = async ({
   from = "", to = "", invoice_no = "", customer = "", status = "",
   table_no = "", contact = "", type = "",
+  amount_from = "", amount_to = "", payment_mode = "", sort_rate = "",
 } = {}) => {
   const where = [];
   const params = [];
   if (from)       { where.push("DATE(i.invoice_date) >= ?"); params.push(from); }
   if (to)         { where.push("DATE(i.invoice_date) <= ?"); params.push(to); }
   if (invoice_no) { where.push("i.invoice_no LIKE ?");       params.push(`%${invoice_no}%`); }
-  if (customer)   { where.push("i.customer_name LIKE ?");    params.push(`%${customer}%`); }
+  if (customer)   { where.push("(i.customer_name LIKE ? OR i.customer_phone LIKE ?)"); params.push(`%${customer}%`, `%${customer}%`); }
   if (contact)    { where.push("i.customer_phone LIKE ?");   params.push(`%${contact}%`); }
   if (table_no)   { where.push("(i.table_label LIKE ? OR t.name LIKE ?)"); params.push(`%${table_no}%`, `%${table_no}%`); }
   if (status && STATUSES.includes(status)) { where.push("i.status = ?"); params.push(status); }
   if (type && TYPES.includes(type)) { where.push("i.type = ?"); params.push(type); }
+  if (amount_from !== "" && amount_from !== null && !Number.isNaN(Number(amount_from))) {
+    where.push("i.total_amount >= ?"); params.push(Number(amount_from));
+  }
+  if (amount_to !== "" && amount_to !== null && !Number.isNaN(Number(amount_to))) {
+    where.push("i.total_amount <= ?"); params.push(Number(amount_to));
+  }
+  if (payment_mode) { where.push("i.payment_mode LIKE ?"); params.push(`%${payment_mode}%`); }
+
+  let order = "ORDER BY i.invoice_date DESC, i.id DESC";
+  if (sort_rate === "lowest")  order = "ORDER BY i.total_amount ASC, i.id DESC";
+  if (sort_rate === "highest") order = "ORDER BY i.total_amount DESC, i.id DESC";
 
   const rows = await runQuery(
-    `${baseSelect} ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-     ORDER BY i.invoice_date DESC, i.id DESC`,
+    `${baseSelect} ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ${order}`,
     params,
   );
   return rows.map((r) => ({ ...mapRow(r), total_items: Number(r.total_items || 0) }));

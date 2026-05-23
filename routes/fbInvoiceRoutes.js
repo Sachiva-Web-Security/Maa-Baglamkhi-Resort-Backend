@@ -13,6 +13,10 @@ router.get("/", async (req, res) => {
         table_no: req.query.table_no || "",
         type: req.query.type || "",
         status: req.query.status || "",
+        amount_from: req.query.amount_from || "",
+        amount_to: req.query.amount_to || "",
+        payment_mode: req.query.payment_mode || "",
+        sort_rate: req.query.sort_rate || "",
       }),
     );
   } catch (error) {
