@@ -1,5 +1,6 @@
 const Restaurant = require("../models/RestaurantModel");
 const db = require("../config/db");
+const FbTable = require("../models/fbTableModel");
 const { getRequestActor, isWaiterActor, namesMatch } = require("../utils/requestActor");
 const { generateRestaurantBillPdf } = require("../utils/restaurantBillPdf");
 const { getSettings: getSmsSettings } = require("../models/fbOwnerSmsSettingsModel");
@@ -22,6 +23,22 @@ const resolveAssignedWaiterName = (req, fallbackEntityType = "Table") => {
 };
 
 const normalizeBaseUrl = (value) => String(value || "").trim().replace(/\/$/, "");
+
+const normalizeTableNumber = (value) => {
+  const raw = String(value || "").trim().toUpperCase();
+  if (!raw) return "";
+
+  const prefixed = raw.match(/^([A-Z]+)0+(\d+)$/);
+  if (prefixed) {
+    return `${prefixed[1]}${prefixed[2]}`;
+  }
+
+  if (/^\d+$/.test(raw)) {
+    return String(Number(raw));
+  }
+
+  return raw;
+};
 
 const resolvePublicBaseUrl = async (req, smsSettings = null, overrideBaseUrl = "") => {
   const direct = normalizeBaseUrl(
@@ -76,10 +93,20 @@ const withEffectivePrice = (item) => {
 
 const normalizeTableRow = (tableRow) => ({
   id: tableRow.id,
-  number: tableRow.table_number || tableRow.number,
+  number: normalizeTableNumber(tableRow.table_number || tableRow.number),
   floorName: tableRow.floor_name || tableRow.floorName || "",
   sectionName: tableRow.section_name || tableRow.sectionName || "",
   seatCount: tableRow.seat_count || tableRow.seatCount || tableRow.guestCount || 4,
+  statusColor: tableRow.status_color || tableRow.statusColor || "",
+  status: tableRow.status || "available",
+});
+
+const normalizeGroupTableRow = (tableRow) => ({
+  id: tableRow.id,
+  number: normalizeTableNumber(tableRow.name || tableRow.number || tableRow.table_number || ""),
+  floorName: tableRow.floor_name || tableRow.floorName || "",
+  sectionName: tableRow.table_group_name || tableRow.sectionName || tableRow.section || "",
+  seatCount: tableRow.capacity || tableRow.seat_count || tableRow.seatCount || 4,
   statusColor: tableRow.status_color || tableRow.statusColor || "",
   status: tableRow.status || "available",
 });
@@ -93,8 +120,35 @@ const normalizeTableRow = (tableRow) => ({
 
 const tableExistsInLegacyTable = async (number) => {
   try {
-    const rows = await q("SELECT id, number FROM tables WHERE number = ? LIMIT 1", [String(number)]);
-    return rows[0] || null;
+    const rows = await q("SELECT id, number FROM tables");
+    const target = normalizeTableNumber(number);
+    return rows.find((row) => normalizeTableNumber(row.number) === target) || null;
+  } catch {
+    return null;
+  }
+};
+
+const tableExistsInRestaurantTables = async (number, ignoreId = null) => {
+  try {
+    const rows = await q("SELECT id, number FROM restaurant_tables");
+    const target = normalizeTableNumber(number);
+    return rows.find((row) => {
+      if (ignoreId && Number(row.id) === Number(ignoreId)) return false;
+      return normalizeTableNumber(row.number) === target;
+    }) || null;
+  } catch {
+    return null;
+  }
+};
+
+const tableExistsInFbTables = async (number, ignoreId = null) => {
+  try {
+    const rows = await FbTable.list();
+    const target = normalizeTableNumber(number);
+    return rows.find((row) => {
+      if (ignoreId && Number(row.id) === Number(ignoreId)) return false;
+      return normalizeTableNumber(row.name || row.number) === target;
+    }) || null;
   } catch {
     return null;
   }
@@ -105,9 +159,22 @@ const getMergedTableRows = async () => {
   const merged = [];
 
   try {
+    const groupedRows = await FbTable.list();
+    for (const row of groupedRows) {
+      const key = normalizeTableNumber(row.name || row.number || "").toLowerCase();
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        merged.push(normalizeGroupTableRow(row));
+      }
+    }
+  } catch {
+    // ignore and fall back to restaurant/legacy table list below
+  }
+
+  try {
     const restaurantRows = await q("SELECT * FROM restaurant_tables ORDER BY CAST(number AS UNSIGNED), number ASC");
     for (const row of restaurantRows) {
-      const key = String(row.number || row.table_number || "").trim().toLowerCase();
+      const key = normalizeTableNumber(row.number || row.table_number || "").toLowerCase();
       if (key && !seen.has(key)) {
         seen.add(key);
         merged.push(normalizeTableRow(row));
@@ -120,7 +187,7 @@ const getMergedTableRows = async () => {
   try {
     const legacyRows = await q("SELECT * FROM tables ORDER BY CAST(number AS UNSIGNED), number ASC");
     for (const row of legacyRows) {
-      const key = String(row.number || "").trim().toLowerCase();
+      const key = normalizeTableNumber(row.number || "").toLowerCase();
       if (key && !seen.has(key)) {
         seen.add(key);
         merged.push(normalizeTableRow(row));
@@ -146,26 +213,26 @@ exports.addTable = async (req, res) => {
     return res.status(400).json({ message: "Table number required" });
   }
 
+  const normalizedNumber = normalizeTableNumber(number);
+  if (!normalizedNumber) {
+    return res.status(400).json({ message: "Table number required" });
+  }
+
   try {
     await Restaurant.ensureSchema();
 
-    // ✅ duplicate check (safe)
-    const existing = await q(
-      "SELECT id FROM restaurant_tables WHERE number = ? LIMIT 1",
-      [String(number)]
-    );
+    const existing = await tableExistsInRestaurantTables(normalizedNumber);
+    const legacyExisting = await tableExistsInLegacyTable(normalizedNumber);
+    const fbExisting = await tableExistsInFbTables(normalizedNumber);
 
-    const legacyExisting = await tableExistsInLegacyTable(number);
-
-    if (existing.length > 0 || legacyExisting !== null) {
+    if (existing || legacyExisting !== null || fbExisting) {
       return res.status(400).json({ message: "Table already exists" });
     }
 
-    // ✅ CLEAN INSERT (guestCount removed)
- const result = await q(
+    const result = await q(
   "INSERT INTO restaurant_tables (number, status, guestCount, floor_name, section_name, seat_count, status_color) VALUES (?, 'available', ?, ?, ?, ?, ?)",
   [
-    String(number),
+    normalizedNumber,
     Number(seatCount || 4),   // guestCount
     floorName || null,
     sectionName || null,
@@ -175,7 +242,7 @@ exports.addTable = async (req, res) => {
 );
     res.json({
       id: result.insertId,
-      number: String(number),
+      number: normalizedNumber,
     });
 
   } catch (err) {
@@ -219,16 +286,15 @@ exports.updateTable = async (req, res) => {
       return res.status(404).json({ message: "Table not found" });
     }
 
-    const nextNumber = String(number || existingRows[0].number || "").trim();
+    const nextNumber = normalizeTableNumber(number || existingRows[0].number || "");
     if (!nextNumber) {
       return res.status(400).json({ message: "Table number required" });
     }
 
-    const duplicateRows = await q(
-      "SELECT id FROM restaurant_tables WHERE number = ? AND id <> ? LIMIT 1",
-      [nextNumber, id],
-    );
-    if (duplicateRows.length > 0) {
+    const duplicateRow = await tableExistsInRestaurantTables(nextNumber, id);
+    const legacyDuplicate = await tableExistsInLegacyTable(nextNumber);
+    const fbDuplicate = await tableExistsInFbTables(nextNumber);
+    if (duplicateRow || legacyDuplicate || fbDuplicate) {
       return res.status(400).json({ message: "Table number already exists" });
     }
 
