@@ -21,6 +21,40 @@ const resolveAssignedWaiterName = (req, fallbackEntityType = "Table") => {
   return String(fallbackEntityType || "Table").toLowerCase() === "room" ? "Room Service" : "Waiter";
 };
 
+const normalizeBaseUrl = (value) => String(value || "").trim().replace(/\/$/, "");
+
+const resolvePublicBaseUrl = async (req, smsSettings = null, overrideBaseUrl = "") => {
+  const direct = normalizeBaseUrl(
+    overrideBaseUrl || smsSettings?.public_base_url || process.env.PUBLIC_BASE_URL,
+  );
+  if (direct) return direct;
+
+  const forwardedHost = req.headers["x-forwarded-host"] || req.get("x-forwarded-host");
+  const forwardedProto = req.headers["x-forwarded-proto"] || req.get("x-forwarded-proto") || "https";
+  if (forwardedHost) {
+    return normalizeBaseUrl(`${forwardedProto}://${forwardedHost}`);
+  }
+
+  try {
+    const fetch = global.fetch || require("undici").fetch;
+    const response = await fetch("http://127.0.0.1:4040/api/tunnels");
+    if (response.ok) {
+      const tunnels = await response.json().catch(() => null);
+      const tunnel = Array.isArray(tunnels?.tunnels)
+        ? tunnels.tunnels.find((entry) => String(entry?.proto || "").toLowerCase() === "https")
+          || tunnels.tunnels.find((entry) => String(entry?.proto || "").toLowerCase() === "http")
+        : null;
+      if (tunnel?.public_url) {
+        return normalizeBaseUrl(tunnel.public_url);
+      }
+    }
+  } catch {
+    // Ignore ngrok lookup failures and fall through to the request host fallback.
+  }
+
+  return normalizeBaseUrl(`${req.protocol}://${req.get("host")}`);
+};
+
 const isHappyHourActive = (item) => {
   if (!item.happy_hour_price || !item.happy_hour_start || !item.happy_hour_end) return false;
   const now = new Date();
@@ -177,12 +211,30 @@ exports.updateTable = async (req, res) => {
   }
 
   const { id } = req.params;
-  const { floorName, sectionName, seatCount, statusColor, status } = req.body || {};
+  const { number, floorName, sectionName, seatCount, statusColor, status } = req.body || {};
 
   try {
+    const existingRows = await q("SELECT * FROM restaurant_tables WHERE id = ? LIMIT 1", [id]);
+    if (!existingRows[0]) {
+      return res.status(404).json({ message: "Table not found" });
+    }
+
+    const nextNumber = String(number || existingRows[0].number || "").trim();
+    if (!nextNumber) {
+      return res.status(400).json({ message: "Table number required" });
+    }
+
+    const duplicateRows = await q(
+      "SELECT id FROM restaurant_tables WHERE number = ? AND id <> ? LIMIT 1",
+      [nextNumber, id],
+    );
+    if (duplicateRows.length > 0) {
+      return res.status(400).json({ message: "Table number already exists" });
+    }
+
     await q(
-      "UPDATE restaurant_tables SET floor_name=?, section_name=?, seat_count=?, status_color=?, status=? WHERE id=?",
-      [floorName || null, sectionName || null, Number(seatCount || 4), statusColor || null, status || "available", id]
+      "UPDATE restaurant_tables SET number=?, floor_name=?, section_name=?, seat_count=?, status_color=?, status=? WHERE id=?",
+      [nextNumber, floorName || null, sectionName || null, Number(seatCount || 4), statusColor || null, status || "available", id]
     );
     res.json({ message: "Updated" });
   } catch (err) {
@@ -570,12 +622,13 @@ exports.createBill = async (req, res) => {
 
     const smsSettings = await getSmsSettings().catch(() => null);
     const autoSendEnabled = !!smsSettings?.auto_send_restaurant_bill;
-    const shouldAutoSend = autoSendEnabled && entityType !== "Room" && customerName && phone;
+    const forceWhatsApp = !!req.body.forceSendWhatsApp;
+    const shouldAutoSend = entityType !== "Room" && customerName && phone && (autoSendEnabled || forceWhatsApp) && !req.body.skipAutoSend;
 
     let whatsappResult = null;
     if (shouldAutoSend) {
       const items = Array.isArray(req.body.items) ? req.body.items : [];
-      const publicBase = (smsSettings?.public_base_url || process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, "");
+      const publicBase = await resolvePublicBaseUrl(req, smsSettings, req.body.publicBaseUrl);
       const { filePath, fileName } = await generateRestaurantBillPdf(
         {
           ...bill,
@@ -636,7 +689,7 @@ exports.sendBillToWhatsApp = async (req, res) => {
 
     const fetch = global.fetch || require("undici").fetch;
     const smsSettings = await getSmsSettings().catch(() => null);
-    const publicBase = (req.body.publicBaseUrl || smsSettings?.public_base_url || process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, "");
+    const publicBase = await resolvePublicBaseUrl(req, smsSettings, req.body.publicBaseUrl);
     const { filePath, fileName } = await generateRestaurantBillPdf({
       ...req.body,
       billNo,

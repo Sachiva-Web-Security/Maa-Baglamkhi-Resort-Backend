@@ -46,7 +46,9 @@ exports.generateCustomerInvoice = async (req, res) => {
     // Generate PDF
     const { generateInvoicePdf } = require('../utils/pdfGenerator');
     const path = require('path');
-    const publicBase = (process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+    const publicBase = String(process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`)
+      .trim()
+      .replace(/\/$/, '');
 
     try {
       const { filePath, fileName } = await generateInvoicePdf(invoice);

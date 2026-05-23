@@ -250,13 +250,14 @@ const generateSamplePdf = async () => {
 };
 
 const sendTestPdf = async ({ number, message, publicBaseUrl }) => {
-  if (!publicBaseUrl) {
+  const normalizedBaseUrl = String(publicBaseUrl || "").trim().replace(/\/$/, "");
+  if (!normalizedBaseUrl) {
     throw new Error(
       "PUBLIC_BASE_URL is required so WASend can reach the PDF. Set it in .env or pass it from the page.",
     );
   }
   const { fileName, sample } = await generateSamplePdf();
-  const fileUrl = `${publicBaseUrl.replace(/\/$/, "")}/uploads/invoices/${fileName}`;
+  const fileUrl = `${normalizedBaseUrl}/uploads/invoices/${fileName}`;
   const finalMessage =
     message ||
     `Your test invoice ${sample.invoiceNo} — Total ₹${sample.totalAmount.toFixed(2)}`;
