@@ -8,23 +8,23 @@ const safeFetch = global.fetch || (async (...args) => {
 
 const sendMessage = async (req, res, next) => {
   try {
-    const { username, token, number, message, file_url, file_name } = req.body || req.query || {};
+    const src = { ...(req.query || {}), ...(req.body || {}) };
+    const { username, token, number, message, file_url, file_name } = src;
     const u = username || process.env.WASEND_USERNAME;
     const t = token || process.env.WASEND_TOKEN;
     if (!u || !t || !number || !message) {
       return res.status(400).json({ status: 'error', error: 'username, token, number and message are required' });
     }
 
-    const payload = { username: u, token: t, number, message };
-    if (file_url) payload.file_url = file_url;
-    if (file_name) payload.file_name = file_name;
+    const url = new URL(`${BASE_URL}/api/send-message`);
+    url.searchParams.set('username', u);
+    url.searchParams.set('token', t);
+    url.searchParams.set('number', String(number).replace(/[^0-9]/g, ''));
+    url.searchParams.set('message', message);
+    if (file_url) url.searchParams.set('file_url', file_url);
+    if (file_name) url.searchParams.set('file_name', file_name);
 
-    const response = await safeFetch(`${BASE_URL}/api/send-message`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
+    const response = await safeFetch(url.toString());
     const data = await response.json().catch(() => ({ status: 'error', error: 'Invalid JSON from WASend' }));
     return res.status(response.status >= 400 ? 502 : 200).json(data);
   } catch (err) {

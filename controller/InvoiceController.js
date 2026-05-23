@@ -54,24 +54,21 @@ exports.generateCustomerInvoice = async (req, res) => {
       const uploadsRel = `/uploads/invoices/${fileName}`;
       const fileUrl = publicBase + uploadsRel;
 
-      // Call WASend to send PDF via WhatsApp
+      // Call WASend to send PDF via WhatsApp (GET with query params)
       const fetch = global.fetch || require('undici').fetch;
-      const wasendPayload = {
-        username: process.env.WASEND_USERNAME,
-        token: process.env.WASEND_TOKEN,
-        number: String(invoice.phone || '').replace(/[^0-9]/g, ''),
-        message: `Your invoice ${invoice.invoiceNo || ''}`,
-        file_url: fileUrl,
-        file_name: fileName,
-      };
+      const number = String(invoice.phone || '').replace(/[^0-9]/g, '');
 
-      if (wasendPayload.number) {
+      if (number && process.env.WASEND_USERNAME && process.env.WASEND_TOKEN) {
         try {
-          const resp = await fetch('https://wasend.sachiva.cloud/api/send-message', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(wasendPayload),
-          });
+          const wasendUrl = new URL('https://wasend.sachiva.cloud/api/send-message');
+          wasendUrl.searchParams.set('username', process.env.WASEND_USERNAME);
+          wasendUrl.searchParams.set('token', process.env.WASEND_TOKEN);
+          wasendUrl.searchParams.set('number', number);
+          wasendUrl.searchParams.set('message', `Your invoice ${invoice.invoiceNo || ''}`);
+          wasendUrl.searchParams.set('file_url', fileUrl);
+          wasendUrl.searchParams.set('file_name', fileName);
+
+          const resp = await fetch(wasendUrl.toString());
           const sendResult = await resp.json().catch(() => null);
           invoice.pdf = { fileUrl, filePath };
           invoice.wasend = sendResult || { status: 'unknown' };
@@ -81,7 +78,7 @@ exports.generateCustomerInvoice = async (req, res) => {
         }
       } else {
         invoice.pdf = { fileUrl, filePath };
-        invoice.wasend = { status: 'skipped', reason: 'No phone number' };
+        invoice.wasend = { status: 'skipped', reason: !number ? 'No phone number' : 'WASend credentials missing' };
       }
     } catch (pdfErr) {
       invoice.pdf = { error: pdfErr.message || String(pdfErr) };

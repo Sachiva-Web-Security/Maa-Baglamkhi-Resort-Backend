@@ -178,6 +178,9 @@ const {
   const {
     ensureSchema: ensureFbBarToFoodSchema,
   } = require("./models/fbBarToFoodModel");
+  const {
+    ensureSchema: ensureFbOwnerSmsSettingsSchema,
+  } = require("./models/fbOwnerSmsSettingsModel");
 const auditLogger = require("./middleware/auditLogger");
 const { getCorsOptions } = require("./config/security");
 
@@ -276,6 +279,7 @@ app.use("/api/fb-invoices", require("./routes/fbInvoiceRoutes"));
 app.use("/api/fb-room-service-settings", require("./routes/fbRoomServiceSettingsRoutes"));
 app.use("/api/fb-modifiers", require("./routes/fbModifierRoutes"));
 app.use("/api/fb-bar-to-food", require("./routes/fbBarToFoodRoutes"));
+app.use("/api/fb-owner-sms-settings", require("./routes/fbOwnerSmsSettingsRoutes"));
 app.use("/api/wasend", require("./routes/wasendRoutes"));
 
 app.get("/api/health", (req, res) => {
@@ -416,6 +420,7 @@ async function initializeDatabase(options = {}) {
     await bootstrapSchema("FB room service settings schema init", ensureFbRoomServiceSettingsSchema);
     await bootstrapSchema("FB modifiers schema init", ensureFbModifierSchema);
     await bootstrapSchema("FB bar-to-food schema init", ensureFbBarToFoodSchema);
+    await bootstrapSchema("FB owner SMS settings schema init", ensureFbOwnerSmsSettingsSchema);
   } catch (error) {
     console.error(
       `Database connection failed (${getDbConnectionLabel()}):`,
