@@ -13,6 +13,7 @@ const groupBookingController = require("../controller/groupBookingController");
 router.use(hotelRoomInventoryController.bootstrap);
 
 // CREATE
+router.post("/book", bookingController.createGuest);
 router.post("/guest", bookingController.createGuest);
 router.post("/other-booking/:id", bookingController.updateOtherBooking);
 router.post("/reference/:id", bookingController.updateReference);
@@ -22,6 +23,7 @@ router.post("/room-tariff/:id", bookingController.updateTariff);
 router.post("/advance/:id", bookingController.updateAdvance);
 
 // GET
+router.get("/bookings", bookingController.getAllBookings);
 router.get("/all-bookings", bookingController.getAllBookings);
 router.get("/booking/:id", bookingController.getBookingById);
 router.get("/wizard/:id", bookingController.getBookingWizard);
