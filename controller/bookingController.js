@@ -10,6 +10,7 @@ const RoomTariffModel = require("../models/roomTariffModel");
 const Paymentadvance = require("../models/Paymentadvance");
 const InvoiceModel = require("../models/InvoiceModel");
 const roomInventoryModel = require("../models/hotelRoomInventoryModel");
+const { sendTemplate, getPublicBaseUrl } = require("../utils/whatsappNotify");
 
 const query = (sql, params = []) =>
   new Promise((resolve, reject) => {
@@ -285,6 +286,27 @@ exports.createGuest = (req, res) => {
   GuestModel.createGuest(req.body, (err, result) => {
     if (err) {
       return res.status(500).json({ message: "Guest creation failed" });
+    }
+
+    // Fire-and-forget WhatsApp confirmation.
+    // Errors here must never block the booking response.
+    const body = req.body || {};
+    const number =
+      body.mobile || body.phone || body.guest_mobile || body.contactNumber;
+    if (number) {
+      sendTemplate({
+        code: "booking_confirmation",
+        autoFlag: "auto_send_booking_confirmation",
+        number,
+        vars: {
+          guest_name: body.guest_name || body.name || "Guest",
+          room_no:
+            body.rooms || body.room_numbers || body.room || body.room_no || "—",
+          checkin_date: body.check_in || body.checkIn || "",
+          checkout_date: body.check_out || body.checkOut || "",
+          booking_no: result.bookingCode || result.insertId,
+        },
+      }).catch(() => {});
     }
 
     res.json({
@@ -777,6 +799,54 @@ exports.checkOutBooking = async (req, res) => {
 
     await query("UPDATE guests SET booking_status = ? WHERE id = ?", ["Checked Out", req.params.id]);
     await updateRoomsForBooking(booking, "Checked Out");
+
+    // Fire-and-forget bill generation + WhatsApp delivery.
+    // Errors are logged but never block the checkout response.
+    (async () => {
+      try {
+        const number = booking.mobile || booking.phone;
+        if (!number) return;
+
+        const invoice = await InvoiceModel.generateCustomerInvoice(req.params.id);
+        const { generateInvoicePdf } = require("../utils/pdfGenerator");
+        const { fileName } = await generateInvoicePdf(invoice);
+
+        const publicBase = getPublicBaseUrl(req);
+        const fileUrl = `${publicBase}/uploads/invoices/${fileName}`;
+
+        // Invoice template — has the PDF attached
+        await sendTemplate({
+          code: "invoice",
+          autoFlag: "auto_send_invoice",
+          number,
+          fileUrl,
+          fileName,
+          vars: {
+            guest_name: booking.guest_name || invoice.customerName || "Guest",
+            room_no: booking.rooms || invoice.roomNumber || "—",
+            invoice_no: invoice.invoiceNo || "",
+            amount: Number(invoice.totalAmount || 0).toFixed(2),
+            checkin_date: booking.check_in || "",
+            checkout_date: booking.check_out || "",
+          },
+        });
+
+        // Follow-up thank-you (text only, no PDF)
+        await sendTemplate({
+          code: "checkout_thanks",
+          autoFlag: "auto_send_checkout_thanks",
+          number,
+          vars: {
+            guest_name: booking.guest_name || invoice.customerName || "Guest",
+            room_no: booking.rooms || invoice.roomNumber || "—",
+          },
+        });
+      } catch (sendErr) {
+        if (process.env.NODE_ENV !== "test") {
+          console.error("Checkout WhatsApp send failed:", sendErr.message || sendErr);
+        }
+      }
+    })();
 
     res.json({ message: "Booking checked out successfully" });
   } catch (error) {
