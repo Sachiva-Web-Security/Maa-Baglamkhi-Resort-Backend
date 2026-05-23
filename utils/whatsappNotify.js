@@ -108,8 +108,11 @@ const sendTemplate = async ({ code, number, vars = {}, autoFlag, fileUrl, fileNa
   }
 };
 
-const getPublicBaseUrl = (req) => {
-  const settings = req?._cachedSettings;
+const getPublicBaseUrl = async (req) => {
+  // Prefer the value stored in fb_owner_sms_settings (typically an ngrok / public tunnel),
+  // then PUBLIC_BASE_URL env, and finally fall back to the request host (only useful in dev
+  // when the server is already on a public URL).
+  const settings = await getSettings();
   const fromDb = settings?.public_base_url
     ? String(settings.public_base_url).trim()
     : "";

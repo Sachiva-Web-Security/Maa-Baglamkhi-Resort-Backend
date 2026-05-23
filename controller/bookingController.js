@@ -283,35 +283,99 @@ const updateRoomsForBooking = async (booking, nextStatus) => {
 };
 
 exports.createGuest = (req, res) => {
-  GuestModel.createGuest(req.body, (err, result) => {
+  // Normalize the payload so the Hotel/PMS "+ New Booking" form (which sends
+  // `phone` + `room`) maps onto the fields GuestModel.createGuest expects
+  // (`mobile`) and the room linkage tables get populated.
+  const body = req.body || {};
+  const normalizedBody = {
+    ...body,
+    mobile: body.mobile || body.phone || body.guest_mobile || body.contactNumber || null,
+    guestName: body.guestName || body.guest_name || body.name || "",
+  };
+
+  GuestModel.createGuest(normalizedBody, async (err, result) => {
     if (err) {
       return res.status(500).json({ message: "Guest creation failed" });
     }
 
+    const bookingId = result.insertId;
+    const roomNumber =
+      body.room || body.room_no || body.roomNumber ||
+      (Array.isArray(body.rooms) ? body.rooms[0] : null);
+    const checkIn = body.checkIn || body.check_in || null;
+    const checkOut = body.checkOut || body.check_out || null;
+    const pricePerDay = Number(body.pricePerDay || body.price_per_day || 0) || 0;
+    const guestName = normalizedBody.guestName;
+
+    // Link the room to this booking (so it shows after refresh).
+    // Done synchronously to keep state consistent; errors are logged but
+    // don't fail the booking response since the guest row already exists.
+    if (roomNumber && !result.reused) {
+      try {
+        // Compute nights + total for room_tariff
+        const days =
+          checkIn && checkOut
+            ? Math.max(
+                1,
+                Math.ceil(
+                  (new Date(checkOut) - new Date(checkIn)) / (1000 * 60 * 60 * 24),
+                ),
+              )
+            : 1;
+        const total = pricePerDay * days;
+
+        await query(
+          `INSERT INTO room_tariff
+             (booking_id, room_number, date, quantity, category_name, tariff, gst, total)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            bookingId,
+            String(roomNumber),
+            checkIn || null,
+            days,
+            "Room Charge",
+            pricePerDay,
+            0,
+            total,
+          ],
+        );
+
+        // Mark the physical room as Occupied so the Room Inventory grid
+        // reflects the booking after a page refresh.
+        await roomInventoryModel.updateRoomOperationalState({
+          roomNumber,
+          guestName,
+          status: "Occupied",
+          checkIn,
+          checkOut,
+        });
+      } catch (linkErr) {
+        if (process.env.NODE_ENV !== "test") {
+          console.error("Room linkage on booking failed:", linkErr.message || linkErr);
+        }
+      }
+    }
+
     // Fire-and-forget WhatsApp confirmation.
-    // Errors here must never block the booking response.
-    const body = req.body || {};
-    const number =
-      body.mobile || body.phone || body.guest_mobile || body.contactNumber;
+    const number = normalizedBody.mobile;
     if (number) {
       sendTemplate({
         code: "booking_confirmation",
         autoFlag: "auto_send_booking_confirmation",
         number,
         vars: {
-          guest_name: body.guest_name || body.name || "Guest",
-          room_no:
-            body.rooms || body.room_numbers || body.room || body.room_no || "—",
-          checkin_date: body.check_in || body.checkIn || "",
-          checkout_date: body.check_out || body.checkOut || "",
-          booking_no: result.bookingCode || result.insertId,
+          guest_name: guestName || "Guest",
+          room_no: roomNumber || body.rooms || "—",
+          checkin_date: checkIn || "",
+          checkout_date: checkOut || "",
+          booking_no: result.bookingCode || bookingId,
         },
       }).catch(() => {});
     }
 
     res.json({
       message: "Guest Created",
-      bookingId: result.insertId,
+      bookingId,
       bookingCode: result.bookingCode,
     });
   });
@@ -811,7 +875,7 @@ exports.checkOutBooking = async (req, res) => {
         const { generateInvoicePdf } = require("../utils/pdfGenerator");
         const { fileName } = await generateInvoicePdf(invoice);
 
-        const publicBase = getPublicBaseUrl(req);
+        const publicBase = await getPublicBaseUrl(req);
         const fileUrl = `${publicBase}/uploads/invoices/${fileName}`;
 
         // Invoice template — has the PDF attached
