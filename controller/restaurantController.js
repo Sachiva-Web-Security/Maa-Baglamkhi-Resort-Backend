@@ -575,7 +575,7 @@ exports.createBill = async (req, res) => {
     let whatsappResult = null;
     if (shouldAutoSend) {
       const items = Array.isArray(req.body.items) ? req.body.items : [];
-      const publicBase = (process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, "");
+      const publicBase = (smsSettings?.public_base_url || process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, "");
       const { filePath, fileName } = await generateRestaurantBillPdf(
         {
           ...bill,
@@ -635,7 +635,8 @@ exports.sendBillToWhatsApp = async (req, res) => {
     }
 
     const fetch = global.fetch || require("undici").fetch;
-    const publicBase = (req.body.publicBaseUrl || process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, "");
+    const smsSettings = await getSmsSettings().catch(() => null);
+    const publicBase = (req.body.publicBaseUrl || smsSettings?.public_base_url || process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, "");
     const { filePath, fileName } = await generateRestaurantBillPdf({
       ...req.body,
       billNo,

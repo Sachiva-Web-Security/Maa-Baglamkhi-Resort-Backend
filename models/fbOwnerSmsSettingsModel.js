@@ -46,6 +46,7 @@ const ensureSchema = async () => {
       wasend_username VARCHAR(191) DEFAULT NULL,
       wasend_token VARCHAR(255) DEFAULT NULL,
       sender_number VARCHAR(32) DEFAULT NULL,
+      public_base_url VARCHAR(255) DEFAULT NULL,
       auto_send_invoice TINYINT(1) NOT NULL DEFAULT 1,
       auto_send_restaurant_bill TINYINT(1) NOT NULL DEFAULT 0,
       auto_send_booking_confirmation TINYINT(1) NOT NULL DEFAULT 1,
@@ -72,12 +73,13 @@ const ensureSchema = async () => {
   if (Number(settingsRows?.[0]?.count || 0) === 0) {
     await runQuery(
       `INSERT INTO fb_owner_sms_settings
-         (wasend_username, wasend_token, sender_number, auto_send_restaurant_bill)
-       VALUES (?, ?, ?, ?)`,
+         (wasend_username, wasend_token, sender_number, public_base_url, auto_send_restaurant_bill)
+       VALUES (?, ?, ?, ?, ?)`,
       [
         process.env.WASEND_USERNAME || "anju",
         process.env.WASEND_TOKEN || "",
         "+917247242931",
+        process.env.PUBLIC_BASE_URL || "",
         0,
       ],
     );
@@ -87,6 +89,11 @@ const ensureSchema = async () => {
     "fb_owner_sms_settings",
     "auto_send_restaurant_bill",
     "TINYINT(1) NOT NULL DEFAULT 0 AFTER auto_send_invoice",
+  );
+  await ensureColumn(
+    "fb_owner_sms_settings",
+    "public_base_url",
+    "VARCHAR(255) DEFAULT NULL AFTER sender_number",
   );
 
   const tplRows = await runQuery("SELECT COUNT(*) AS count FROM fb_owner_sms_templates");
@@ -105,6 +112,7 @@ const mapSettings = (r) => ({
   wasend_username: r.wasend_username || "",
   wasend_token: r.wasend_token || "",
   sender_number: r.sender_number || "",
+  public_base_url: r.public_base_url || "",
   auto_send_invoice: Number(r.auto_send_invoice) === 1,
   auto_send_restaurant_bill: Number(r.auto_send_restaurant_bill) === 1,
   auto_send_booking_confirmation: Number(r.auto_send_booking_confirmation) === 1,
@@ -137,6 +145,7 @@ const saveSettings = async (body) => {
     String(body?.wasend_username || "").trim() || null,
     String(body?.wasend_token || "").trim() || null,
     String(body?.sender_number || "").trim() || null,
+    String(body?.public_base_url || "").trim() || null,
     body?.auto_send_invoice ? 1 : 0,
     body?.auto_send_restaurant_bill ? 1 : 0,
     body?.auto_send_booking_confirmation ? 1 : 0,
@@ -146,7 +155,7 @@ const saveSettings = async (body) => {
   if (existing[0]) {
     await runQuery(
       `UPDATE fb_owner_sms_settings SET
-         wasend_username = ?, wasend_token = ?, sender_number = ?,
+         wasend_username = ?, wasend_token = ?, sender_number = ?, public_base_url = ?,
          auto_send_invoice = ?, auto_send_restaurant_bill = ?, auto_send_booking_confirmation = ?,
          auto_send_payment_reminder = ?, auto_send_checkout_thanks = ?
        WHERE id = ?`,
@@ -155,10 +164,10 @@ const saveSettings = async (body) => {
   } else {
     await runQuery(
       `INSERT INTO fb_owner_sms_settings
-         (wasend_username, wasend_token, sender_number,
+         (wasend_username, wasend_token, sender_number, public_base_url,
           auto_send_invoice, auto_send_restaurant_bill, auto_send_booking_confirmation,
           auto_send_payment_reminder, auto_send_checkout_thanks)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params,
     );
   }
