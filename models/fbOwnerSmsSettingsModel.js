@@ -5,6 +5,13 @@ const runQuery = (sql, params = []) =>
     db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
   });
 
+const ensureColumn = async (tableName, columnName, definition) => {
+  const rows = await runQuery(`SHOW COLUMNS FROM ${tableName} LIKE ?`, [columnName]);
+  if (!rows.length) {
+    await runQuery(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  }
+};
+
 const DEFAULT_TEMPLATES = [
   {
     code: "booking_confirmation",
@@ -40,6 +47,7 @@ const ensureSchema = async () => {
       wasend_token VARCHAR(255) DEFAULT NULL,
       sender_number VARCHAR(32) DEFAULT NULL,
       auto_send_invoice TINYINT(1) NOT NULL DEFAULT 1,
+      auto_send_restaurant_bill TINYINT(1) NOT NULL DEFAULT 0,
       auto_send_booking_confirmation TINYINT(1) NOT NULL DEFAULT 1,
       auto_send_payment_reminder TINYINT(1) NOT NULL DEFAULT 0,
       auto_send_checkout_thanks TINYINT(1) NOT NULL DEFAULT 1,
@@ -64,15 +72,22 @@ const ensureSchema = async () => {
   if (Number(settingsRows?.[0]?.count || 0) === 0) {
     await runQuery(
       `INSERT INTO fb_owner_sms_settings
-         (wasend_username, wasend_token, sender_number)
-       VALUES (?, ?, ?)`,
+         (wasend_username, wasend_token, sender_number, auto_send_restaurant_bill)
+       VALUES (?, ?, ?, ?)`,
       [
         process.env.WASEND_USERNAME || "anju",
         process.env.WASEND_TOKEN || "",
         "+917247242931",
+        0,
       ],
     );
   }
+
+  await ensureColumn(
+    "fb_owner_sms_settings",
+    "auto_send_restaurant_bill",
+    "TINYINT(1) NOT NULL DEFAULT 0 AFTER auto_send_invoice",
+  );
 
   const tplRows = await runQuery("SELECT COUNT(*) AS count FROM fb_owner_sms_templates");
   if (Number(tplRows?.[0]?.count || 0) === 0) {
@@ -91,6 +106,7 @@ const mapSettings = (r) => ({
   wasend_token: r.wasend_token || "",
   sender_number: r.sender_number || "",
   auto_send_invoice: Number(r.auto_send_invoice) === 1,
+  auto_send_restaurant_bill: Number(r.auto_send_restaurant_bill) === 1,
   auto_send_booking_confirmation: Number(r.auto_send_booking_confirmation) === 1,
   auto_send_payment_reminder: Number(r.auto_send_payment_reminder) === 1,
   auto_send_checkout_thanks: Number(r.auto_send_checkout_thanks) === 1,
@@ -105,6 +121,7 @@ const mapTemplate = (r) => ({
 });
 
 const getSettings = async () => {
+  await ensureSchema();
   const rows = await runQuery(
     "SELECT * FROM fb_owner_sms_settings ORDER BY id ASC LIMIT 1",
   );
@@ -112,6 +129,7 @@ const getSettings = async () => {
 };
 
 const saveSettings = async (body) => {
+  await ensureSchema();
   const existing = await runQuery(
     "SELECT id FROM fb_owner_sms_settings ORDER BY id ASC LIMIT 1",
   );
@@ -120,6 +138,7 @@ const saveSettings = async (body) => {
     String(body?.wasend_token || "").trim() || null,
     String(body?.sender_number || "").trim() || null,
     body?.auto_send_invoice ? 1 : 0,
+    body?.auto_send_restaurant_bill ? 1 : 0,
     body?.auto_send_booking_confirmation ? 1 : 0,
     body?.auto_send_payment_reminder ? 1 : 0,
     body?.auto_send_checkout_thanks ? 1 : 0,
@@ -128,7 +147,7 @@ const saveSettings = async (body) => {
     await runQuery(
       `UPDATE fb_owner_sms_settings SET
          wasend_username = ?, wasend_token = ?, sender_number = ?,
-         auto_send_invoice = ?, auto_send_booking_confirmation = ?,
+         auto_send_invoice = ?, auto_send_restaurant_bill = ?, auto_send_booking_confirmation = ?,
          auto_send_payment_reminder = ?, auto_send_checkout_thanks = ?
        WHERE id = ?`,
       [...params, existing[0].id],
@@ -137,9 +156,9 @@ const saveSettings = async (body) => {
     await runQuery(
       `INSERT INTO fb_owner_sms_settings
          (wasend_username, wasend_token, sender_number,
-          auto_send_invoice, auto_send_booking_confirmation,
+          auto_send_invoice, auto_send_restaurant_bill, auto_send_booking_confirmation,
           auto_send_payment_reminder, auto_send_checkout_thanks)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       params,
     );
   }

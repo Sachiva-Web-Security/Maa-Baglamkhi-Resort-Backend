@@ -1,6 +1,8 @@
 const Restaurant = require("../models/RestaurantModel");
 const db = require("../config/db");
 const { getRequestActor, isWaiterActor, namesMatch } = require("../utils/requestActor");
+const { generateRestaurantBillPdf } = require("../utils/restaurantBillPdf");
+const { getSettings: getSmsSettings } = require("../models/fbOwnerSmsSettingsModel");
 
 const q = (sql, params = []) =>
   new Promise((resolve, reject) =>
@@ -526,38 +528,153 @@ exports.createBill = async (req, res) => {
   try {
     await Restaurant.ensureSchema();
     const actor = getRequestActor(req);
+    const entityType = String(req.body.entityType || "Table");
+    const customerName = String(req.body.customerName || "").trim();
+    const phone = String(req.body.phone || "").trim();
 
-    Restaurant.createBill(
-      {
-        table: req.body.table || req.body.tableNumber,
-        tokenId: req.body.tokenId || null,
-        entityType: req.body.entityType || "Table",
-        waiterName: isWaiterActor(actor) ? actor.name || req.body.waiterName || null : req.body.waiterName || null,
-        customerName: req.body.customerName || "",
-        phone: req.body.phone || "",
-        subtotal: Number(req.body.subtotal || 0),
-        gst: Number(req.body.gst || 0),
-        total: Number(req.body.total || 0),
-        discountAmount: Number(req.body.discountAmount || req.body.discount || 0),
-        paymentMethod: req.body.paymentMethod || null,
-        invoiceStatus: req.body.invoiceStatus || (req.body.paymentMethod ? "Paid" : "Generated"),
-        splitNo: req.body.splitNo || null,
-        splitCount: req.body.splitCount || null,
-      },
-      (err, result) => {
-        if (err) {
-          return res.status(500).json({ message: "Failed to create bill", error: err.message });
-        }
+    if (entityType !== "Room" && (!customerName || !phone)) {
+      return res.status(400).json({ message: "Customer name and phone number are required to generate the bill" });
+    }
 
-        res.json({
-          id: result?.insertId || result?.bill?.id || null,
-          bill: result?.bill || null,
-          message: "Bill created",
-        });
+    const billPayload = {
+      table: req.body.table || req.body.tableNumber,
+      tokenId: req.body.tokenId || null,
+      entityType,
+      waiterName: isWaiterActor(actor) ? actor.name || req.body.waiterName || null : req.body.waiterName || null,
+      customerName,
+      phone,
+      subtotal: Number(req.body.subtotal || 0),
+      gst: Number(req.body.gst || 0),
+      total: Number(req.body.total || 0),
+      discountAmount: Number(req.body.discountAmount || req.body.discount || 0),
+      paymentMethod: req.body.paymentMethod || null,
+      invoiceStatus: req.body.invoiceStatus || (req.body.paymentMethod ? "Paid" : "Generated"),
+      splitNo: req.body.splitNo || null,
+      splitCount: req.body.splitCount || null,
+    };
+
+    const result = await new Promise((resolve, reject) => {
+      Restaurant.createBill(billPayload, (err, saved) => {
+        if (err) return reject(err);
+        resolve(saved);
+      });
+    });
+
+    const billId = result?.insertId || result?.bill?.id || null;
+    let bill = result?.bill || null;
+
+    if (billId) {
+      const [billRows] = await db.promise().query("SELECT * FROM bills WHERE id=? LIMIT 1", [billId]);
+      bill = billRows?.[0] || bill;
+    }
+
+    const smsSettings = await getSmsSettings().catch(() => null);
+    const autoSendEnabled = !!smsSettings?.auto_send_restaurant_bill;
+    const shouldAutoSend = autoSendEnabled && entityType !== "Room" && customerName && phone;
+
+    let whatsappResult = null;
+    if (shouldAutoSend) {
+      const items = Array.isArray(req.body.items) ? req.body.items : [];
+      const publicBase = (process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, "");
+      const { filePath, fileName } = await generateRestaurantBillPdf(
+        {
+          ...bill,
+          id: billId,
+          billNo: billId,
+          customerName,
+          phone,
+          items,
+          createdAt: bill?.created_at || new Date().toISOString(),
+        },
+        { fileName: `restaurant-bill-${billId || Date.now()}` },
+      );
+
+      const number = phone.replace(/[^0-9]/g, "");
+      if (number && process.env.WASEND_USERNAME && process.env.WASEND_TOKEN) {
+        const fetch = global.fetch || require("undici").fetch;
+        const wasendUrl = new URL('https://wasend.sachiva.cloud/api/send-message');
+        wasendUrl.searchParams.set('username', process.env.WASEND_USERNAME);
+        wasendUrl.searchParams.set('token', process.env.WASEND_TOKEN);
+        wasendUrl.searchParams.set('number', number);
+        wasendUrl.searchParams.set('message', `Your restaurant bill ${billId || ''}`.trim());
+        wasendUrl.searchParams.set('file_url', `${publicBase}/uploads/restaurant-bills/${fileName}`);
+        wasendUrl.searchParams.set('file_name', fileName);
+
+        const resp = await fetch(wasendUrl.toString());
+        whatsappResult = await resp.json().catch(() => ({ status: 'unknown' }));
+      } else {
+        whatsappResult = { status: 'skipped', reason: !number ? 'No phone number' : 'WASend credentials missing' };
       }
-    );
+
+      if (bill) {
+        bill.restaurantBillPdf = { filePath, fileName };
+        bill.whatsapp = whatsappResult;
+      }
+    }
+
+    res.json({
+      id: billId,
+      bill,
+      whatsapp: whatsappResult,
+      message: "Bill created",
+    });
   } catch (err) {
     res.status(500).json({ message: "Failed to create bill", error: err.message });
+  }
+};
+
+exports.sendBillToWhatsApp = async (req, res) => {
+  try {
+    const customerName = String(req.body.customerName || "").trim();
+    const phone = String(req.body.phone || "").trim();
+    const billNo = String(req.body.billNo || req.body.billId || req.body.id || "").trim();
+    const items = Array.isArray(req.body.items) ? req.body.items : [];
+
+    if (!customerName || !phone) {
+      return res.status(400).json({ message: "Customer name and phone number are required to send the bill" });
+    }
+
+    const fetch = global.fetch || require("undici").fetch;
+    const publicBase = (req.body.publicBaseUrl || process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, "");
+    const { filePath, fileName } = await generateRestaurantBillPdf({
+      ...req.body,
+      billNo,
+      items,
+      customerName,
+      phone,
+      createdAt: req.body.createdAt || new Date().toISOString(),
+    }, { fileName: billNo ? `${billNo}` : undefined });
+
+    const fileUrl = `${publicBase}/uploads/restaurant-bills/${fileName}`;
+    const number = phone.replace(/[^0-9]/g, "");
+
+    if (!number) {
+      return res.status(400).json({ message: "Valid phone number required" });
+    }
+
+    if (!process.env.WASEND_USERNAME || !process.env.WASEND_TOKEN) {
+      return res.status(500).json({ message: "WASend credentials missing" });
+    }
+
+    const wasendUrl = new URL('https://wasend.sachiva.cloud/api/send-message');
+    wasendUrl.searchParams.set('username', process.env.WASEND_USERNAME);
+    wasendUrl.searchParams.set('token', process.env.WASEND_TOKEN);
+    wasendUrl.searchParams.set('number', number);
+    wasendUrl.searchParams.set('message', `Your restaurant bill ${billNo || ''}`.trim());
+    wasendUrl.searchParams.set('file_url', fileUrl);
+    wasendUrl.searchParams.set('file_name', fileName);
+
+    const resp = await fetch(wasendUrl.toString());
+    const data = await resp.json().catch(() => null);
+
+    return res.json({
+      message: "Restaurant bill sent to WhatsApp",
+      fileUrl,
+      filePath,
+      wasend: data || { status: 'unknown' },
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || "Failed to send restaurant bill to WhatsApp" });
   }
 };
 

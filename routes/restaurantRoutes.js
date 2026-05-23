@@ -34,6 +34,7 @@ router.put("/order/:tableNumber/pay", controller.payOrder);
 
 // BILLS
 router.post("/bill", controller.createBill);
+router.post("/bill/send-whatsapp", controller.sendBillToWhatsApp);
 router.post("/bill/:id/charge-to-room", controller.chargeBillToRoom);
 router.post("/bill/charge-to-room", controller.chargeBillToRoom);
 router.post("/bill/:id/pay", controller.payBill);
