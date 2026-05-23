@@ -8,6 +8,7 @@
     "init": "node initialize.js",
     "init:prod": "node initialize.js",
     "seed": "node seed-runner.js",
+    "migrate:tables": "node scripts/migrate_tables_to_fb_tables.js",
     "repair:payments": "node repair-payments.js",
     "test": "jest --runInBand --forceExit",
     "test:db": "jest --runInBand --forceExit",

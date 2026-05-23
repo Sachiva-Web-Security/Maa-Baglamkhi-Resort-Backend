@@ -1,6 +1,7 @@
 const Restaurant = require("../models/RestaurantModel");
 const db = require("../config/db");
 const FbTable = require("../models/fbTableModel");
+const FbTableGroup = require("../models/fbTableGroupModel");
 const { getRequestActor, isWaiterActor, namesMatch } = require("../utils/requestActor");
 const { generateRestaurantBillPdf } = require("../utils/restaurantBillPdf");
 const { getSettings: getSmsSettings } = require("../models/fbOwnerSmsSettingsModel");
@@ -38,6 +39,36 @@ const normalizeTableNumber = (value) => {
   }
 
   return raw;
+};
+
+const normalizeSectionName = (value) => String(value || "").trim().toUpperCase();
+
+const getCanonicalFbTableName = (number, sectionName = "") => {
+  const normalizedNumber = normalizeTableNumber(number);
+  if (!normalizedNumber) return "";
+
+  if (/^[TGPR]\d+$/.test(normalizedNumber)) return normalizedNumber;
+
+  const section = normalizeSectionName(sectionName);
+  const plain = normalizedNumber.replace(/^0+/, "") || "0";
+
+  if (section === "GARDEN") return `G${plain}`;
+  if (section === "PARSAL") return `P${plain}`;
+  if (section === "ROOM DINING") return `R${plain}`;
+  return `T${plain}`;
+};
+
+const getFbTableGroupId = async (sectionName = "") => {
+  const section = normalizeSectionName(sectionName);
+  if (!section) return null;
+
+  try {
+    await FbTableGroup.ensureSchema();
+    const rows = await q("SELECT id FROM fb_table_groups WHERE UPPER(name) = ? LIMIT 1", [section]);
+    return rows?.[0]?.id || null;
+  } catch {
+    return null;
+  }
 };
 
 const resolvePublicBaseUrl = async (req, smsSettings = null, overrideBaseUrl = "") => {
@@ -221,29 +252,27 @@ exports.addTable = async (req, res) => {
   try {
     await Restaurant.ensureSchema();
 
-    const existing = await tableExistsInRestaurantTables(normalizedNumber);
-    const legacyExisting = await tableExistsInLegacyTable(normalizedNumber);
-    const fbExisting = await tableExistsInFbTables(normalizedNumber);
+    const canonicalName = getCanonicalFbTableName(normalizedNumber, sectionName);
+    if (!canonicalName) return res.status(400).json({ message: "Table number required" });
+
+    const existing = await tableExistsInRestaurantTables(canonicalName);
+    const legacyExisting = await tableExistsInLegacyTable(canonicalName);
+    const fbExisting = await tableExistsInFbTables(canonicalName);
 
     if (existing || legacyExisting !== null || fbExisting) {
       return res.status(400).json({ message: "Table already exists" });
     }
 
-    const result = await q(
-  "INSERT INTO restaurant_tables (number, status, guestCount, floor_name, section_name, seat_count, status_color) VALUES (?, 'available', ?, ?, ?, ?, ?)",
-  [
-    normalizedNumber,
-    Number(seatCount || 4),   // guestCount
-    floorName || null,
-    sectionName || null,
-    Number(seatCount || 4),   // seat_count
-    statusColor || null,
-  ]
-);
-    res.json({
-      id: result.insertId,
-      number: normalizedNumber,
+    const tableGroupId = await getFbTableGroupId(sectionName);
+    const created = await FbTable.create({
+      table_group_id: tableGroupId,
+      name: canonicalName,
+      capacity: Number(seatCount || 4),
+      status: 'available',
+      is_active: 1,
     });
+
+    res.json({ id: created.id, number: created.name });
 
   } catch (err) {
     console.error("🔥 ADD TABLE ERROR:", err.sqlMessage || err.message);
@@ -281,27 +310,28 @@ exports.updateTable = async (req, res) => {
   const { number, floorName, sectionName, seatCount, statusColor, status } = req.body || {};
 
   try {
-    const existingRows = await q("SELECT * FROM restaurant_tables WHERE id = ? LIMIT 1", [id]);
-    if (!existingRows[0]) {
-      return res.status(404).json({ message: "Table not found" });
-    }
+    const existingRow = await FbTable.getById(id);
+    if (!existingRow) return res.status(404).json({ message: "Table not found" });
 
-    const nextNumber = normalizeTableNumber(number || existingRows[0].number || "");
-    if (!nextNumber) {
-      return res.status(400).json({ message: "Table number required" });
-    }
+    const nextCanonical = getCanonicalFbTableName(number || existingRow.name || existingRow.number || "", sectionName || existingRow.table_group_name || "");
+    if (!nextCanonical) return res.status(400).json({ message: "Table number required" });
 
-    const duplicateRow = await tableExistsInRestaurantTables(nextNumber, id);
-    const legacyDuplicate = await tableExistsInLegacyTable(nextNumber);
-    const fbDuplicate = await tableExistsInFbTables(nextNumber);
+    const duplicateRow = await tableExistsInRestaurantTables(nextCanonical, id);
+    const legacyDuplicate = await tableExistsInLegacyTable(nextCanonical);
+    const fbDuplicate = await tableExistsInFbTables(nextCanonical, id);
     if (duplicateRow || legacyDuplicate || fbDuplicate) {
       return res.status(400).json({ message: "Table number already exists" });
     }
 
-    await q(
-      "UPDATE restaurant_tables SET number=?, floor_name=?, section_name=?, seat_count=?, status_color=?, status=? WHERE id=?",
-      [nextNumber, floorName || null, sectionName || null, Number(seatCount || 4), statusColor || null, status || "available", id]
-    );
+    const tableGroupId = await getFbTableGroupId(sectionName || existingRow.table_group_name || "");
+    await FbTable.update(id, {
+      table_group_id: tableGroupId,
+      name: nextCanonical,
+      capacity: Number(seatCount || 4),
+      status: status || 'available',
+      is_active: 1,
+    });
+
     res.json({ message: "Updated" });
   } catch (err) {
     res.status(500).json({ message: "Failed to update table", error: err.message });
@@ -317,19 +347,11 @@ exports.deleteTable = async (req, res) => {
   const { id } = req.params;
 
   try {
-    await Restaurant.ensureSchema();
-
-    const result = await q(
-      "DELETE FROM restaurant_tables WHERE id = ?",
-      [id]
-    );
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({
-        message: "Table not found",
-      });
+    // prefer admin fb_tables removal
+    const removed = await FbTable.remove(id);
+    if (!removed) {
+      return res.status(404).json({ message: "Table not found" });
     }
-
     res.json({ message: "Table deleted successfully" });
 
   } catch (err) {
