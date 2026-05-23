@@ -276,6 +276,7 @@ app.use("/api/fb-invoices", require("./routes/fbInvoiceRoutes"));
 app.use("/api/fb-room-service-settings", require("./routes/fbRoomServiceSettingsRoutes"));
 app.use("/api/fb-modifiers", require("./routes/fbModifierRoutes"));
 app.use("/api/fb-bar-to-food", require("./routes/fbBarToFoodRoutes"));
+app.use("/api/wasend", require("./routes/wasendRoutes"));
 
 app.get("/api/health", (req, res) => {
   res.json({

@@ -42,6 +42,51 @@ exports.updateInvoice = (req, res) => {
 exports.generateCustomerInvoice = async (req, res) => {
   try {
     const invoice = await Invoice.generateCustomerInvoice(req.params.customerId);
+
+    // Generate PDF
+    const { generateInvoicePdf } = require('../utils/pdfGenerator');
+    const path = require('path');
+    const publicBase = (process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+
+    try {
+      const { filePath, fileName } = await generateInvoicePdf(invoice);
+      // Build accessible file URL
+      const uploadsRel = `/uploads/invoices/${fileName}`;
+      const fileUrl = publicBase + uploadsRel;
+
+      // Call WASend to send PDF via WhatsApp
+      const fetch = global.fetch || require('undici').fetch;
+      const wasendPayload = {
+        username: process.env.WASEND_USERNAME,
+        token: process.env.WASEND_TOKEN,
+        number: String(invoice.phone || '').replace(/[^0-9]/g, ''),
+        message: `Your invoice ${invoice.invoiceNo || ''}`,
+        file_url: fileUrl,
+        file_name: fileName,
+      };
+
+      if (wasendPayload.number) {
+        try {
+          const resp = await fetch('https://wasend.sachiva.cloud/api/send-message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(wasendPayload),
+          });
+          const sendResult = await resp.json().catch(() => null);
+          invoice.pdf = { fileUrl, filePath };
+          invoice.wasend = sendResult || { status: 'unknown' };
+        } catch (sendErr) {
+          invoice.pdf = { fileUrl, filePath };
+          invoice.wasend = { status: 'error', error: sendErr.message || String(sendErr) };
+        }
+      } else {
+        invoice.pdf = { fileUrl, filePath };
+        invoice.wasend = { status: 'skipped', reason: 'No phone number' };
+      }
+    } catch (pdfErr) {
+      invoice.pdf = { error: pdfErr.message || String(pdfErr) };
+    }
+
     res.json(invoice);
   } catch (error) {
     const status = String(error.message || "").includes("not found") ? 404 : 500;
