@@ -124,7 +124,7 @@ const withEffectivePrice = (item) => {
 
 const normalizeTableRow = (tableRow) => ({
   id: tableRow.id,
-  number: normalizeTableNumber(tableRow.table_number || tableRow.number),
+  number: getCanonicalFbTableName(tableRow.table_number || tableRow.number || "", tableRow.section_name || tableRow.section || tableRow.table_group_name || ""),
   floorName: tableRow.floor_name || tableRow.floorName || "",
   sectionName: tableRow.section_name || tableRow.sectionName || "",
   seatCount: tableRow.seat_count || tableRow.seatCount || tableRow.guestCount || 4,
@@ -134,7 +134,7 @@ const normalizeTableRow = (tableRow) => ({
 
 const normalizeGroupTableRow = (tableRow) => ({
   id: tableRow.id,
-  number: normalizeTableNumber(tableRow.name || tableRow.number || tableRow.table_number || ""),
+  number: getCanonicalFbTableName(tableRow.name || tableRow.number || tableRow.table_number || "", tableRow.table_group_name || tableRow.sectionName || tableRow.section || ""),
   floorName: tableRow.floor_name || tableRow.floorName || "",
   sectionName: tableRow.table_group_name || tableRow.sectionName || tableRow.section || "",
   seatCount: tableRow.capacity || tableRow.seat_count || tableRow.seatCount || 4,
@@ -192,7 +192,8 @@ const getMergedTableRows = async () => {
   try {
     const groupedRows = await FbTable.list();
     for (const row of groupedRows) {
-      const key = normalizeTableNumber(row.name || row.number || "").toLowerCase();
+      const canonical = getCanonicalFbTableName(row.name || row.number || row.table_number || "", row.table_group_name || row.sectionName || row.section || "");
+      const key = String(canonical || getCanonicalFbTableName(row.name || row.number || "")).toLowerCase();
       if (key && !seen.has(key)) {
         seen.add(key);
         merged.push(normalizeGroupTableRow(row));
@@ -205,7 +206,8 @@ const getMergedTableRows = async () => {
   try {
     const restaurantRows = await q("SELECT * FROM restaurant_tables ORDER BY CAST(number AS UNSIGNED), number ASC");
     for (const row of restaurantRows) {
-      const key = normalizeTableNumber(row.number || row.table_number || "").toLowerCase();
+      const canonical = getCanonicalFbTableName(row.number || row.table_number || "", row.section_name || row.section || "");
+      const key = String(canonical).toLowerCase();
       if (key && !seen.has(key)) {
         seen.add(key);
         merged.push(normalizeTableRow(row));
@@ -218,7 +220,8 @@ const getMergedTableRows = async () => {
   try {
     const legacyRows = await q("SELECT * FROM tables ORDER BY CAST(number AS UNSIGNED), number ASC");
     for (const row of legacyRows) {
-      const key = normalizeTableNumber(row.number || "").toLowerCase();
+      const canonical = getCanonicalFbTableName(row.number || "", row.section_name || row.section || "");
+      const key = String(canonical).toLowerCase();
       if (key && !seen.has(key)) {
         seen.add(key);
         merged.push(normalizeTableRow(row));
@@ -229,6 +232,21 @@ const getMergedTableRows = async () => {
   }
 
   return merged;
+};
+
+// Ensure final canonical dedupe and normalize numbers before returning to caller
+const finalizeMergedRows = (rows) => {
+  const out = [];
+  const seen2 = new Set();
+  for (const r of rows) {
+    const canonical = getCanonicalFbTableName(r.number || r.name || "", r.sectionName || r.section || "");
+    const key = String(canonical).toLowerCase();
+    if (!key) continue;
+    if (seen2.has(key)) continue;
+    seen2.add(key);
+    out.push({ ...r, number: canonical });
+  }
+  return out;
 };
 
 /* ================= TABLE ================= */
@@ -294,7 +312,8 @@ exports.addTable = async (req, res) => {
 exports.getTables = async (req, res) => {
   try {
     const rows = await getMergedTableRows();
-    res.json(rows);
+    const final = finalizeMergedRows(rows);
+    res.json(final);
   } catch (err) {
     res.status(500).json({ message: "Failed to load tables", error: err.message });
   }
