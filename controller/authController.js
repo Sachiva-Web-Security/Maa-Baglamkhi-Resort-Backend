@@ -1,144 +1,172 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const UserModel = require("../models/UserModel");
-const { getJwtSecret } = require("../config/security");
+const {
+  getJwtSecret,
+  getCookieOptions,
+  clearCookieOptions,
+  AUTH_COOKIE_NAME,
+} = require("../config/security");
+const { HttpError } = require("../middleware/errorHandler");
 
 const JWT_SECRET = getJwtSecret();
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 const ALLOW_REGISTER = String(process.env.ALLOW_REGISTER || "").toLowerCase() === "true";
 
-const LOGIN_EMAIL_ALIASES = {
-  "admin@resort.com": "admin@test.com",
-  "manager@resort.com": "manager@test.com",
-  "reception@resort.com": "reception@test.com",
-  "accounts@resort.com": "accounts@test.com",
-  "tarun@resort.com": "hk@test.com",
-  "waiter@resort.com": "waiter@test.com",
-  "waiter@test.com": "waiter@resort.com",
-};
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
 
-const buildCandidateEmails = (email) => {
-  const normalizedEmail = String(email || "").trim().toLowerCase();
-  const aliasEmail = LOGIN_EMAIL_ALIASES[normalizedEmail];
+function signToken(user) {
+  return jwt.sign(
+    {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: String(user.role || "").toLowerCase(),
+    },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRES_IN },
+  );
+}
 
-  return [aliasEmail, normalizedEmail].filter((value, index, values) => {
-    return value && values.indexOf(value) === index;
-  });
-};
+function setAuthCookie(res, token) {
+  res.cookie(AUTH_COOKIE_NAME, token, getCookieOptions());
+}
 
-exports.login = (req, res) => {
-  const { email, password } = req.body;
-  const normalizedEmail = String(email || "").trim().toLowerCase();
-  const candidateEmails = buildCandidateEmails(normalizedEmail);
+exports.login = async (req, res, next) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    const password = String(req.body?.password || "");
 
-  req.setAuditContext?.({
-    action: "login",
-    newValue: normalizedEmail ? { email: normalizedEmail } : null,
-  });
+    req.setAuditContext?.({
+      action: "login",
+      newValue: email ? { email } : null,
+    });
 
-  if (!normalizedEmail || !password) {
-    return res.status(400).json({ message: "Email and password required" });
-  }
-
-  const tryLookup = (index) => {
-    if (index >= candidateEmails.length) {
-      return res.status(400).json({ message: "Invalid Email" });
+    if (!email || !password) {
+      throw new HttpError(400, "Email and password required");
     }
 
-    UserModel.findUserByEmail(candidateEmails[index], async (err, result) => {
-      if (err) return res.status(500).json({ message: "DB Error" });
+    const user = await new Promise((resolve, reject) => {
+      UserModel.findUserByEmail(email, (err, result) => {
+        if (err) return reject(err);
+        if (!result || result.length === 0) return resolve(null);
+        resolve(result[0]);
+      });
+    });
 
-      if (!result || result.length === 0) {
-        return tryLookup(index + 1);
-      }
+    if (!user) {
+      throw new HttpError(400, "Invalid Email");
+    }
 
-      const user = result[0];
-      const match = await bcrypt.compare(password, user.password);
-
-      if (!match) {
-        req.setAuditContext?.({
-          action: "login_failed",
-          userId: user.id,
-        });
-        return res.status(400).json({ message: "Invalid Password" });
-      }
-
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) {
       req.setAuditContext?.({
+        action: "login_failed",
         userId: user.id,
-        action: "login",
-        newValue: {
-          id: user.id,
-          email: user.email,
-          role: String(user.role || "").toLowerCase(),
-        },
       });
-
-      const token = jwt.sign(
-        {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: String(user.role || "").toLowerCase(),
-        },
-        JWT_SECRET,
-        { expiresIn: JWT_EXPIRES_IN },
-      );
-
-      return res.json({
-        token,
-        name: user.name,
-        role: String(user.role || "").toLowerCase(),
-        email: user.email,
-      });
-    });
-  };
-
-  return tryLookup(0);
-};
-
-/**
- * Register endpoint (for initial setup).
- * - Allowed if ALLOW_REGISTER=true OR there are no users in DB yet.
- * - Creates user in `register` with hashed password.
- */
-exports.register = (req, res) => {
-  const { name, email, password, role } = req.body || {};
-
-  if (!name || !email || !password) {
-    return res.status(400).json({ message: "name, email, password required" });
-  }
-
-  UserModel.countUsers(async (countErr, count) => {
-    if (countErr) return res.status(500).json({ message: "DB Error" });
-
-    const allowed = ALLOW_REGISTER || count === 0;
-    if (!allowed) {
-      return res.status(403).json({
-        message: "Registration is disabled. Ask admin to create a user.",
-      });
+      throw new HttpError(400, "Invalid Password");
     }
 
-    UserModel.findUserByEmail(email, async (err, existing) => {
-      if (err) return res.status(500).json({ message: "DB Error" });
-      if (existing && existing.length > 0) {
-        return res.status(400).json({ message: "Email already exists" });
-      }
+    const token = signToken(user);
+    setAuthCookie(res, token);
 
-      try {
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const normalizedRole = role ? String(role) : "admin";
-        UserModel.createUser(
-          { name, email, password: hashedPassword, role: normalizedRole },
-          (createErr) => {
-            if (createErr) {
-              return res.status(500).json({ message: "User creation failed" });
-            }
-            return res.json({ message: "Registered successfully" });
-          },
-        );
-      } catch (hashErr) {
-        return res.status(500).json({ message: "Internal server error" });
-      }
+    req.setAuditContext?.({
+      userId: user.id,
+      action: "login",
+      newValue: {
+        id: user.id,
+        email: user.email,
+        role: String(user.role || "").toLowerCase(),
+      },
     });
+
+    return res.json({
+      token,
+      name: user.name,
+      role: String(user.role || "").toLowerCase(),
+      email: user.email,
+    });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+exports.logout = (req, res) => {
+  res.clearCookie(AUTH_COOKIE_NAME, clearCookieOptions());
+  req.setAuditContext?.({ action: "logout" });
+  return res.json({ message: "Logged out" });
+};
+
+exports.me = (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: "Not authenticated" });
+  }
+  return res.json({
+    id: req.user.id || null,
+    email: req.user.email || null,
+    name: req.user.name || null,
+    role: req.user.role || null,
   });
+};
+
+exports.refresh = (req, res, next) => {
+  try {
+    if (!req.user) {
+      throw new HttpError(401, "Not authenticated");
+    }
+    const token = signToken({
+      id: req.user.id,
+      email: req.user.email,
+      name: req.user.name,
+      role: req.user.role,
+    });
+    setAuthCookie(res, token);
+    return res.json({ message: "Token refreshed" });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+exports.register = async (req, res, next) => {
+  try {
+    const { name, email, password, role } = req.body || {};
+    const normalizedEmail = normalizeEmail(email);
+
+    if (!name || !normalizedEmail || !password) {
+      throw new HttpError(400, "name, email, password required");
+    }
+
+    const userCount = await new Promise((resolve, reject) => {
+      UserModel.countUsers((err, count) => (err ? reject(err) : resolve(count)));
+    });
+
+    if (!ALLOW_REGISTER && userCount > 0) {
+      throw new HttpError(403, "Registration is disabled. Ask admin to create a user.");
+    }
+
+    const existing = await new Promise((resolve, reject) => {
+      UserModel.findUserByEmail(normalizedEmail, (err, rows) =>
+        err ? reject(err) : resolve(rows),
+      );
+    });
+    if (existing && existing.length > 0) {
+      throw new HttpError(400, "Email already exists");
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const normalizedRole = role ? String(role).toLowerCase() : "admin";
+
+    await new Promise((resolve, reject) => {
+      UserModel.createUser(
+        { name, email: normalizedEmail, password: hashedPassword, role: normalizedRole },
+        (err) => (err ? reject(err) : resolve()),
+      );
+    });
+
+    return res.json({ message: "Registered successfully" });
+  } catch (err) {
+    return next(err);
+  }
 };

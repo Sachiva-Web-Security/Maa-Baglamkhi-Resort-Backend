@@ -7,6 +7,8 @@ const DEFAULT_DEV_ALLOWED_ORIGINS = [
   "http://localhost:4173",
 ];
 
+const AUTH_COOKIE_NAME = "auth_token";
+
 function parseAllowedOrigins(value) {
   return String(value || "")
     .split(",")
@@ -125,9 +127,67 @@ const authRateLimiter = rateLimit({
   },
 });
 
+const apiRateLimiter = rateLimit({
+  windowMs: Number(process.env.API_RATE_LIMIT_WINDOW_MS || 60 * 1000),
+  limit: Number(process.env.API_RATE_LIMIT_MAX || 300),
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  skip: (req) =>
+    process.env.NODE_ENV === "test" ||
+    String(process.env.API_RATE_LIMIT_DISABLED || "").toLowerCase() === "true" ||
+    isLocalRequest(req),
+  message: {
+    message: "Too many requests. Please slow down and try again shortly.",
+  },
+});
+
+const writeRateLimiter = rateLimit({
+  windowMs: Number(process.env.WRITE_RATE_LIMIT_WINDOW_MS || 60 * 1000),
+  limit: Number(process.env.WRITE_RATE_LIMIT_MAX || 60),
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  skip: (req) =>
+    process.env.NODE_ENV === "test" ||
+    String(process.env.WRITE_RATE_LIMIT_DISABLED || "").toLowerCase() === "true" ||
+    isLocalRequest(req),
+  message: {
+    message: "Too many write requests. Please slow down and try again shortly.",
+  },
+});
+
+/**
+ * Cookie options for the httpOnly auth cookie. The cookie is `Secure`
+ * in production only — dev / http-only environments still need to set
+ * it without the `Secure` attribute or browsers will drop it.
+ */
+function getCookieOptions() {
+  const isProduction = process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? "strict" : "lax",
+    path: "/",
+    maxAge: Number(process.env.JWT_COOKIE_MAX_AGE_MS || 7 * 24 * 60 * 60 * 1000),
+  };
+}
+
+function clearCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+    path: "/",
+  };
+}
+
 module.exports = {
+  AUTH_COOKIE_NAME,
   authRateLimiter,
+  apiRateLimiter,
+  writeRateLimiter,
   getAllowedOrigins,
   getCorsOptions,
+  getCookieOptions,
+  clearCookieOptions,
   getJwtSecret,
 };

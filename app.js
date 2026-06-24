@@ -4,6 +4,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const cors = require("cors");
 const helmet = require("helmet");
+const cookieParser = require("cookie-parser");
 const path = require("path");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -203,7 +204,13 @@ const {
     ensureSchema: ensureInventoryOpeningStockSchema,
   } = require("./models/inventoryOpeningStockModel");
 const auditLogger = require("./middleware/auditLogger");
-const { getCorsOptions } = require("./config/security");
+const errorHandler = require("./middleware/errorHandler");
+const authMiddleware = require("./middleware/authMiddleware");
+const {
+  getCorsOptions,
+  apiRateLimiter,
+  writeRateLimiter,
+} = require("./config/security");
 
 const app = express();
 const server = http.createServer(app);
@@ -223,20 +230,36 @@ io.on("connection", () => {
 
 app.use(
   helmet({
-    crossOriginResourcePolicy: false,
+    crossOriginResourcePolicy: { policy: "same-site" },
   }),
 );
 app.use(cors(corsOptions));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use("/api", (req, res, next) => {
-  res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
-  res.set("Pragma", "no-cache");
-  res.set("Expires", "0");
-  next();
-});
+app.use(cookieParser());
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(auditLogger);
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/uploads", express.static(path.join(__dirname, "uploads"), { fallthrough: true }));
+
+// Defense-in-depth: every /api route is authenticated by default.
+// Public endpoints (login, register, health) are allow-listed.
+const PUBLIC_API_PATHS = new Set([
+  "/health",
+  "/auth/login",
+  "/auth/register",
+]);
+
+app.use(
+  "/api",
+  apiRateLimiter,
+  (req, res, next) => {
+    if (PUBLIC_API_PATHS.has(req.path)) return next();
+    return authMiddleware(req, res, next);
+  },
+  (req, res, next) => {
+    if (req.method === "GET") return next();
+    return writeRateLimiter(req, res, next);
+  },
+);
 
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/users", require("./routes/userRoutes"));
@@ -317,15 +340,7 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-app.use((err, req, res, next) => {
-  if (!err) return next();
-
-  console.error("Unhandled error:", err);
-
-  res.status(500).json({
-    message: "Internal server error",
-  });
-});
+app.use(errorHandler);
 
 app.get("/", (req, res) => {
   res.send("Backend Running");

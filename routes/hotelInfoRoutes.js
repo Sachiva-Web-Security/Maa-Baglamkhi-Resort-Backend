@@ -1,5 +1,6 @@
 const router = require("express").Router();
 const upload = require("../utils/upload");
+const sanitizeHtml = require("../middleware/sanitizeHtml");
 const {
   getHotelInfo,
   saveHotelInfo,
@@ -15,7 +16,7 @@ router.get("/", async (_req, res) => {
   }
 });
 
-router.put("/", async (req, res) => {
+router.put("/", sanitizeHtml(["invoice_note"]), async (req, res) => {
   try {
     const allowed = [
       "hotel_name",

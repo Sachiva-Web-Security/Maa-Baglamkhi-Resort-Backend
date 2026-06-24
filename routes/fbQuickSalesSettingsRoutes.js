@@ -1,5 +1,6 @@
 const router = require("express").Router();
 const { get, save } = require("../models/fbQuickSalesSettingsModel");
+const sanitizeHtml = require("../middleware/sanitizeHtml");
 
 router.get("/", async (_req, res) => {
   try {
@@ -9,7 +10,7 @@ router.get("/", async (_req, res) => {
   }
 });
 
-router.put("/", async (req, res) => {
+router.put("/", sanitizeHtml(["invoice_note"]), async (req, res) => {
   try {
     res.json(await save(req.body));
   } catch (error) {

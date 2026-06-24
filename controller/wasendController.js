@@ -1,170 +1,146 @@
-const BASE_URL = 'https://wasend.sachiva.cloud';
+const { getSettings } = require("../utils/whatsappNotify");
+const { HttpError } = require("../middleware/errorHandler");
 
-const safeFetch = global.fetch || (async (...args) => {
-  // Fallback to node's undici if available
-  const undici = require('undici');
-  return undici.fetch(...args);
-});
+const BASE_URL = "https://wasend.sachiva.cloud";
+
+const safeFetch =
+  global.fetch ||
+  (async (...args) => {
+    const undici = require("undici");
+    return undici.fetch(...args);
+  });
+
+async function resolveCredentials() {
+  const settings = await getSettings();
+  const username =
+    (settings?.wasend_username && String(settings.wasend_username).trim()) ||
+    process.env.WASEND_USERNAME;
+  const token =
+    (settings?.wasend_token && String(settings.wasend_token).trim()) ||
+    process.env.WASEND_TOKEN;
+  if (!username || !token) {
+    throw new HttpError(503, "WASend credentials are not configured", "WASEND_NO_CREDENTIALS");
+  }
+  return { username, token };
+}
+
+async function forwardToWASend(pathname, params, init = {}) {
+  const { username, token } = await resolveCredentials();
+  const url = new URL(`${BASE_URL}${pathname}`);
+  url.searchParams.set("username", username);
+  url.searchParams.set("token", token);
+  for (const [k, v] of Object.entries(params || {})) {
+    if (v != null) url.searchParams.set(k, String(v));
+  }
+
+  const response = await safeFetch(url.toString(), init);
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = { status: "error", error: "Invalid JSON from WASend" };
+  }
+  return { status: response.status, data };
+}
 
 const sendMessage = async (req, res, next) => {
   try {
-    const src = { ...(req.query || {}), ...(req.body || {}) };
-    const { username, token, number, message, file_url, file_name } = src;
-    const u = username || process.env.WASEND_USERNAME;
-    const t = token || process.env.WASEND_TOKEN;
-    if (!u || !t || !number || !message) {
-      return res.status(400).json({ status: 'error', error: 'username, token, number and message are required' });
+    const body = req.body || {};
+    const { number, message, file_url, file_name } = body;
+    if (!number || !message) {
+      throw new HttpError(400, "number and message are required");
     }
-
-    const url = new URL(`${BASE_URL}/api/send-message`);
-    url.searchParams.set('username', u);
-    url.searchParams.set('token', t);
-    url.searchParams.set('number', String(number).replace(/[^0-9]/g, ''));
-    url.searchParams.set('message', message);
-    if (file_url) url.searchParams.set('file_url', file_url);
-    if (file_name) url.searchParams.set('file_name', file_name);
-
-    const response = await safeFetch(url.toString());
-    const data = await response.json().catch(() => ({ status: 'error', error: 'Invalid JSON from WASend' }));
-    return res.status(response.status >= 400 ? 502 : 200).json(data);
+    const { status, data } = await forwardToWASend(
+      "/api/send-message",
+      {
+        number: String(number).replace(/[^0-9]/g, ""),
+        message,
+        file_url,
+        file_name,
+      },
+    );
+    return res.status(status >= 400 ? 502 : 200).json(data);
   } catch (err) {
-    next(err);
+    return next(err);
   }
 };
 
 const getBalance = async (req, res, next) => {
   try {
-    const { username, token } = req.query || {};
-    const u = username || process.env.WASEND_USERNAME;
-    const t = token || process.env.WASEND_TOKEN;
-    if (!u || !t) return res.status(400).json({ status: 'error', error: 'username and token are required' });
-
-    const url = new URL(`${BASE_URL}/api/balance`);
-    url.searchParams.set('username', u);
-    url.searchParams.set('token', t);
-
-    const response = await safeFetch(url.toString());
-    const data = await response.json().catch(() => ({ status: 'error', error: 'Invalid JSON from WASend' }));
-    return res.status(response.status >= 400 ? 502 : 200).json(data);
+    const { status, data } = await forwardToWASend("/api/balance", {});
+    return res.status(status >= 400 ? 502 : 200).json(data);
   } catch (err) {
-    next(err);
+    return next(err);
   }
 };
 
 const getReports = async (req, res, next) => {
   try {
-    const { username, token } = req.query || {};
-    const u = username || process.env.WASEND_USERNAME;
-    const t = token || process.env.WASEND_TOKEN;
-    if (!u || !t) return res.status(400).json({ status: 'error', error: 'username and token are required' });
-
-    const url = new URL(`${BASE_URL}/api/reports`);
-    url.searchParams.set('username', u);
-    url.searchParams.set('token', t);
-
-    const response = await safeFetch(url.toString());
-    const data = await response.json().catch(() => ({ status: 'error', error: 'Invalid JSON from WASend' }));
-    return res.status(response.status >= 400 ? 502 : 200).json(data);
+    const { status, data } = await forwardToWASend("/api/reports", {});
+    return res.status(status >= 400 ? 502 : 200).json(data);
   } catch (err) {
-    next(err);
+    return next(err);
   }
 };
 
 const listContacts = async (req, res, next) => {
   try {
-    const { username, token } = req.query || {};
-    const u = username || process.env.WASEND_USERNAME;
-    const t = token || process.env.WASEND_TOKEN;
-    if (!u || !t) return res.status(400).json({ status: 'error', error: 'username and token are required' });
-
-    const url = new URL(`${BASE_URL}/api/contacts`);
-    url.searchParams.set('username', u);
-    url.searchParams.set('token', t);
-
-    const response = await safeFetch(url.toString());
-    const data = await response.json().catch(() => ({ status: 'error', error: 'Invalid JSON from WASend' }));
-    return res.status(response.status >= 400 ? 502 : 200).json(data);
+    const { status, data } = await forwardToWASend("/api/contacts", {});
+    return res.status(status >= 400 ? 502 : 200).json(data);
   } catch (err) {
-    next(err);
+    return next(err);
   }
 };
 
 const createContact = async (req, res, next) => {
   try {
     const body = req.body || {};
-    const u = body.username || process.env.WASEND_USERNAME;
-    const t = body.token || process.env.WASEND_TOKEN;
-    if (!u || !t) return res.status(400).json({ status: 'error', error: 'username and token are required' });
-
-    const payload = { ...body, username: u, token: t };
-    const response = await safeFetch(`${BASE_URL}/api/contacts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await response.json().catch(() => ({ status: 'error', error: 'Invalid JSON from WASend' }));
-    return res.status(response.status >= 400 ? 502 : 200).json(data);
+    const { status, data } = await forwardToWASend(
+      "/api/contacts",
+      {},
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    return res.status(status >= 400 ? 502 : 200).json(data);
   } catch (err) {
-    next(err);
+    return next(err);
   }
 };
 
-const importContacts = async (req, res, next) => {
-  try {
-    const body = req.body || {};
-    const u = body.username || process.env.WASEND_USERNAME;
-    const t = body.token || process.env.WASEND_TOKEN;
-    if (!u || !t) return res.status(400).json({ status: 'error', error: 'username and token are required' });
-
-    const payload = { ...body, username: u, token: t };
-    const response = await safeFetch(`${BASE_URL}/api/contacts/import`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await response.json().catch(() => ({ status: 'error', error: 'Invalid JSON from WASend' }));
-    return res.status(response.status >= 400 ? 502 : 200).json(data);
-  } catch (err) {
-    next(err);
-  }
-};
+// importContacts previously forwarded the entire body (including the
+// caller's username/token). That endpoint is intentionally not exposed
+// here — admins configure their contact lists through the UI, not via
+// ad-hoc import calls.
+const importContacts = async (_req, res) =>
+  res.status(410).json({ message: "Contact import has been disabled" });
 
 const listCampaigns = async (req, res, next) => {
   try {
-    const { username, token } = req.query || {};
-    const u = username || process.env.WASEND_USERNAME;
-    const t = token || process.env.WASEND_TOKEN;
-    if (!u || !t) return res.status(400).json({ status: 'error', error: 'username and token are required' });
-
-    const url = new URL(`${BASE_URL}/api/campaign`);
-    url.searchParams.set('username', u);
-    url.searchParams.set('token', t);
-
-    const response = await safeFetch(url.toString());
-    const data = await response.json().catch(() => ({ status: 'error', error: 'Invalid JSON from WASend' }));
-    return res.status(response.status >= 400 ? 502 : 200).json(data);
+    const { status, data } = await forwardToWASend("/api/campaign", {});
+    return res.status(status >= 400 ? 502 : 200).json(data);
   } catch (err) {
-    next(err);
+    return next(err);
   }
 };
 
 const createCampaign = async (req, res, next) => {
   try {
     const body = req.body || {};
-    const u = body.username || process.env.WASEND_USERNAME;
-    const t = body.token || process.env.WASEND_TOKEN;
-    if (!u || !t) return res.status(400).json({ status: 'error', error: 'username and token are required' });
-
-    const payload = { ...body, username: u, token: t };
-    const response = await safeFetch(`${BASE_URL}/api/campaign`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await response.json().catch(() => ({ status: 'error', error: 'Invalid JSON from WASend' }));
-    return res.status(response.status >= 400 ? 502 : 200).json(data);
+    const { status, data } = await forwardToWASend(
+      "/api/campaign",
+      {},
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    return res.status(status >= 400 ? 502 : 200).json(data);
   } catch (err) {
-    next(err);
+    return next(err);
   }
 };
 
