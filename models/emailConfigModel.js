@@ -24,7 +24,7 @@ const ensureSchema = async () => {
     await runQuery(
       `INSERT INTO email_config (host, sender_name, sender_email, sender_password, port, enable_ssl)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      ["mail.urbanpos.com", "Uttam Mohanty", "reports@urbanpos.com", "Report@123#", 25, 0],
+      ["mail.maabaglamukhi.com", "Uttam Mohanty", "reports@maabaglamukhi.com", "Report@123#", 25, 0],
     );
   }
 };

@@ -25,7 +25,7 @@ const ensureSchema = async () => {
 
   const rows = await runQuery("SELECT COUNT(*) AS count FROM terminals");
   if (Number(rows?.[0]?.count || 0) === 0) {
-    const defaults = ["UrbanPOS", "Terminal 2", "Terminal 3"];
+    const defaults = ["Maa Baglamukhi", "Terminal 2", "Terminal 3"];
     for (const name of defaults) {
       await runQuery(
         "INSERT INTO terminals (name, code, is_active) VALUES (?, ?, 1)",
