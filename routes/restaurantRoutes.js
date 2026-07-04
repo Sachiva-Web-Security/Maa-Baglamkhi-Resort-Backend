@@ -29,8 +29,10 @@ router.get("/order", controller.getOrders);
 router.get("/order/:tableNumber", controller.getOrder);
 router.put("/order/:orderId", controller.updateOrder);
 router.delete("/order/:orderId", controller.deleteOrder);
+router.post("/order/:orderId/remove", controller.removeOrderItem);
 router.get("/order-items/:orderId", controller.getOrderItems);
 router.put("/order/:tableNumber/pay", controller.payOrder);
+router.post("/bill/:tableNumber/pay", controller.payBillByTableNumber);
 
 // BILLS
 router.post("/bill", controller.createBill);
@@ -40,5 +42,11 @@ router.post("/bill/charge-to-room", controller.chargeBillToRoom);
 router.post("/bill/:id/pay", controller.payBill);
 router.post("/bill/pay", controller.payBill);
 router.get("/bills", controller.getBills);
+router.get("/bills/filtered", controller.getFilteredBills);
+router.get("/dashboard-summary", controller.getDashboardSummary);
+router.get("/top-selling", controller.getTopSellingItems);
+
+// KOT HISTORY
+router.get("/kot-history", controller.getFilteredKotHistory);
 
 module.exports = router;

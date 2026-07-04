@@ -606,7 +606,7 @@ exports.getOrderItems = async (req, res) => {
 exports.updateOrder = async (req, res) => {
   const actor = getRequestActor(req);
   const { orderId } = req.params;
-  const { status, tableNumber } = req.body || {};
+  const { status, tableNumber, items } = req.body || {};
 
   try {
     const existing = await q("SELECT id, waiter_name FROM orders WHERE id = ? LIMIT 1", [orderId]);
@@ -630,6 +630,21 @@ exports.updateOrder = async (req, res) => {
       values.push(tableNumber);
     }
 
+    // Handle item quantity updates if provided
+    if (items && Array.isArray(items)) {
+      for (const item of items) {
+        if (item.orderItemId && item.quantity !== undefined) {
+          await q("UPDATE order_items SET quantity = ? WHERE id = ? AND order_id = ?", [
+            Number(item.quantity || 1),
+            item.orderItemId,
+            orderId
+          ]);
+        }
+      }
+      res.json({ message: "Order and item quantities updated" });
+      return;
+    }
+
     if (!fields.length) {
       return res.status(400).json({ message: "Nothing to update" });
     }
@@ -645,7 +660,22 @@ exports.updateOrder = async (req, res) => {
 exports.deleteOrder = async (req, res) => {
   const actor = getRequestActor(req);
   const { orderId } = req.params;
+  const { itemId } = req.body || {};
   try {
+    // If itemId is provided in body, delete only that item from order
+    if (itemId) {
+      const [order] = await q("SELECT id, waiter_name FROM orders WHERE id = ? LIMIT 1", [orderId]);
+      if (!order.length) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      if (isWaiterActor(actor) && order[0]?.waiter_name && !namesMatch(order[0].waiter_name, actor.name)) {
+        return res.status(403).json({ message: "You can modify only your own order" });
+      }
+      await q("DELETE FROM order_items WHERE id = ? AND order_id = ?", [itemId, orderId]);
+      return res.json({ message: "Item deleted from order" });
+    }
+
+    // Otherwise delete the entire order
     const existing = await q("SELECT id, waiter_name FROM orders WHERE id = ? LIMIT 1", [orderId]);
     if (!existing.length) {
       return res.status(404).json({ message: "Order not found" });
@@ -658,6 +688,32 @@ exports.deleteOrder = async (req, res) => {
     res.json({ message: "Order deleted" });
   } catch (err) {
     res.status(500).json({ message: "Failed to delete order", error: err.message });
+  }
+};
+
+exports.removeOrderItem = async (req, res) => {
+  const actor = getRequestActor(req);
+  const { orderId } = req.params;
+  const { itemId } = req.body || {};
+  try {
+    // Get the order to verify ownership
+    const [order] = await q("SELECT id, waiter_name FROM orders WHERE id = ? LIMIT 1", [orderId]);
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+    if (isWaiterActor(actor) && order.waiter_name && !namesMatch(order.waiter_name, actor.name)) {
+      return res.status(403).json({ message: "You can modify only your own order" });
+    }
+
+    if (itemId) {
+      // Remove specific item
+      await q("DELETE FROM order_items WHERE id = ? AND order_id = ?", [itemId, orderId]);
+      res.json({ message: "Item removed from order" });
+    } else {
+      res.status(400).json({ message: "itemId is required" });
+    }
+  } catch (err) {
+    res.status(500).json({ message: "Failed to remove item", error: err.message });
   }
 };
 
@@ -749,7 +805,12 @@ exports.createBill = async (req, res) => {
         { fileName: `restaurant-bill-${billId || Date.now()}` },
       );
 
-      const number = phone.replace(/[^0-9]/g, "");
+      let number = phone.replace(/[^0-9]/g, "");
+      // Add country code if missing (India: +91)
+      if (number.length === 10 && !number.startsWith('91')) {
+        number = '91' + number;
+      }
+
       if (number && process.env.WASEND_USERNAME && process.env.WASEND_TOKEN) {
         const fetch = global.fetch || require("undici").fetch;
         const wasendUrl = new URL('https://wasend.sachiva.cloud/api/send-message');
@@ -760,8 +821,11 @@ exports.createBill = async (req, res) => {
         wasendUrl.searchParams.set('file_url', `${publicBase}/uploads/restaurant-bills/${fileName}`);
         wasendUrl.searchParams.set('file_name', fileName);
 
+        console.log('Auto-sending WhatsApp message with URL:', wasendUrl.toString());
+
         const resp = await fetch(wasendUrl.toString());
         whatsappResult = await resp.json().catch(() => ({ status: 'unknown' }));
+        console.log('Auto WhatsApp API response:', { status: resp.status, whatsappResult });
       } else {
         whatsappResult = { status: 'skipped', reason: !number ? 'No phone number' : 'WASend credentials missing' };
       }
@@ -807,7 +871,12 @@ exports.sendBillToWhatsApp = async (req, res) => {
     }, { fileName: billNo ? `${billNo}` : undefined });
 
     const fileUrl = `${publicBase}/uploads/restaurant-bills/${fileName}`;
-    const number = phone.replace(/[^0-9]/g, "");
+    let number = phone.replace(/[^0-9]/g, "");
+
+    // Add country code if missing (India: +91)
+    if (number.length === 10 && !number.startsWith('91')) {
+      number = '91' + number;
+    }
 
     if (!number) {
       return res.status(400).json({ message: "Valid phone number required" });
@@ -825,16 +894,30 @@ exports.sendBillToWhatsApp = async (req, res) => {
     wasendUrl.searchParams.set('file_url', fileUrl);
     wasendUrl.searchParams.set('file_name', fileName);
 
+    console.log('Sending WhatsApp message with URL:', wasendUrl.toString());
+
     const resp = await fetch(wasendUrl.toString());
     const data = await resp.json().catch(() => null);
+    console.log('WhatsApp API response:', { status: resp.status, data });
+
+    // Check if WhatsApp API returned an error
+    if (resp.status >= 400 || data?.status === 'error' || data?.error) {
+      return res.status(400).json({
+        message: "Failed to send WhatsApp message",
+        wasend: data || { status: 'error', error: `HTTP ${resp.status}` },
+        fileUrl,
+        filePath,
+      });
+    }
 
     return res.json({
       message: "Restaurant bill sent to WhatsApp",
       fileUrl,
       filePath,
-      wasend: data || { status: 'unknown' },
+      wasend: data || { status: 'success' },
     });
   } catch (error) {
+    console.error('Error sending WhatsApp:', error);
     return res.status(500).json({ message: error.message || "Failed to send restaurant bill to WhatsApp" });
   }
 };
@@ -859,28 +942,35 @@ exports.getBills = async (req, res) => {
       const rows = await q(
         `
           SELECT
-            id,
-            tableNumber,
-            tokenId,
+            b.id,
+            b.tableNumber,
+            b.token_id AS tokenId,
             NULL AS tokenCode,
-            entityType,
-            NULL AS waiter_name,
-            NULL AS customerName,
-            NULL AS phone,
-            subtotal,
-            gst,
-            total,
-            discount AS discountAmount,
-            paymentMethod,
-            invoiceStatus,
-            NULL AS split_no,
-            NULL AS split_count,
-            NULL AS paid_at,
-            NULL AS payment_id,
-            NULL AS account_transaction_id,
-            created_at
-          FROM restaurant_bills
-          ORDER BY created_at DESC
+            b.entityType,
+            b.waiter_name,
+            b.customerName,
+            b.phone,
+            b.subtotal,
+            b.gst,
+            b.total,
+            b.discount AS discountAmount,
+            b.paymentMethod,
+            b.invoiceStatus,
+            b.split_no,
+            b.split_count,
+            b.paid_at,
+            b.payment_id,
+            b.account_transaction_id,
+            b.posted_to_room AS postedToRoom,
+            b.posted_room_number AS postedRoomNumber,
+            b.room_booking_id AS roomBookingId,
+            b.room_booking_code AS roomBookingCode,
+            b.folio_entry_id AS folioEntryId,
+            b.source_table_number AS sourceTableNumber,
+            b.posted_at AS postedAt,
+            b.created_at
+          FROM bills b
+          ORDER BY b.id DESC
           LIMIT 200
         `
       );
@@ -901,6 +991,41 @@ exports.payBill = async (req, res) => {
     const result = await Restaurant.processBillPayment({
       ...req.body,
       billId: req.body?.billId || req.params?.id || null,
+    });
+
+    res.json({
+      message: "Bill payment successful",
+      ...result,
+    });
+  } catch (error) {
+    res.status(Number(error.statusCode || 500)).json({
+      message: error.message || "Bill payment failed",
+    });
+  }
+};
+
+// Pay bill by table number (called from POS when no saved bill exists)
+exports.payBillByTableNumber = async (req, res) => {
+  const { tableNumber } = req.params;
+  const { paymentMethod, amount } = req.body || {};
+  try {
+    // Find the most recent unpaid bill for this table
+    const [bill] = await q(
+      `SELECT id FROM bills
+       WHERE tableNumber = ? AND (invoiceStatus IS NULL OR invoiceStatus = '' OR invoiceStatus = 'pending')
+       ORDER BY id DESC LIMIT 1`,
+      [tableNumber]
+    );
+
+    if (!bill) {
+      return res.status(404).json({ message: "No unpaid bill found for this table" });
+    }
+
+    // Process payment using the bill ID
+    const result = await Restaurant.processBillPayment({
+      billId: bill.id,
+      paymentMethod: paymentMethod || "Cash",
+      amount: amount || null,
     });
 
     res.json({
@@ -1056,5 +1181,264 @@ exports.getWaiterPerformance = async (req, res) => {
     });
   } catch {
     res.json([]);
+  }
+};
+
+/* ================= DASHBOARD SUMMARY ================= */
+
+exports.getDashboardSummary = async (req, res) => {
+  const { from, to } = req.query;
+
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const dateFrom = from || today;
+    const dateTo = to || today;
+
+    // Query bills table
+    const billRows = await q(
+      `
+        SELECT
+          COALESCE(SUM(subtotal), 0) AS totalSubtotal,
+          COALESCE(SUM(gst), 0) AS totalGST,
+          COALESCE(SUM(discountAmount), 0) AS totalDiscount,
+          COUNT(*) AS totalBillCount,
+          COALESCE(SUM(total), 0) AS totalSale,
+          entityType,
+          invoiceStatus
+        FROM bills
+        WHERE DATE(created_at) >= ? AND DATE(created_at) <= ?
+        GROUP BY entityType, invoiceStatus
+      `,
+      [dateFrom, dateTo]
+    );
+
+    // Query kitchen_orders table
+    const kotRows = await q(
+      `
+        SELECT
+          COUNT(*) AS totalOrders,
+          SUM(CASE WHEN status IN ('Pending', 'In Progress') THEN 1 ELSE 0 END) AS activeOrders
+        FROM kitchen_orders
+        WHERE DATE(created_at) >= ? AND DATE(created_at) <= ?
+      `,
+      [dateFrom, dateTo]
+    );
+
+    // Aggregate bill results
+    let totalTableSale = 0;
+    let totalCounterSale = 0;
+    let totalParcelSale = 0;
+    let totalGST = 0;
+    let totalDiscount = 0;
+    let totalBillCount = 0;
+
+    for (const row of billRows) {
+      const entity = String(row.entityType || "").toLowerCase();
+      if (entity === "counter") {
+        totalCounterSale += Number(row.totalSubtotal || 0);
+      } else if (entity === "parcel" || entity === "takeaway" || entity === "take away") {
+        totalParcelSale += Number(row.totalSubtotal || 0);
+      } else {
+        // Default to table sale for "Table", "Room", or unspecified
+        totalTableSale += Number(row.totalSubtotal || 0);
+      }
+      totalGST += Number(row.totalGST || 0);
+      totalDiscount += Number(row.totalDiscount || 0);
+      totalBillCount += Number(row.totalBillCount || 0);
+    }
+
+    const kotData = kotRows[0] || {};
+    const kitchenOrdersCount = Number(kotData.totalOrders || 0);
+    const kitchenActiveOrders = Number(kotData.activeOrders || 0);
+    const averageOrderValue = totalBillCount > 0
+      ? Number((totalTableSale + totalCounterSale + totalParcelSale) / totalBillCount).toFixed(2)
+      : 0;
+
+    res.json({
+      totalTableSale: Number(totalTableSale).toFixed(2),
+      totalCounterSale: Number(totalCounterSale).toFixed(2),
+      totalParcelSale: Number(totalParcelSale).toFixed(2),
+      totalGST: Number(totalGST).toFixed(2),
+      totalDiscount: Number(totalDiscount).toFixed(2),
+      totalBillCount,
+      kitchenOrdersCount,
+      kitchenActiveOrders,
+      averageOrderValue,
+      dateFrom,
+      dateTo,
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to load dashboard summary", error: err.message });
+  }
+};
+
+/* ================= FILTERED BILLS ================= */
+
+exports.getFilteredBills = async (req, res) => {
+  const { from, to, tableNumber, status } = req.query;
+
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const dateFrom = from || today;
+    const dateTo = to || today;
+
+    const conditions = ["DATE(b.created_at) >= ?", "DATE(b.created_at) <= ?"];
+    const params = [dateFrom, dateTo];
+
+    if (tableNumber) {
+      conditions.push("b.tableNumber = ?");
+      params.push(String(tableNumber));
+    }
+
+    if (status) {
+      conditions.push("b.invoiceStatus = ?");
+      params.push(String(status));
+    }
+
+    const rows = await q(
+      `
+        SELECT
+          b.id,
+          b.tableNumber,
+          b.token_id AS tokenId,
+          b.entityType,
+          b.waiter_name,
+          b.customerName,
+          b.phone,
+          b.subtotal,
+          b.gst,
+          b.total,
+          b.discountAmount,
+          b.paymentMethod,
+          b.invoiceStatus,
+          b.created_at
+        FROM bills b
+        WHERE ${conditions.join(" AND ")}
+        ORDER BY b.created_at DESC
+        LIMIT 500
+      `,
+      params
+    );
+
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to load filtered bills", error: err.message });
+  }
+};
+
+/* ================= KOT HISTORY ================= */
+
+exports.getFilteredKotHistory = async (req, res) => {
+  const { from, to, tableNumber, kotNo } = req.query;
+
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const dateFrom = from || today;
+    const dateTo = to || today;
+
+    const conditions = ["DATE(created_at) >= ?", "DATE(created_at) <= ?"];
+    const params = [dateFrom, dateTo];
+
+    if (tableNumber) {
+      conditions.push("table_number = ?");
+      params.push(String(tableNumber));
+    }
+
+    if (kotNo) {
+      conditions.push("kot_no = ?");
+      params.push(String(kotNo));
+    }
+
+    const rows = await q(
+      `
+        SELECT
+          id,
+          kot_no,
+          table_number,
+          waiter_name,
+          items,
+          status,
+          created_at,
+          entity_type
+        FROM kitchen_orders
+        WHERE ${conditions.join(" AND ")}
+        ORDER BY created_at DESC
+        LIMIT 500
+      `,
+      params
+    );
+
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to load KOT history", error: err.message });
+  }
+};
+
+/* ================= TOP SELLING ITEMS ================= */
+
+exports.getTopSellingItems = async (req, res) => {
+  const { from, to } = req.query;
+
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const dateFrom = from || today;
+    const dateTo = to || today;
+
+    const rows = await q(
+      `
+        SELECT items_json
+        FROM restaurant_split_bills rsb
+        LEFT JOIN bills b ON rsb.bill_id = b.id
+        WHERE b.created_at >= ? AND b.created_at <= ?
+          AND rsb.items_json IS NOT NULL
+          AND rsb.items_json != ''
+          AND rsb.items_json != '[]'
+      `,
+      [`${dateFrom} 00:00:00`, `${dateTo} 23:59:59`]
+    );
+
+    const itemTotals = {};
+
+    for (const row of rows) {
+      let items = row.items_json;
+      if (!items) continue;
+
+      if (typeof items === "string") {
+        try {
+          items = JSON.parse(items);
+        } catch {
+          continue;
+        }
+      }
+
+      if (!Array.isArray(items)) continue;
+
+      for (const item of items) {
+        const name = String(item.name || item.itemName || "").trim();
+        if (!name) continue;
+
+        const quantity = Number(item.quantity || item.qty || 1);
+        const price = Number(item.price || item.rate || 0);
+
+        if (!itemTotals[name]) {
+          itemTotals[name] = { name, totalQuantity: 0, totalAmount: 0 };
+        }
+        itemTotals[name].totalQuantity += quantity;
+        itemTotals[name].totalAmount += price * quantity;
+      }
+    }
+
+    const sortedItems = Object.values(itemTotals)
+      .sort((a, b) => b.totalQuantity - a.totalQuantity)
+      .slice(0, 50)
+      .map((item) => ({
+        name: item.name,
+        totalQuantity: item.totalQuantity,
+        totalAmount: Number(item.totalAmount).toFixed(2),
+      }));
+
+    res.json(sortedItems);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to load top selling items", error: err.message });
   }
 };

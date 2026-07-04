@@ -231,8 +231,32 @@ global.io = io;
 
 app.disable("etag");
 
-io.on("connection", () => {
-  console.log("User connected");
+io.on("connection", (socket) => {
+  console.log("User connected:", socket.id);
+
+  // Join table-specific room for real-time updates
+  socket.on("join-table", (tableNumber) => {
+    const room = `table-${tableNumber}`;
+    socket.join(room);
+    console.log(`Socket ${socket.id} joined room ${room}`);
+  });
+
+  // Leave table-specific room
+  socket.on("leave-table", (tableNumber) => {
+    const room = `table-${tableNumber}`;
+    socket.leave(room);
+    console.log(`Socket ${socket.id} left room ${room}`);
+  });
+
+  // Join kitchen room for KDS updates
+  socket.on("join-kitchen", () => {
+    socket.join("kitchen");
+    console.log(`Socket ${socket.id} joined kitchen room`);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("User disconnected:", socket.id);
+  });
 });
 
 app.use(

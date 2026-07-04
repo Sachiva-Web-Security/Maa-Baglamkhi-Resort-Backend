@@ -103,12 +103,10 @@ router.get("/ota-bookings/all", async (req, res) => {
         g.check_in,
         g.check_out,
         g.booking_status,
-        COALESCE(ob.booking_source, '') AS bookingSource,
         COALESCE(SUM(rt.total), 0) AS totalAmount,
         IFNULL(a.amount, 0) AS paidAmount,
-        COALESCE(NULLIF(rt.rooms, ''), px.rooms, '') AS rooms
+        COALESCE(px.rooms, '') AS rooms
       FROM guests g
-      LEFT JOIN other_booking ob ON g.id = ob.guest_id
       LEFT JOIN room_tariff rt ON g.id = rt.booking_id
       LEFT JOIN advance_payment a ON g.id = a.booking_id
       LEFT JOIN (
@@ -120,7 +118,7 @@ router.get("/ota-bookings/all", async (req, res) => {
       ) px ON g.id = px.booking_id
       WHERE LOWER(IFNULL(g.booking_status, 'confirmed')) NOT IN ('checked out', 'cancelled')
       GROUP BY g.id, g.booking_code, g.guest_name, g.mobile, g.check_in,
-               g.check_out, g.booking_status, ob.booking_source, px.rooms
+               g.check_out, g.booking_status, px.rooms
       ORDER BY g.id DESC
     `);
     res.json(rows);

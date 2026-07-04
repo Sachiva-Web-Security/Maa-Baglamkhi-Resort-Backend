@@ -198,8 +198,11 @@ exports.generateCustomerInvoice = async (req, res) => {
           wasendUrl.searchParams.set('file_url', fileUrl);
           wasendUrl.searchParams.set('file_name', fileName);
 
+          console.log('Sending invoice WhatsApp with URL:', wasendUrl.toString());
+
           const resp = await fetch(wasendUrl.toString());
           const sendResult = await resp.json().catch(() => null);
+          console.log('Invoice WhatsApp API response:', { status: resp.status, sendResult });
           invoice.pdf = { fileUrl, filePath };
           invoice.wasend = sendResult || { status: 'unknown' };
         } catch (sendErr) {
