@@ -270,7 +270,7 @@ const updateRoomsForBooking = async (booking, nextStatus) => {
     await roomInventoryModel.updateRoomOperationalState({
       roomNumber,
       guestName: null,
-      status: "Cleaning",
+      status: "Available",
       checkIn: null,
       checkOut: null,
     });

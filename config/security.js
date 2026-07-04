@@ -74,8 +74,19 @@ function isOriginAllowed(origin, allowedOrigins) {
 function createCorsOriginHandler() {
   const allowedOrigins = getAllowedOrigins();
 
+  console.log("=== CORS Config Debug ===");
+  console.log("NODE_ENV:", process.env.NODE_ENV);
+  console.log("CORS_ORIGINS:", process.env.CORS_ORIGINS);
+  console.log("Allowed origins array:", allowedOrigins);
+  console.log("========================");
+
   return (origin, callback) => {
-    return callback(null, isOriginAllowed(origin, allowedOrigins));
+    const result = isOriginAllowed(origin, allowedOrigins);
+    console.log(`\nCORS Check:`);
+    console.log(`  Origin: ${origin}`);
+    console.log(`  Allowed origins: ${JSON.stringify(allowedOrigins)}`);
+    console.log(`  Result: ${result}`);
+    return callback(null, result);
   };
 }
 

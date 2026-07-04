@@ -216,6 +216,13 @@ const app = express();
 const server = http.createServer(app);
 const corsOptions = getCorsOptions();
 
+// Debug CORS config
+console.log("=== CORS Debug Info ===");
+console.log("NODE_ENV:", process.env.NODE_ENV);
+console.log("CORS_ORIGINS:", process.env.CORS_ORIGINS);
+console.log("Allowed origins from config:", corsOptions.origin.toString());
+console.log("=====================");
+
 const io = new Server(server, {
   cors: corsOptions,
 });
@@ -230,7 +237,7 @@ io.on("connection", () => {
 
 app.use(
   helmet({
-    crossOriginResourcePolicy: { policy: "same-site" },
+    crossOriginResourcePolicy: { policy: "cross-origin" },
   }),
 );
 app.use(cors(corsOptions));
@@ -309,6 +316,7 @@ app.use("/api/room-types", require("./routes/roomTypeRoutes"));
 app.use("/api/fo-rooms", require("./routes/foRoomRoutes"));
 app.use("/api/fo-services", require("./routes/foServiceRoutes"));
 app.use("/api/fo-settings", require("./routes/foSettingsRoutes"));
+app.use("/api/fo-payments", require("./routes/foPaymentRoutes"));
 app.use("/api/fb-invoice-groups", require("./routes/fbInvoiceGroupRoutes"));
 app.use("/api/fb-price-groups", require("./routes/fbPriceGroupRoutes"));
 app.use("/api/fb-print-groups", require("./routes/fbPrintGroupRoutes"));
