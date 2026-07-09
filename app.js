@@ -127,7 +127,7 @@ app.use("/api", (req, res, next) => {
 
 
 
-const webPaymentRoutes = require("./routes/webPaymentRoutes");
+const webPaymentRoutes = require("./routes/webpaymentRoutes");
 
 app.use("/api/web-payment", webPaymentRoutes);
 

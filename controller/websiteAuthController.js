@@ -7,6 +7,7 @@ const {
   createCustomer,
   findCustomerById,
   normalizeEmail,
+  updateCustomerById,
 } = require("../models/CustomerModel");
 
 const JWT_SECRET = process.env.JWT_SECRET || "secret123";
@@ -104,5 +105,26 @@ exports.getMe = async (req, res) => {
     res.json(user);
   } catch (err) {
     res.status(401).json({ message: "Invalid token" });
+  }
+};
+
+
+
+
+
+exports.updateMe = async (req, res) => {
+  try {
+    await createCustomerTable();
+    const auth = req.headers.authorization;
+    if (!auth) return res.status(401).json({ message: "No token" });
+    const token = auth.split(" ")[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const { first_name, last_name, phone } = req.body || {};
+    const ok = await updateCustomerById(decoded.id, { first_name, last_name, phone });
+    if (!ok) return res.status(404).json({ message: "User not found" });
+    const user = await findCustomerById(decoded.id);
+    return res.json({ success: true, user });
+  } catch (err) {
+    return res.status(401).json({ message: err.message || "Invalid token" });
   }
 };

@@ -5,7 +5,7 @@ const {
   verifyBookingPayment,
   cancelBookingPayment,
   handleWebhook
-} = require("../controller/webPaymentController");
+} = require("../controller/webpaymentController");
 
 router.post("/order", createBookingPaymentOrder);
 router.post("/verify", verifyBookingPayment);

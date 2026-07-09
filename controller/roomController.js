@@ -172,3 +172,32 @@ exports.getRoomPrice = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+// we get a room for a webiste for a booking purpose ok 
+exports.getAllRoomsForWebsite = async (req, res) => {
+  try {
+    const [rooms] = await db.promise().query(`
+      SELECT
+        r.id,
+        r.room_number,
+        r.category_id,
+        c.name AS room_type,
+        CAST(c.base_price AS DECIMAL(10,2)) AS price,
+        r.status
+      FROM hotel_room_inventory r
+      JOIN room_categories c ON r.category_id = c.id
+      ORDER BY c.id
+    `);
+
+    res.json({
+      success: true,
+      rooms
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+};

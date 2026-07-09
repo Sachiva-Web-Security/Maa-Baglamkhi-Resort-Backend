@@ -55,10 +55,32 @@ async function findCustomerById(id) {
   return rows[0];
 }
 
+
+
+
+async function updateCustomerById(id, updates = {}) {
+  const first_name = String(updates.first_name ?? "").trim();
+  const last_name = String(updates.last_name ?? "").trim();
+  const phone = String(updates.phone ?? "").trim();
+  const [result] = await db.promise().query(
+    `UPDATE customers
+     SET first_name = ?, last_name = ?, phone = ?
+     WHERE id = ?`,
+    [first_name, last_name, phone, id],
+  );
+  return result.affectedRows > 0;
+}
+
+
+
+
+
+
 module.exports = {
   createCustomerTable,
   findCustomerByEmail,
   createCustomer,
   findCustomerById,
   normalizeEmail,
+  updateCustomerById, // ✅ add
 };
