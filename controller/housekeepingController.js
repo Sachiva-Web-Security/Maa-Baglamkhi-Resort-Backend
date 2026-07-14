@@ -9,6 +9,66 @@ const query = (sql, params = []) =>
     db.query(sql, params, (err, results) => (err ? reject(err) : resolve(results)))
   );
 
+const formatBusyUntil = (value) => {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return "the current task is completed";
+  return date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+};
+
+const getDefaultCleaningMinutes = async () => {
+  try {
+    const rows = await query("SELECT cleaning_time_minutes FROM hk_parameters LIMIT 1");
+    return Math.max(1, Number(rows?.[0]?.cleaning_time_minutes || 30));
+  } catch {
+    return 30;
+  }
+};
+
+const getActiveTaskForAssignee = async (assignee, excludeRoomNo = null, excludeRoomId = null) => {
+  if (!assignee || String(assignee).toLowerCase() === "no housekeeper") return null;
+  const rows = await query(
+    `SELECT *
+     FROM hk_messages
+     WHERE assigned_to = ?
+       AND status <> 'Completed'
+       AND (due_at IS NULL OR due_at > NOW())
+       AND (? IS NULL OR CAST(room_no AS CHAR) <> CAST(? AS CHAR))
+       AND (? IS NULL OR CAST(room_id AS CHAR) <> CAST(? AS CHAR))
+     ORDER BY due_at DESC, sent_at DESC
+     LIMIT 1`,
+    [assignee, excludeRoomNo, excludeRoomNo, excludeRoomId, excludeRoomId]
+  );
+  return rows[0] || null;
+};
+
+const getActiveTaskForRoom = async (roomId, roomNo) => {
+  const rows = await query(
+    `SELECT *
+     FROM hk_messages
+     WHERE status <> 'Completed'
+       AND (due_at IS NULL OR due_at > NOW())
+       AND ((? IS NOT NULL AND CAST(room_id AS CHAR) = CAST(? AS CHAR))
+         OR (? IS NOT NULL AND CAST(room_no AS CHAR) = CAST(? AS CHAR)))
+     ORDER BY due_at DESC, sent_at DESC
+     LIMIT 1`,
+    [roomId, roomId, roomNo, roomNo]
+  );
+  return rows[0] || null;
+};
+
+const emitHousekeepingUpdate = (payload = {}) => {
+  global.io?.emit("housekeeping-task-updated", payload);
+};
+
+const sendBusyResponse = (res, task) => {
+  const until = formatBusyUntil(task?.due_at);
+  return res.status(409).json({
+    message: `This housekeeper is already assigned until ${until}. Please choose another housekeeper.`,
+    busyUntil: task?.due_at || null,
+  });
+};
+
+
 exports.bootstrap = async (req, res, next) => {
   try {
     await Housekeeping.ensureSchema();
@@ -233,16 +293,106 @@ exports.saveParameters = async (req, res) => {
   }
 };
 
-exports.sendMessage = async (req, res) => {
-  const { roomId, roomNo, message } = req.body;
+exports.getNotifications = async (req, res) => {
+  const { assignee, status } = req.query;
   try {
-    await query(
-      "INSERT INTO hk_messages (room_id, room_no, message, sent_at) VALUES (?, ?, ?, NOW())",
-      [roomId, roomNo, message]
+    let sql = `
+      SELECT
+        id,
+        room_id AS roomId,
+        room_no AS roomNo,
+        assigned_to AS assignedTo,
+        receptionist,
+        message,
+        task_label AS taskLabel,
+        due_at AS dueAt,
+        status,
+        completed_at AS completedAt,
+        sent_at AS sentAt
+      FROM hk_messages
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (assignee) {
+      sql += " AND assigned_to = ?";
+      params.push(assignee);
+    }
+
+    if (status) {
+      sql += " AND status = ?";
+      params.push(status);
+    }
+
+    sql += " ORDER BY sent_at DESC, id DESC";
+    const results = await query(sql, params);
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch notifications", error: err });
+  }
+};
+
+exports.sendMessage = async (req, res) => {
+  const {
+    roomId,
+    roomNo,
+    assignedTo,
+    assignee,
+    message,
+    taskLabel,
+    dueAt,
+  } = req.body;
+  const cleanMessage = String(message || "").trim();
+  const targetAssignee = assignedTo || assignee || null;
+  const receptionist = req.body.receptionist || req.user?.name || req.user?.email || "Reception";
+  const parsedDueAt = dueAt ? new Date(dueAt) : null;
+  const dueAtValue = parsedDueAt && !Number.isNaN(parsedDueAt.getTime()) ? parsedDueAt : null;
+
+  if (!roomNo && !roomId) {
+    return res.status(400).json({ message: "roomNo or roomId is required" });
+  }
+
+  if (!cleanMessage) {
+    return res.status(400).json({ message: "message is required" });
+  }
+
+  try {
+    const result = await query(
+      `INSERT INTO hk_messages
+        (room_id, room_no, assigned_to, receptionist, message, task_label, due_at, status, sent_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'New', NOW())`,
+      [roomId || null, roomNo || null, targetAssignee, receptionist, cleanMessage, taskLabel || "Room Cleaning", dueAtValue]
     );
-    res.json({ message: "Message sent" });
+    res.json({ message: "Message sent", id: result.insertId });
   } catch (err) {
     res.status(500).json({ message: "Failed to send message", error: err });
+  }
+};
+
+exports.completeNotification = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const rows = await query("SELECT * FROM hk_messages WHERE id = ? LIMIT 1", [id]);
+    if (!rows.length) {
+      return res.status(404).json({ message: "Notification not found" });
+    }
+
+    await query(
+      "UPDATE hk_messages SET status = 'Completed', completed_at = NOW() WHERE id = ?",
+      [id]
+    );
+
+    const row = rows[0];
+    if (row.room_id || row.room_no) {
+      await query(
+        "UPDATE housekeeping SET status = 'Vacant Clean' WHERE id = ? OR roomNo = ?",
+        [row.room_id || row.room_no, row.room_no || row.room_id]
+      );
+    }
+
+    res.json({ message: "Notification completed" });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to complete notification", error: err });
   }
 };
 
@@ -551,3 +701,8 @@ exports.createCompletedCleaningLog = async (req, res) => {
     res.status(500).json({ message: "Failed to save completed cleaning log", error: err });
   }
 };
+
+
+
+
+

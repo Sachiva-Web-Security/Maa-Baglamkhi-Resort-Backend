@@ -259,11 +259,39 @@ const ensureSchema = async () => {
       id INT NOT NULL AUTO_INCREMENT,
       room_id VARCHAR(100) NULL,
       room_no VARCHAR(100) NULL,
+      assigned_to VARCHAR(255) NULL,
+      receptionist VARCHAR(255) NULL,
       message TEXT NOT NULL,
+      task_label VARCHAR(255) NULL,
+      due_at DATETIME NULL,
+      status VARCHAR(60) NOT NULL DEFAULT 'New',
+      completed_at DATETIME NULL,
       sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (id)
+      PRIMARY KEY (id),
+      INDEX idx_hk_messages_assigned_to (assigned_to),
+      INDEX idx_hk_messages_status (status),
+      INDEX idx_hk_messages_sent_at (sent_at)
     )
   `);
+
+  if (!(await columnExists("hk_messages", "assigned_to"))) {
+    await runQuery("ALTER TABLE hk_messages ADD COLUMN assigned_to VARCHAR(255) NULL AFTER room_no");
+  }
+  if (!(await columnExists("hk_messages", "receptionist"))) {
+    await runQuery("ALTER TABLE hk_messages ADD COLUMN receptionist VARCHAR(255) NULL AFTER assigned_to");
+  }
+  if (!(await columnExists("hk_messages", "task_label"))) {
+    await runQuery("ALTER TABLE hk_messages ADD COLUMN task_label VARCHAR(255) NULL AFTER message");
+  }
+  if (!(await columnExists("hk_messages", "due_at"))) {
+    await runQuery("ALTER TABLE hk_messages ADD COLUMN due_at DATETIME NULL AFTER task_label");
+  }
+  if (!(await columnExists("hk_messages", "status"))) {
+    await runQuery("ALTER TABLE hk_messages ADD COLUMN status VARCHAR(60) NOT NULL DEFAULT 'New' AFTER due_at");
+  }
+  if (!(await columnExists("hk_messages", "completed_at"))) {
+    await runQuery("ALTER TABLE hk_messages ADD COLUMN completed_at DATETIME NULL AFTER status");
+  }
 
   await runQuery(`
     CREATE TABLE IF NOT EXISTS hk_amenities_consumption (
@@ -405,6 +433,31 @@ const Housekeeping = {
         : null;
 
       // sync rooms table -> housekeeping
+      // Syncs the housekeeping.status from rooms.status ONLY when the row's
+      // housekeeping.status is empty/NULL. Existing non-empty housekeeping.status
+      // values are never overwritten here, so user changes (e.g. "Vacant Clean")
+      // survive across refreshes and getAllRooms() calls.
+
+      // Deduplicate any pre-existing duplicate roomNo rows (e.g. from a prior
+      // migration when UNIQUE wasn't enforced) so dashboard status reads are
+      // stable. Keep the most recent row (highest id) and prefer one whose
+      // status is non-empty.
+      try {
+        await runQuery(`
+          DELETE hk1 FROM housekeeping hk1
+          INNER JOIN housekeeping hk2
+            ON CAST(TRIM(hk1.roomNo) AS CHAR) = CAST(TRIM(hk2.roomNo) AS CHAR)
+           AND (
+             (hk1.id < hk2.id AND COALESCE(NULLIF(TRIM(hk1.status), ''), '') <> '')
+             OR
+             (hk1.id < hk2.id AND COALESCE(NULLIF(TRIM(hk2.status), ''), '') <> ''
+              AND COALESCE(NULLIF(TRIM(hk1.status), ''), '') = '')
+           )
+        `);
+      } catch (dedupeErr) {
+        // best-effort cleanup; fall through if it can't run on this schema
+      }
+
       await runQuery(`
         INSERT INTO housekeeping (roomNo, status, assignee)
         SELECT
@@ -422,6 +475,24 @@ const Housekeeping = {
         WHERE hk.id IS NULL
       `);
 
+      // Also fix any legacy rows where housekeeping.status was empty/null —
+      // those would otherwise fall back to the inventory status and the dashboard
+      // would always show 'Occupied Dirty' / 'Vacant Dirty' regardless of what
+      // the user picks. Use the rooms.status as the seed when missing.
+      if (hasRooms) {
+        await runQuery(`
+          UPDATE housekeeping hk
+          JOIN rooms r ON CAST(r.${roomNumberColumn} AS CHAR) = CAST(hk.roomNo AS CHAR)
+          SET hk.status = CASE
+              WHEN LOWER(${roomStatusExpr}) = 'occupied' THEN 'Occupied Dirty'
+              WHEN LOWER(${roomStatusExpr}) = 'cleaning' THEN 'Cleaning In Progress'
+              WHEN LOWER(${roomStatusExpr}) = 'out of service' THEN 'Out of Service'
+              ELSE 'Vacant Clean'
+            END
+          WHERE hk.status IS NULL OR TRIM(hk.status) = ''
+        `);
+      }
+
       let assignmentJoin = "";
       let assignmentAssigneeExpr = "NULL";
       if (assignmentRoomColumn && assignmentStaffColumn) {
@@ -438,13 +509,13 @@ const Housekeeping = {
             ) latest
               ON CAST(latest.room_number AS CHAR) = CAST(a1.${assignmentRoomColumn} AS CHAR)
              AND latest.max_id = a1.id
-          ) a ON CAST(a.room_number AS CHAR) = base.roomNo
+          ) a ON CAST(a.room_number AS CHAR) = CAST(base.room_number AS CHAR)
         `;
         assignmentAssigneeExpr = "NULLIF(a.staff_name, '')";
       }
 
       let inventoryJoin = "";
-      let inventoryStatusExpr = "base.roomStatus";
+      let hotelStatusExpr = `base.room_status`;
       let guestExpr = "NULL";
       let checkInExpr = "NULL";
       let checkOutExpr = "NULL";
@@ -452,66 +523,48 @@ const Housekeeping = {
       if (hasInventory) {
         inventoryJoin = `
           LEFT JOIN hotel_room_inventory hri
-            ON CAST(hri.room_number AS CHAR) = base.roomNo
+            ON CAST(hri.room_number AS CHAR) = CAST(base.room_number AS CHAR)
         `;
-        inventoryStatusExpr = "COALESCE(hri.status, base.roomStatus)";
+        hotelStatusExpr = `COALESCE(NULLIF(hri.status, ''), base.room_status)`;
         guestExpr = "hri.guest";
         checkInExpr = "hri.check_in";
         checkOutExpr = "hri.check_out";
       }
 
-      const baseRoomsSql = hasInventory
+      // Authoritative logic: housekeeping.status is the source of truth when set.
+      // Only fall back to the inventory/rooms hotelStatus when housekeeping has
+      // no entry yet (shouldn't normally happen because we INSERT-missing above).
+      // We UNION ALL 'rooms' with 'hotel_room_inventory' so rooms that exist
+      // only in inventory still surface for the housekeeping dashboard.
+      const baseRoomListSql = hasInventory
         ? `
           SELECT
-            MIN(src.id) AS id,
-            src.roomNo AS roomNo,
-            MAX(src.roomStatus) AS roomStatus
-          FROM (
-            SELECT
-              r.id AS id,
-              ${roomsRoomNoExpr} AS roomNo,
-              ${roomStatusExpr} AS roomStatus
-            FROM rooms r
-            UNION ALL
-            SELECT
-              hri.id AS id,
-              CAST(hri.room_number AS CHAR) AS roomNo,
-              COALESCE(hri.status, 'available') AS roomStatus
-            FROM hotel_room_inventory hri
-            UNION ALL
-            SELECT
-              hk_base.id AS id,
-              CAST(hk_base.roomNo AS CHAR) AS roomNo,
-              COALESCE(NULLIF(hk_base.status, ''), 'Vacant Dirty') AS roomStatus
-            FROM housekeeping hk_base
-          ) src
-          GROUP BY src.roomNo
+            r.${roomNumberColumn} AS room_number,
+            ${roomStatusExpr} AS room_status
+          FROM rooms r
+          UNION
+          SELECT
+            hri.room_number AS room_number,
+            COALESCE(NULLIF(hri.status, ''), 'available') AS room_status
+          FROM hotel_room_inventory hri
+          LEFT JOIN rooms rr
+            ON CAST(rr.${roomNumberColumn} AS CHAR) = CAST(hri.room_number AS CHAR)
+          WHERE rr.${roomNumberColumn} IS NULL
         `
         : `
           SELECT
-            MIN(src.id) AS id,
-            src.roomNo AS roomNo,
-            MAX(src.roomStatus) AS roomStatus
-          FROM (
-            SELECT
-              r.id AS id,
-              ${roomsRoomNoExpr} AS roomNo,
-              ${roomStatusExpr} AS roomStatus
-            FROM rooms r
-            UNION ALL
-            SELECT
-              hk_base.id AS id,
-              CAST(hk_base.roomNo AS CHAR) AS roomNo,
-              COALESCE(NULLIF(hk_base.status, ''), 'Vacant Dirty') AS roomStatus
-            FROM housekeeping hk_base
-          ) src
-          GROUP BY src.roomNo
+            r.${roomNumberColumn} AS room_number,
+            ${roomStatusExpr} AS room_status
+          FROM rooms r
         `;
 
+      // roomIdSelectId is the housekeeping.id (preferred) so frontend PUTs hit
+      // the right row. If no housekeeping row exists yet, fall back to the
+      // synthetic numeric hash of the room number to still produce a usable id.
       const rows = await runQuery(`
         SELECT
-          COALESCE(hk.id, base.id) AS id,
-          base.roomNo AS roomNo,
+          hk.id AS id,
+          base.room_number AS roomNo,
           COALESCE(NULLIF(hk.type, ''), 'Accommodation') AS type,
           NULLIF(hk.building, '') AS building,
           NULLIF(hk.floor, '') AS floor,
@@ -521,9 +574,9 @@ const Housekeeping = {
           COALESCE(
             NULLIF(hk.status, ''),
             CASE
-              WHEN LOWER(${inventoryStatusExpr}) = 'occupied' THEN 'Occupied Dirty'
-              WHEN LOWER(${inventoryStatusExpr}) = 'cleaning' THEN 'Cleaning In Progress'
-              WHEN LOWER(${inventoryStatusExpr}) = 'out of service' THEN 'Out of Service'
+              WHEN LOWER(base.room_status) = 'occupied' THEN 'Occupied Dirty'
+              WHEN LOWER(base.room_status) = 'cleaning' THEN 'Cleaning In Progress'
+              WHEN LOWER(base.room_status) = 'out of service' THEN 'Out of Service'
               ELSE 'Vacant Clean'
             END
           ) AS status,
@@ -535,7 +588,7 @@ const Housekeeping = {
           NULLIF(hk.layout, '') AS layout,
           NULLIF(hk.articles, '') AS articles,
           NULLIF(hk.services, '') AS services,
-          ${inventoryStatusExpr} AS hotelStatus,
+          base.room_status AS hotelStatus,
           ${guestExpr} AS guest,
           ${checkInExpr} AS checkIn,
           ${checkOutExpr} AS checkOut,
@@ -549,22 +602,13 @@ const Housekeeping = {
           hk.verified_by_name AS verifiedByName,
           NULLIF(hk.pipeline_status, '') AS pipelineStatus
         FROM (
-          ${baseRoomsSql}
+          ${baseRoomListSql}
         ) base
-        LEFT JOIN (
-          SELECT hk1.*
-          FROM housekeeping hk1
-          INNER JOIN (
-            SELECT CAST(roomNo AS CHAR) AS roomNo, MAX(id) AS max_id
-            FROM housekeeping
-            GROUP BY CAST(roomNo AS CHAR)
-          ) latest_hk
-            ON latest_hk.max_id = hk1.id
-        ) hk
-          ON CAST(hk.roomNo AS CHAR) = base.roomNo
+        LEFT JOIN housekeeping hk
+          ON CAST(hk.roomNo AS CHAR) = CAST(base.room_number AS CHAR)
         ${assignmentJoin}
         ${inventoryJoin}
-        ORDER BY CAST(base.roomNo AS UNSIGNED), base.roomNo
+        ORDER BY CAST(base.room_number AS UNSIGNED), base.room_number
       `);
 
       const mapped = rows.map((room) => ({
@@ -801,18 +845,33 @@ const Housekeeping = {
 
   updateStatus: async (id, status, callback) => {
     try {
-      const oldRows = await runQuery(
-        "SELECT roomNo, status, assignee FROM housekeeping WHERE id = ? OR roomNo = ? LIMIT 1",
-        [id, id]
-      );
+      // Resolve the housekeeping row by id OR by trimmed roomNo, but if id is
+      // a non-numeric string (e.g. user passed a room number), prefer the
+      // explicit roomNo match to avoid type-coerce surprises on the INT column.
+      const numericId = /^\d+$/.test(String(id)) ? Number(id) : null;
+      let oldRows = [];
+      if (numericId !== null) {
+        oldRows = await runQuery(
+          "SELECT id, roomNo, status, assignee FROM housekeeping WHERE id = ? OR CAST(roomNo AS CHAR) = CAST(? AS CHAR) LIMIT 1",
+          [numericId, String(id)]
+        );
+      } else {
+        oldRows = await runQuery(
+          "SELECT id, roomNo, status, assignee FROM housekeeping WHERE CAST(roomNo AS CHAR) = CAST(? AS CHAR) LIMIT 1",
+          [String(id)]
+        );
+      }
       const oldRoom = oldRows[0];
+      const targetRoomNo = oldRoom?.roomNo || String(id);
 
       await runQuery(
-        "UPDATE housekeeping SET status = ? WHERE id = ? OR roomNo = ?",
-        [status, id, id]
+        `UPDATE housekeeping
+         SET status = ?
+         WHERE CAST(roomNo AS CHAR) = CAST(? AS CHAR)`,
+        [status, targetRoomNo]
       );
 
-      await syncOperationalStatus(oldRoom?.roomNo || String(id), status);
+      await syncOperationalStatus(targetRoomNo, status);
 
       await runQuery(
         `
@@ -821,14 +880,14 @@ const Housekeeping = {
         VALUES (?, ?, ?, ?)
       `,
         [
-          oldRoom?.roomNo || String(id),
+          targetRoomNo,
           oldRoom?.status || null,
           status,
           oldRoom?.assignee || null,
         ]
       );
 
-      callback(null, { message: "Status updated" });
+      callback(null, { message: "Status updated", roomNo: targetRoomNo });
     } catch (error) {
       callback(error);
     }

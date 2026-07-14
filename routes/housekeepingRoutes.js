@@ -6,7 +6,7 @@ const authMiddleware = require("../middleware/authMiddleware");
 const roleMiddleware = require("../middleware/roleMiddleware");
 
 const READERS = ["admin", "manager", "housekeeping", "receptionist", "kitchen"];
-const EDITORS = ["admin", "manager", "housekeeping"];
+const EDITORS = ["admin", "manager", "housekeeping", "receptionist"];
 const PARAMETER_EDITORS = ["admin", "manager"];
 
 router.use(ctrl.bootstrap);
@@ -14,6 +14,7 @@ router.use(authMiddleware);
 
 router.get("/", roleMiddleware(READERS), ctrl.getAllRooms);
 router.get("/logs", roleMiddleware(READERS), ctrl.getLogs);
+router.get("/notifications", roleMiddleware(READERS), ctrl.getNotifications);
 router.post("/", roleMiddleware(EDITORS), ctrl.createRoom);
 router.put("/:id", roleMiddleware(EDITORS), ctrl.updateRoom);
 router.put("/status/:id", roleMiddleware(EDITORS), ctrl.updateStatus);
@@ -24,6 +25,7 @@ router.get("/parameters", roleMiddleware(READERS), ctrl.getParameters);
 router.post("/parameters", roleMiddleware(PARAMETER_EDITORS), ctrl.saveParameters);
 
 router.post("/message", roleMiddleware(EDITORS), ctrl.sendMessage);
+router.put("/notifications/:id/complete", roleMiddleware(["admin", "manager", "housekeeping"]), ctrl.completeNotification);
 
 router.get("/amenities", roleMiddleware(READERS), ctrl.getAmenities);
 router.post("/amenities", roleMiddleware(EDITORS), ctrl.logAmenity);
@@ -50,3 +52,5 @@ router.get("/completed-cleaning", roleMiddleware(READERS), ctrl.getCompletedClea
 router.post("/completed-cleaning", roleMiddleware(EDITORS), ctrl.createCompletedCleaningLog);
 
 module.exports = router;
+
+
