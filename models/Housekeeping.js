@@ -221,11 +221,39 @@ const ensureSchema = async () => {
       id INT NOT NULL AUTO_INCREMENT,
       room_id VARCHAR(100) NULL,
       room_no VARCHAR(100) NULL,
+      assigned_to VARCHAR(255) NULL,
+      receptionist VARCHAR(255) NULL,
       message TEXT NOT NULL,
+      task_label VARCHAR(255) NULL,
+      due_at DATETIME NULL,
+      status VARCHAR(60) NOT NULL DEFAULT 'New',
+      completed_at DATETIME NULL,
       sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (id)
+      PRIMARY KEY (id),
+      INDEX idx_hk_messages_assigned_to (assigned_to),
+      INDEX idx_hk_messages_status (status),
+      INDEX idx_hk_messages_sent_at (sent_at)
     )
   `);
+
+  if (!(await columnExists("hk_messages", "assigned_to"))) {
+    await runQuery("ALTER TABLE hk_messages ADD COLUMN assigned_to VARCHAR(255) NULL AFTER room_no");
+  }
+  if (!(await columnExists("hk_messages", "receptionist"))) {
+    await runQuery("ALTER TABLE hk_messages ADD COLUMN receptionist VARCHAR(255) NULL AFTER assigned_to");
+  }
+  if (!(await columnExists("hk_messages", "task_label"))) {
+    await runQuery("ALTER TABLE hk_messages ADD COLUMN task_label VARCHAR(255) NULL AFTER message");
+  }
+  if (!(await columnExists("hk_messages", "due_at"))) {
+    await runQuery("ALTER TABLE hk_messages ADD COLUMN due_at DATETIME NULL AFTER task_label");
+  }
+  if (!(await columnExists("hk_messages", "status"))) {
+    await runQuery("ALTER TABLE hk_messages ADD COLUMN status VARCHAR(60) NOT NULL DEFAULT 'New' AFTER due_at");
+  }
+  if (!(await columnExists("hk_messages", "completed_at"))) {
+    await runQuery("ALTER TABLE hk_messages ADD COLUMN completed_at DATETIME NULL AFTER status");
+  }
 
   await runQuery(`
     CREATE TABLE IF NOT EXISTS hk_amenities_consumption (
@@ -810,3 +838,4 @@ const Housekeeping = {
 };
 
 module.exports = Housekeeping;
+
