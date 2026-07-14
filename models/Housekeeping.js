@@ -186,6 +186,44 @@ const ensureSchema = async () => {
     `);
   }
 
+  // Pipeline + actor columns for Assigned -> In Progress -> Completed -> Verified flow.
+  // All nullable / NULL-tolerant so legacy rows and old callers keep behaving as today.
+  if (!(await columnExists("housekeeping", "assignee_user_id"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN assignee_user_id INT NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "assigned_at"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN assigned_at DATETIME NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "assigned_by_user_id"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN assigned_by_user_id INT NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "started_at"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN started_at DATETIME NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "completed_at"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN completed_at DATETIME NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "verified_at"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN verified_at DATETIME NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "verified_by_user_id"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN verified_by_user_id INT NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "verified_by_name"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN verified_by_name VARCHAR(120) NULL");
+  }
+
+  if (!(await columnExists("housekeeping", "pipeline_status"))) {
+    await runQuery("ALTER TABLE housekeeping ADD COLUMN pipeline_status VARCHAR(40) NULL");
+  }
+
   await runQuery(`
     CREATE TABLE IF NOT EXISTS housekeeping_logs (
       id INT NOT NULL AUTO_INCREMENT,
@@ -500,7 +538,16 @@ const Housekeeping = {
           ${inventoryStatusExpr} AS hotelStatus,
           ${guestExpr} AS guest,
           ${checkInExpr} AS checkIn,
-          ${checkOutExpr} AS checkOut
+          ${checkOutExpr} AS checkOut,
+          hk.assignee_user_id AS assigneeUserId,
+          hk.assigned_at AS assignedAt,
+          hk.assigned_by_user_id AS assignedByUserId,
+          hk.started_at AS startedAt,
+          hk.completed_at AS completedAt,
+          hk.verified_at AS verifiedAt,
+          hk.verified_by_user_id AS verifiedByUserId,
+          hk.verified_by_name AS verifiedByName,
+          NULLIF(hk.pipeline_status, '') AS pipelineStatus
         FROM (
           ${baseRoomsSql}
         ) base
@@ -542,6 +589,16 @@ const Housekeeping = {
         guest: room.guest || "",
         checkIn: room.checkIn || null,
         checkOut: room.checkOut || null,
+        // pipeline fields (Assigned -> In Progress -> Completed -> Verified)
+        assigneeUserId: room.assigneeUserId || null,
+        assignedAt: room.assignedAt || null,
+        assignedByUserId: room.assignedByUserId || null,
+        startedAt: room.startedAt || null,
+        completedAt: room.completedAt || null,
+        verifiedAt: room.verifiedAt || null,
+        verifiedByUserId: room.verifiedByUserId || null,
+        verifiedByName: room.verifiedByName || "",
+        pipelineStatus: room.pipelineStatus || null,
       }));
 
       callback(null, mapped);
@@ -580,7 +637,11 @@ const Housekeeping = {
           UPDATE housekeeping
           SET type = ?, building = ?, floor = ?, section = ?, guestStatus = ?, roomType = ?,
               status = ?, assignee = ?, priority = ?, notes = ?, cleaningStart = ?, cleaningEnd = ?,
-              layout = ?, articles = ?, services = ?
+              layout = ?, articles = ?, services = ?,
+              assignee_user_id = NULL, assigned_at = NULL, assigned_by_user_id = NULL,
+              started_at = NULL, completed_at = NULL,
+              verified_at = NULL, verified_by_user_id = NULL, verified_by_name = NULL,
+              pipeline_status = NULL
           WHERE roomNo = ?
         `,
           [
@@ -773,11 +834,34 @@ const Housekeeping = {
     }
   },
 
-  updateAssignee: async (id, assignee, callback) => {
+  // Now accepts optional userId (assignee_user_id) and assignedByUserId so the
+  // pipeline (claim/assign step) can track who is assigned and who assigned them.
+  // Backward-compatible: existing callers passing only (id, assignee, callback)
+  // keep working unchanged because updateAssignee(id, assignee, callback) is
+  // still a valid call shape (options defaults to {}).
+  updateAssignee: async (id, assignee, options, callback) => {
+    // Support legacy signature: updateAssignee(id, assignee, callback)
+    if (typeof options === "function") {
+      callback = options;
+      options = {};
+    }
+    options = options || {};
+
     try {
+      const userId = options.userId ?? null;
+      const assignedByUserId = options.assignedByUserId ?? null;
+
       await runQuery(
-        "UPDATE housekeeping SET assignee = ? WHERE id = ? OR roomNo = ?",
-        [assignee, id, id]
+        `
+        UPDATE housekeeping
+        SET assignee = ?,
+            assignee_user_id = ?,
+            assigned_at = NOW(),
+            assigned_by_user_id = ?,
+            pipeline_status = 'Assigned'
+        WHERE id = ? OR roomNo = ?
+      `,
+        [assignee, userId, assignedByUserId, id, id]
       );
 
       callback(null, { message: "Assignee updated" });
