@@ -13,6 +13,7 @@
 const Invoice = require("../models/InvoiceModel");
 const WhatsAppService = require("../services/whatsappService");
 const InvoicePdfService = require("../services/invoicePdfService");
+const UserModel = require("../models/userModel");
 
 /**
  * Resolve the public base URL for serving invoice PDFs.
@@ -72,37 +73,64 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
     const publicBase = getPublicBaseUrl();
     const fileUrl = `${publicBase}/uploads/invoices/${pdfResult.fileName}`;
 
-    // 4. Use the high-level helper to send to customer + admin
+    // 3a. Resolve admin number: request body → DB lookup (prefer admin WITH phone) → empty
+    let adminNumber = req.body?.adminNumber || "";
+    if (!adminNumber) {
+      try {
+        const adminRow = await new Promise((resolve, reject) => {
+          UserModel.findAdminWithPhone((err, row) => (err ? reject(err) : resolve(row)));
+        });
+        adminNumber = adminRow?.phone || "";
+        if (adminNumber) {
+          console.log(`[send-whatsapp] Resolved admin number from DB: +${adminNumber} (admin id: ${adminRow?.id})`);
+        } else {
+          console.warn("[send-whatsapp] No admin user has a phone number set in the database");
+        }
+      } catch (err) {
+        console.error("[send-whatsapp] DB lookup for admin phone failed:", err.message);
+      }
+    } else {
+      console.log(`[send-whatsapp] Using admin number from request body: +${adminNumber}`);
+    }
+
+    // 4. Use the high-level helper to send to customer + admin (WhatsApp + SMS)
     const { customer, admin } = await WhatsAppService.sendInvoiceNotifications(
       invoice,
       { fileUrl, fileName: pdfResult.fileName },
       {
         customerNumber: req.body?.customerNumber,
-        adminNumber: req.body?.adminNumber,
+        adminNumber,
         customerMessage: req.body?.customerMessage,
         adminMessage: req.body?.adminMessage,
       },
     );
 
+    // New shape: {customer:{whatsapp, sms}, admin:{whatsapp, sms}}
+    const customerWaOk = customer?.whatsapp?.ok || customer?.whatsapp?.skipped;
+    const customerSmsOk = customer?.sms?.ok || customer?.sms?.skipped;
+    const adminWaOk = !admin?.whatsapp || admin.whatsapp.ok || admin.whatsapp.skipped;
+    const adminSmsOk = !admin?.sms || admin.sms.ok || admin.sms.skipped;
+
     const allOk =
-      customer && customer.ok &&
-      (!admin || admin.ok || admin.skipped);
+      customerWaOk && customerSmsOk && adminWaOk && adminSmsOk;
 
     const statusCode = allOk ? 200 : 207;
 
     res.status(statusCode).json({
       message: allOk
-        ? "Invoice WhatsApp message sent successfully"
-        : "Invoice WhatsApp message sent with some failures",
+        ? "Invoice sent to customer and admin via WhatsApp + SMS"
+        : "Invoice sent with some failures (check individual channel results)",
       bookingId,
       invoiceNo: invoice.invoiceNo,
       customer: {
         number: WhatsAppService.normalizePhoneNumber(invoice.phone),
-        result: customer,
+        whatsapp: customer?.whatsapp,
+        sms: customer?.sms,
       },
       admin: {
-        number: WhatsAppService.normalizePhoneNumber(admin.number || ""),
-        result: admin,
+        number: adminNumber || "",
+        whatsapp: admin?.whatsapp,
+        sms: admin?.sms,
       },
       fileUrl,
     });
