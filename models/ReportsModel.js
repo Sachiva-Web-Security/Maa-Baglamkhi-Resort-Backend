@@ -231,56 +231,59 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
 const getSummaryCounts = async () => {
   const results = {};
 
-  const tasks = [
-    {
-      key: "totalRooms",
-      choose: async () => {
-        if (await tableExists("hotel_room_inventory")) return "hotel_room_inventory";
-        if (await tableExists("housekeeping")) return "housekeeping";
-        return "rooms";
-      },
-      makeSql: (table) => `SELECT COUNT(*) as c FROM \`${table}\``,
-    },
-    {
-      key: "hotelBookings",
-      choose: async () => {
-        if (await tableExists("guests")) return "guests";
-        return "hotel_bookings";
-      },
-      makeSql: (table) => `SELECT COUNT(*) as c FROM \`${table}\``,
-    },
-    { key: "accountsTransactions", sql: "SELECT COUNT(*) as c FROM accounts_transactions" },
-    { key: "banquetBookings", sql: "SELECT COUNT(*) as c FROM banquet_bookings" },
-    {
-      key: "restaurantBills",
-      choose: async () => {
-        const exists = await tableExists("restaurant_bills");
-        return exists ? "restaurant_bills" : "bills";
-      },
-      makeSql: (table) => `SELECT COUNT(*) as c FROM \`${table}\``,
-    },
-    {
-      key: "attendanceRecords",
-      choose: async () => {
-        const exists = await tableExists("attendance");
-        return exists ? "attendance" : "attendance_records";
-      },
-      makeSql: (table) => `SELECT COUNT(*) as c FROM \`${table}\``,
-    },
-  ];
-
-  for (const t of tasks) {
-    if (t.sql) {
-      const rows = await runQuery(t.sql);
-      results[t.key] = rows?.[0]?.c || 0;
-      continue;
+  const safeCount = async (sql, params = []) => {
+    try {
+      const rows = await runQuery(sql, params);
+      return rows?.[0]?.c || 0;
+    } catch (err) {
+      // Table missing or transient DB issue — surface 0 instead of crashing the endpoint
+      console.warn(`[reports/summary] skipped count for "${sql}": ${err.code || err.message}`);
+      return 0;
     }
+  };
 
-    const table = await t.choose();
-    const sql = t.makeSql(table);
-    const rows = await runQuery(sql);
-    results[t.key] = rows?.[0]?.c || 0;
-  }
+  const pickTable = async (candidates, fallback) => {
+    for (const name of candidates) {
+      try {
+        const exists = await tableExists(name);
+        if (exists) return name;
+      } catch (err) {
+        // ignore — keep trying
+      }
+    }
+    return fallback;
+  };
+
+  const [
+    totalRoomsTable,
+    hotelBookingsTable,
+    restaurantTable,
+    attendanceTable,
+  ] = await Promise.all([
+    pickTable(["hotel_room_inventory", "housekeeping", "rooms"], null),
+    pickTable(["guests", "hotel_bookings"], null),
+    pickTable(["restaurant_bills", "bills"], null),
+    pickTable(["attendance", "attendance_records"], null),
+  ]);
+
+  results.totalRooms = totalRoomsTable
+    ? await safeCount(`SELECT COUNT(*) as c FROM \`${totalRoomsTable}\``)
+    : 0;
+  results.hotelBookings = hotelBookingsTable
+    ? await safeCount(`SELECT COUNT(*) as c FROM \`${hotelBookingsTable}\``)
+    : 0;
+  results.accountsTransactions = await safeCount(
+    "SELECT COUNT(*) as c FROM accounts_transactions",
+  );
+  results.banquetBookings = await safeCount(
+    "SELECT COUNT(*) as c FROM banquet_bookings",
+  );
+  results.restaurantBills = restaurantTable
+    ? await safeCount(`SELECT COUNT(*) as c FROM \`${restaurantTable}\``)
+    : 0;
+  results.attendanceRecords = attendanceTable
+    ? await safeCount(`SELECT COUNT(*) as c FROM \`${attendanceTable}\``)
+    : 0;
 
   return results;
 };
