@@ -229,32 +229,35 @@ exports.addMenuItem = async (req, res) => {
     return res.status(403).json({ message: "Waiter cannot create menu items" });
   }
 
-  const name = req.body.name;
-  const price = Number(req.body.price);
-  const category = req.body.category || "Others";
-  const tableNumber = req.body.tableNumber || null;
-  const tax = Number(req.body.tax || 5);
-  const description = req.body.description || null;
-  const foodType = req.body.foodType || "Veg";
-  const status = req.body.status || "Available";
-
-  if (!name || !price) return res.status(400).json({ message: "Name and price required" });
-
-  let imageUrl = null;
-  if (req.file) {
-    imageUrl = `/uploads/${req.file.filename}`;
-  } else if (req.body.imageUrl) {
-    imageUrl = req.body.imageUrl;
-  }
-
   try {
+    await Restaurant.ensureSchema();
+
+    const name = req.body.name;
+    const price = Number(req.body.price);
+    const category = req.body.category || "Others";
+    const tableNumber = req.body.tableNumber || null;
+    const tax = Number(req.body.tax || 5);
+    const description = req.body.description || null;
+    const foodType = req.body.foodType || "Veg";
+    const status = req.body.status || "Available";
+
+    if (!name || !price) return res.status(400).json({ message: "Name and price required" });
+
+    let imageUrl = null;
+    if (req.file) {
+      imageUrl = `/uploads/${req.file.filename}`;
+    } else if (req.body.imageUrl) {
+      imageUrl = req.body.imageUrl;
+    }
+
     const result = await q(
       "INSERT INTO menu_items (name, price, category, table_number, image_url, description, food_type, status, tax) VALUES (?,?,?,?,?,?,?,?,?)",
       [name, price, category, tableNumber, imageUrl, description, foodType, status, tax]
     );
     res.json({ id: result.insertId, name, price, category, imageUrl, message: "Menu item added" });
   } catch (err) {
-    res.status(500).json({ message: "Failed to add menu item", error: err.message });
+    console.error("🔥 ADD MENU ITEM ERROR:", err.sqlMessage || err.message);
+    res.status(500).json({ message: "Failed to add menu item", error: err.sqlMessage || err.message });
   }
 };
 

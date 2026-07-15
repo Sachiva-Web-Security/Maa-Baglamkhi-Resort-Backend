@@ -514,6 +514,7 @@ exports.getAllBookings = async (_req, res) => {
         DATE_FORMAT(g.check_out, '%Y-%m-%d') AS check_out,
         g.booking_status,
         c.company_name,
+        ob.booking_type AS bookingType,
         COALESCE(rt.totalAmount, 0) AS totalAmount,
         IFNULL(a.amount, 0) AS paidAmount,
         IFNULL(a.discount_amount, 0) AS discountAmount,
@@ -532,19 +533,24 @@ exports.getAllBookings = async (_req, res) => {
         FROM companies
         GROUP BY booking_id
       ) c ON g.id = c.booking_id
+      LEFT JOIN (
+        SELECT guest_id, MAX(booking_type) AS booking_type
+        FROM other_booking
+        GROUP BY guest_id
+      ) ob ON g.id = ob.guest_id
       LEFT JOIN advance_payment a ON g.id = a.booking_id
       LEFT JOIN (
         SELECT
           booking_id,
           COALESCE(SUM(total), 0) AS totalAmount,
-          GROUP_CONCAT(DISTINCT CAST(room_number AS CHAR) ORDER BY room_number SEPARATOR ' || ') AS rooms
+          GROUP_CONCAT(DISTINCT CAST(room_number AS CHAR) ORDER BY room_number SEPARATOR ', ') AS rooms
         FROM room_tariff
         GROUP BY booking_id
       ) rt ON g.id = rt.booking_id
       LEFT JOIN (
         SELECT
           booking_id,
-          GROUP_CONCAT(DISTINCT CAST(room_number AS CHAR) ORDER BY room_number SEPARATOR ' || ') AS rooms
+          GROUP_CONCAT(DISTINCT CAST(room_number AS CHAR) ORDER BY room_number SEPARATOR ', ') AS rooms
         FROM pax
         WHERE NULLIF(TRIM(CAST(room_number AS CHAR)), '') IS NOT NULL
         GROUP BY booking_id
