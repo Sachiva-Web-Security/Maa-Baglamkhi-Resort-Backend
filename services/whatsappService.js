@@ -232,19 +232,13 @@ const sendWhatsAppBroadcast = async (recipients, payload) => {
  * High-level helper used by the booking / payment controllers.
  *
  * Sends WhatsApp + SMS to the customer, and WhatsApp + SMS notification to the admin.
+ * If adminNumber is not provided, admin notifications are skipped but customer
+ * notifications still go through.
  */
 const sendInvoiceNotifications = async (invoice, attachment, options = {}) => {
   const customerNumber =
     options.customerNumber || invoice.phone || "";
   const adminNumber = options.adminNumber || "";
-
-  if (!adminNumber) {
-    return {
-      customer: { skipped: true, reason: "No admin WhatsApp number configured. Please set your phone number in Profile." },
-      admin:    { skipped: true, reason: "No admin WhatsApp number configured." },
-    };
-  }
-
   const guestName = invoice.customerName || "Valued Guest";
   const total = `₹ ${(invoice.totalAmount || 0).toFixed(2)}`;
   const invoiceNo = invoice.invoiceNo || `#${invoice.bookingId || invoice.customerId || ""}`;

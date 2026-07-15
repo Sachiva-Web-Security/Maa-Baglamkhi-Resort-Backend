@@ -6,7 +6,6 @@ const SECTION_DEFINITIONS = {
     required: ["name"],
     fields: [
       { key: "name", column: "name" },
-      { key: "parent", column: "parent" },
       { key: "status", column: "status" },
     ],
   },
@@ -129,7 +128,6 @@ const CREATE_STATEMENTS = [
     CREATE TABLE IF NOT EXISTS inventory_menu_categories (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
-      parent VARCHAR(255) NULL,
       status VARCHAR(60) NOT NULL DEFAULT 'Active',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP

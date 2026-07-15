@@ -6,6 +6,7 @@ const helmet = require("helmet");
 const path = require("path");
 const http = require("http");
 const { Server } = require("socket.io");
+const cookieParser = require("cookie-parser");
 
 const db = require("./config/db");
 const { getDbConnectionLabel } = require("./config/databaseConfig");
@@ -101,6 +102,7 @@ app.use(
 );
 app.use(cors(corsOptions));
 app.use(express.json());
+app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 app.use("/api", (req, res, next) => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
@@ -134,6 +136,7 @@ app.use("/api/invoices", invoiceRoutes);
 app.use("/api/invoice", invoiceRoutes);
 
 app.use("/api/kitchen", require("./routes/kitchenRoutes"));
+app.use("/api/notifications", require("./routes/notificationRoutes"));
 app.use("/api/inventory", require("./routes/inventoryRoutes"));
 app.use("/api/inventory-masters", require("./routes/inventoryMastersRoutes"));
 app.use("/api/menu-recipes", require("./routes/menuRecipeRoutes"));

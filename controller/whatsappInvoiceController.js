@@ -73,7 +73,7 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
     const publicBase = getPublicBaseUrl();
     const fileUrl = `${publicBase}/uploads/invoices/${pdfResult.fileName}`;
 
-    // 3a. Resolve admin number: request body → DB lookup (prefer admin WITH phone) → empty
+    // 3a. Resolve admin number: request body → DB lookup (prefer admin WITH phone) → env fallback → empty
     let adminNumber = req.body?.adminNumber || "";
     console.log("[send-whatsapp] adminNumber from request body:", adminNumber || "(empty)");
     if (!adminNumber) {
@@ -88,6 +88,13 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
       }
     } else {
       console.log("[send-whatsapp] Using admin number from request body:", adminNumber);
+    }
+
+    // Last-resort fallback: env-defined ADMIN_WHATSAPP_NUMBER so the admin
+    // still receives the invoice even if no one has filled Profile yet.
+    if (!adminNumber && process.env.ADMIN_WHATSAPP_NUMBER) {
+      adminNumber = process.env.ADMIN_WHATSAPP_NUMBER;
+      console.log("[send-whatsapp] using ADMIN_WHATSAPP_NUMBER from env:", adminNumber);
     }
     console.log("[send-whatsapp] Final adminNumber passed to service:", adminNumber || "(empty)");
 
