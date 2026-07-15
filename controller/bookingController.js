@@ -11,6 +11,68 @@ const Paymentadvance = require("../models/Paymentadvance");
 const InvoiceModel = require("../models/InvoiceModel");
 const roomInventoryModel = require("../models/hotelRoomInventoryModel");
 
+// WhatsApp helpers — wrapped in try/catch so failures never break the booking flow.
+let WhatsAppService;
+let InvoicePdfService;
+let UserModel;
+try {
+  WhatsAppService = require("../services/whatsappService");
+} catch (e) {
+  WhatsAppService = null;
+}
+try {
+  InvoicePdfService = require("../services/invoicePdfService");
+} catch (e) {
+  InvoicePdfService = null;
+}
+
+const fireWhatsAppInvoice = async (bookingId) => {
+  if (!WhatsAppService || !InvoicePdfService) return;
+  try {
+    const invoice = await InvoiceModel.generateCustomerInvoice(Number(bookingId));
+    if (!invoice) return;
+    const pdf = await InvoicePdfService.generateInvoicePdf(invoice);
+    const publicBase =
+      (process.env.PUBLIC_BASE_URL || process.env.CLIENT_URL || `http://localhost:${process.env.PORT || 5002}`).replace(/\/+$/, "");
+    const fileUrl = `${publicBase}/uploads/invoices/${pdf.fileName}`;
+    const guestName = invoice.customerName || "Valued Guest";
+    const message = `Dear ${guestName},\n\nThank you for staying at Maa Baglamukhi Resort.\n\nYour invoice ${invoice.invoiceNo || ""} is attached.\nTotal: ₹${invoice.totalAmount?.toFixed(2) || "0.00"}\n\nRegards,\nMaa Baglamukhi Resort`;
+    const customer = WhatsAppService.normalizePhoneNumber(invoice.phone);
+    if (customer) {
+      await WhatsAppService.sendWhatsAppMessage({
+        number: customer,
+        message,
+        fileUrl,
+        fileName: pdf.fileName,
+      });
+    }
+    // Resolve admin phone from register table (not from env/ADMIN_WHATSAPP_NUMBER)
+    let adminNumber = "";
+    try {
+      if (!UserModel) UserModel = require("../models/userModel");
+      const adminRows = await new Promise((resolve, reject) => {
+        UserModel.findAdminUser((err, rows) => (err ? reject(err) : resolve(rows)));
+      });
+      adminNumber = adminRows?.[0]?.phone || "";
+    } catch (e) {
+      // ignore — admin will be skipped
+    }
+    if (adminNumber) {
+      const adminMsg = `Invoice sent to ${guestName} for booking ${invoice.invoiceNo || bookingId}. Total: ₹${invoice.totalAmount?.toFixed(2) || "0.00"}`;
+      await WhatsAppService.sendWhatsAppMessage({
+        number: adminNumber,
+        message: adminMsg,
+        fileUrl,
+        fileName: pdf.fileName,
+      });
+    }
+  } catch (err) {
+    if (process.env.NODE_ENV !== "test") {
+      console.error("[WhatsApp] auto-send failed for booking", bookingId, err.message);
+    }
+  }
+};
+
 const query = (sql, params = []) =>
   new Promise((resolve, reject) => {
     db.query(sql, params, (error, results) => {
@@ -287,9 +349,70 @@ exports.createGuest = (req, res) => {
       return res.status(500).json({ message: "Guest creation failed" });
     }
 
+    const bookingId = result.insertId;
+    const wantsAutoInvoice =
+      String(req.body?.sendInvoice || "").toLowerCase() === "true" ||
+      req.body?.sendInvoice === true ||
+      req.body?.sendInvoice === 1;
+
+    // Auto-send WhatsApp invoice to customer + admin if requested.
+    // Runs in the background; does NOT block the response.
+    if (bookingId && wantsAutoInvoice) {
+      setImmediate(async () => {
+        try {
+          const Invoice = require("../models/InvoiceModel");
+          const InvoicePdf = require("../services/invoicePdfService");
+          const WhatsApp = require("../services/whatsappService");
+          const UserModel = require("../models/userModel");
+
+          const invoice = await Invoice.generateCustomerInvoice(bookingId);
+          if (!invoice) return;
+
+          const pdf = await InvoicePdf.generateInvoicePdf(invoice);
+          const publicBase =
+            (process.env.PUBLIC_BASE_URL ||
+              process.env.PUBLIC_URL ||
+              process.env.CLIENT_URL ||
+              `http://localhost:${process.env.PORT || 5002}`
+            ).replace(/\/+$/, "");
+          const fileUrl = `${publicBase}/uploads/invoices/${pdf.fileName}`;
+
+          // Resolve admin's WhatsApp number from their profile (register.phone)
+          let adminNumber = "";
+          try {
+            const adminRows = await new Promise((resolve, reject) => {
+              UserModel.findAdminUser((err, rows) =>
+                err ? reject(err) : resolve(rows),
+              );
+            });
+            adminNumber = adminRows?.[0]?.phone || "";
+          } catch (e) {
+            // ignore — service will return a "no admin number" reason
+          }
+
+          await WhatsApp.sendInvoiceNotifications(
+            invoice,
+            { fileUrl, fileName: pdf.fileName },
+            { adminNumber },
+          );
+          if (process.env.NODE_ENV !== "test") {
+            console.log(
+              `[auto-whatsapp] invoice ${invoice.invoiceNo || bookingId} delivered`,
+            );
+          }
+        } catch (autoErr) {
+          console.error(
+            "[auto-whatsapp] auto-send failed for booking",
+            bookingId,
+            autoErr.message || autoErr,
+          );
+        }
+      });
+    }
+
     res.json({
       message: "Guest Created",
-      bookingId: result.insertId,
+      bookingId,
       bookingCode: result.bookingCode,
     });
   });
@@ -720,6 +843,11 @@ exports.updateAdvance = (req, res) => {
           }
 
           InvoiceModel.generateCustomerInvoice(Number(req.params.id))
+            .then(() => fireWhatsAppInvoice(req.params.id).catch((err) => {
+              if (process.env.NODE_ENV !== "test") {
+                console.error("[WhatsApp] fire-after-payment error:", err.message);
+              }
+            }))
             .then(() =>
               res.json({
                 message: "Payment Added + History Saved",

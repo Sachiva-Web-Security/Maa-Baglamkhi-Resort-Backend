@@ -56,7 +56,105 @@ exports.updateInvoicePaymentStatus = async (req, res) => {
   }
 
   try {
+    // Fetch existing invoice to know whether WhatsApp should fire
+    const invoiceRow = await new Promise((resolve, reject) => {
+      Invoice.getInvoiceByBookingId(req.params.id, (err, row) => {
+        if (err) return reject(err);
+        resolve(row || null);
+      });
+    });
+
     await Invoice.updatePaymentStatus(req.params.id, paymentStatus);
+
+    // Auto-send WhatsApp invoice if payment is now Paid/Completed
+    const normalized = String(paymentStatus || "").trim().toLowerCase();
+    const shouldNotify = normalized === "paid" || normalized === "completed";
+
+    if (shouldNotify && invoiceRow) {
+      setImmediate(async () => {
+        try {
+          const { generateInvoicePdf } = require("../services/invoicePdfService");
+          const WhatsApp = require("../services/whatsappService");
+          const UserModel = require("../models/userModel");
+
+          const invoice = await new Promise((resolve) => {
+            Invoice.getInvoiceByBookingId(req.params.id, (err, row) => {
+              if (err) return resolve(null);
+              resolve(row || null);
+            });
+          });
+
+          if (!invoice) return;
+
+          // Try to generate PDF
+          let fileUrl = null;
+          let fileName = null;
+          try {
+            const pdf = await generateInvoicePdf(invoice);
+            const publicBase =
+              (process.env.PUBLIC_BASE_URL ||
+                process.env.PUBLIC_URL ||
+                process.env.CLIENT_URL ||
+                `http://localhost:${process.env.PORT || 5002}`
+              ).replace(/\/+$/, "");
+            fileUrl = `${publicBase}/uploads/invoices/${pdf.fileName}`;
+            fileName = pdf.fileName;
+          } catch (pdfErr) {
+            // PDF generation failed; send text-only
+            if (process.env.NODE_ENV !== "test") {
+              console.warn(
+                `[auto-whatsapp] PDF generation failed for invoice #${invoice.invoice_no || invoice.id}:`,
+                pdfErr.message || pdfErr,
+              );
+            }
+          }
+
+          // Resolve admin's WhatsApp number
+          let adminNumber = "";
+          try {
+            const adminRows = await new Promise((resolve, reject) => {
+              UserModel.findAdminUser((err, rows) =>
+                err ? reject(err) : resolve(rows),
+              );
+            });
+            adminNumber = adminRows?.[0]?.phone || "";
+          } catch (e) {
+            // ignore — service will note no admin number
+          }
+
+          const attachment = fileUrl
+            ? { fileUrl, fileName }
+            : undefined;
+
+          await WhatsApp.sendInvoiceNotifications(
+            {
+              customerName: invoice.customer_name || "Guest",
+              phone: invoice.phone || "",
+              totalAmount: Number(invoice.total_amount || 0),
+              invoiceNo: invoice.invoice_no || `#${invoice.id}`,
+              checkIn: invoice.check_in || "",
+              checkOut: invoice.check_out || "",
+              paymentStatus: String(invoice.payment_status || "").trim(),
+            },
+            attachment,
+            { adminNumber },
+          );
+
+          if (process.env.NODE_ENV !== "test") {
+            console.log(
+              `[auto-whatsapp] invoice #${invoice.invoice_no || invoice.id} (status: ${paymentStatus}) delivered`,
+            );
+          }
+        } catch (autoErr) {
+          console.error(
+            "[auto-whatsapp] auto-send failed for invoice #",
+            req.params.id,
+            autoErr.message || autoErr,
+          );
+        }
+      });
+    }
+
     res.json({ message: "Payment status updated successfully" });
   } catch (error) {
     res.status(500).json({ error: error.message || "Failed to update payment status" });

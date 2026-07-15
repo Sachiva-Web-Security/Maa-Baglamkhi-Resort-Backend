@@ -9,6 +9,8 @@ const roomBlockController    = require("../controller/roomBlockController");
 const guestDocumentController = require("../controller/guestDocumentController");
 const guestProfileController = require("../controller/guestProfileController");
 const groupBookingController = require("../controller/groupBookingController");
+const whatsappInvoiceController = require("../controller/whatsappInvoiceController");
+const guestController = require("../controller/guestController");
 const authMiddleware = require("../middleware/authMiddleware");
 const roleMiddleware = require("../middleware/roleMiddleware");
 
@@ -69,6 +71,16 @@ router.use("/room-block", roomBlockRouter);
 router.get("/guest-profile",           guestProfileController.search);
 router.get("/guest-documents/:bookingId", guestDocumentController.listByBooking);
 router.post("/guest-documents/:bookingId", upload.single("document"), guestDocumentController.uploadByBooking);
+
+// WhatsApp invoice send
+router.post("/invoice/send-whatsapp/:bookingId", whatsappInvoiceController.sendInvoiceWhatsApp);
+
+// Admin-only guest phone update
+const guestAdminRouter = express.Router();
+guestAdminRouter.use(authMiddleware);
+guestAdminRouter.use(roleMiddleware(["admin"]));
+guestAdminRouter.put("/phone/:bookingId", guestController.updateGuestPhone);
+router.use("/guest", guestAdminRouter);
 
 // Group Booking
 router.post("/group-booking",          groupBookingController.create);
