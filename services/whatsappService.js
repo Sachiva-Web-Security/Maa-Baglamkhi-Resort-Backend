@@ -231,17 +231,7 @@ const sendWhatsAppBroadcast = async (recipients, payload) => {
 /**
  * High-level helper used by the booking / payment controllers.
  *
- * Sends a WhatsApp message + PDF attachment to the customer, and a
- * notification copy to the admin.
- *
- * @param {object} invoice       – invoice payload (must include customerName, phone, totalAmount, etc.)
- * @param {object} attachment    – { fileUrl, fileName }
- * @param {object} [options]
- * @param {string} [options.adminNumber]  admin WhatsApp number (required; from register.phone)
- * @param {string} [options.customerNumber] override customer number
- * @param {string} [options.customerMessage]
- * @param {string} [options.adminMessage]
- * @returns {Promise<{customer:object, admin:object}>}
+ * Sends WhatsApp + SMS to the customer, and WhatsApp + SMS notification to the admin.
  */
 const sendInvoiceNotifications = async (invoice, attachment, options = {}) => {
   const customerNumber =
@@ -267,10 +257,10 @@ const sendInvoiceNotifications = async (invoice, attachment, options = {}) => {
     options.adminMessage ||
     `New invoice generated for booking ${invoiceNo}.\nGuest: ${guestName}\nPhone: ${customerNumber || "N/A"}\nTotal: ${total}\nStatus: ${invoice.paymentStatus || "Pending"}`;
 
-  // ── Send to customer ────────────────────────────────────────────────
-  let customer = { skipped: true, reason: "No customer phone number" };
+  // ── Send WhatsApp to customer ──────────────────────────────
+  let customerWa = { skipped: true, reason: "No customer phone number" };
   if (customerNumber) {
-    customer = await sendWhatsAppMessage({
+    customerWa = await sendWhatsAppMessage({
       number: customerNumber,
       message: customerMessage,
       fileUrl: attachment?.fileUrl,
@@ -278,10 +268,19 @@ const sendInvoiceNotifications = async (invoice, attachment, options = {}) => {
     });
   }
 
-  // ── Send to admin ──────────────────────────────────────────────────
-  let admin = { skipped: true, reason: "Admin number not configured" };
+  // ── Send SMS to customer ───────────────────────────────────
+  let customerSms = { skipped: true, reason: "No customer phone number" };
+  if (customerNumber) {
+    customerSms = await sendSmsMessage({
+      number: customerNumber,
+      message: customerMessage,
+    });
+  }
+
+  // ── Send WhatsApp to admin ─────────────────────────────────
+  let adminWa = { skipped: true, reason: "Admin number not configured" };
   if (adminNumber) {
-    admin = await sendWhatsAppMessage({
+    adminWa = await sendWhatsAppMessage({
       number: adminNumber,
       message: adminMessage,
       fileUrl: attachment?.fileUrl,
@@ -289,7 +288,19 @@ const sendInvoiceNotifications = async (invoice, attachment, options = {}) => {
     });
   }
 
-  return { customer, admin };
+  // ── Send SMS to admin ──────────────────────────────────────
+  let adminSms = { skipped: true, reason: "Admin number not configured" };
+  if (adminNumber) {
+    adminSms = await sendSmsMessage({
+      number: adminNumber,
+      message: adminMessage,
+    });
+  }
+
+  return {
+    customer: { whatsapp: customerWa, sms: customerSms },
+    admin:    { whatsapp: adminWa, sms: adminSms },
+  };
 };
 
 module.exports = {
