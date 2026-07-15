@@ -4,6 +4,12 @@ const {
   ensureSchema: ensureCompletedCleaningLogSchema,
 } = require("../models/CompletedCleaningLogModel");
 
+const syncRoomStatus = async (roomNo, housekeepingStatus) => {
+  if (!roomNo) return;
+  const { syncOperationalStatus } = require("../models/Housekeeping");
+  await syncOperationalStatus(roomNo, housekeepingStatus);
+};
+
 const query = (sql, params = []) =>
   new Promise((resolve, reject) =>
     db.query(sql, params, (err, results) => (err ? reject(err) : resolve(results)))
@@ -383,14 +389,39 @@ exports.completeNotification = async (req, res) => {
     );
 
     const row = rows[0];
+    const targetRoomNo = row.room_no || row.room_id;
     if (row.room_id || row.room_no) {
       await query(
-        "UPDATE housekeeping SET status = 'Vacant Clean' WHERE id = ? OR roomNo = ?",
+        "UPDATE housekeeping SET status = 'Vacant Clean', completed_at = NOW() WHERE id = ? OR roomNo = ?",
         [row.room_id || row.room_no, row.room_no || row.room_id]
       );
     }
 
-    res.json({ message: "Notification completed" });
+    // Mirror the housekeeping.status -> hotel_room_inventory.status / rooms.status
+    // so the room immediately shows as "Available" in StaysOverview, the dashboard,
+    // and the booking flow (no reception click needed).
+    await syncRoomStatus(String(targetRoomNo), "Vacant Clean");
+
+    // Real-time push so any Stay Overview / Stayover / dashboard tab refreshes
+    // instantly without waiting for the 30s polling cycle.
+    emitHousekeepingUpdate({
+      type: "notification-completed",
+      notificationId: Number(id),
+      roomId: row.room_id ? Number(row.room_id) : null,
+      roomNo: targetRoomNo ? String(targetRoomNo) : null,
+      housekeepingStatus: "Vacant Clean",
+      hotelStatus: "Available",
+      completedAt: new Date().toISOString(),
+      completedBy: req.user?.name || req.user?.email || null,
+    });
+
+    res.json({
+      message: "Notification completed",
+      roomNo: targetRoomNo ? String(targetRoomNo) : null,
+      housekeepingStatus: "Vacant Clean",
+      hotelStatus: "Available",
+      completedAt: new Date().toISOString(),
+    });
   } catch (err) {
     res.status(500).json({ message: "Failed to complete notification", error: err });
   }

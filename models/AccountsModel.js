@@ -70,6 +70,14 @@ const getInvoiceSchemaConfig = async () => {
         ? "LOWER(COALESCE(status, 'pending'))"
         : "'pending'";
 
+  const paidStatusExprForJoin = hasPaymentStatus && hasStatus
+    ? "LOWER(COALESCE(i.payment_status, i.status, 'pending'))"
+    : hasPaymentStatus
+      ? "LOWER(COALESCE(i.payment_status, 'pending'))"
+      : hasStatus
+        ? "LOWER(COALESCE(i.status, 'pending'))"
+        : "'pending'";
+
   const invoiceAmountExprParts = [];
   if (hasTotalAmount) invoiceAmountExprParts.push("NULLIF(total_amount, 0)");
   if (hasFinalTotal) invoiceAmountExprParts.push("NULLIF(final_total, 0)");
@@ -107,6 +115,7 @@ const getInvoiceSchemaConfig = async () => {
     hasExtraCharge,
     hasFoodCharge,
     paidStatusExpr,
+    paidStatusExprForJoin,
     invoiceAmountExpr,
     customerNameExpr,
     bookingJoinConditionSql: bookingJoinConditions.length
@@ -187,7 +196,7 @@ const getTransactions = async (callback) => {
         ? `
         LEFT JOIN invoices i
           ON ${invoiceConfig.bookingJoinConditionSql.replace(/\?/g, "ph.booking_id")}
-         AND ${invoiceConfig.paidStatusExpr} = 'paid'
+         AND ${invoiceConfig.paidStatusExprForJoin} = 'paid'
       `
         : "";
     const invoiceJoinFilter =
