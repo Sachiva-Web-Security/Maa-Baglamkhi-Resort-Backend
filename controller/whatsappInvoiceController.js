@@ -75,23 +75,21 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
 
     // 3a. Resolve admin number: request body → DB lookup (prefer admin WITH phone) → empty
     let adminNumber = req.body?.adminNumber || "";
+    console.log("[send-whatsapp] adminNumber from request body:", adminNumber || "(empty)");
     if (!adminNumber) {
       try {
         const adminRow = await new Promise((resolve, reject) => {
           UserModel.findAdminWithPhone((err, row) => (err ? reject(err) : resolve(row)));
         });
         adminNumber = adminRow?.phone || "";
-        if (adminNumber) {
-          console.log(`[send-whatsapp] Resolved admin number from DB: +${adminNumber} (admin id: ${adminRow?.id})`);
-        } else {
-          console.warn("[send-whatsapp] No admin user has a phone number set in the database");
-        }
+        console.log("[send-whatsapp] adminNumber from DB:", adminNumber || "(empty — no admin has phone set)", "adminId:", adminRow?.id || "null");
       } catch (err) {
         console.error("[send-whatsapp] DB lookup for admin phone failed:", err.message);
       }
     } else {
-      console.log(`[send-whatsapp] Using admin number from request body: +${adminNumber}`);
+      console.log("[send-whatsapp] Using admin number from request body:", adminNumber);
     }
+    console.log("[send-whatsapp] Final adminNumber passed to service:", adminNumber || "(empty)");
 
     // 4. Use the high-level helper to send to customer + admin (WhatsApp + SMS)
     const { customer, admin } = await WhatsAppService.sendInvoiceNotifications(
