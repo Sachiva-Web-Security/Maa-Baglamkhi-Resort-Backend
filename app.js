@@ -139,6 +139,7 @@ app.use("/api/inventory-masters", require("./routes/inventoryMastersRoutes"));
 app.use("/api/menu-recipes", require("./routes/menuRecipeRoutes"));
 app.use("/api/audit-logs", require("./routes/auditLogRoutes"));
 app.use("/api/housekeeping", require("./routes/housekeepingRoutes"));
+app.use("/api/salary", require("./routes/salaryRoutes"));
 
 app.get("/api/health", (req, res) => {
   res.json({
