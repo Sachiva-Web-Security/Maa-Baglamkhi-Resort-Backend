@@ -9,6 +9,8 @@ const roomBlockController    = require("../controller/roomBlockController");
 const guestDocumentController = require("../controller/guestDocumentController");
 const guestProfileController = require("../controller/guestProfileController");
 const groupBookingController = require("../controller/groupBookingController");
+const authMiddleware = require("../middleware/authMiddleware");
+const roleMiddleware = require("../middleware/roleMiddleware");
 
 router.use(hotelRoomInventoryController.bootstrap);
 
@@ -54,9 +56,14 @@ router.delete("/folio/entry/:entryId", folioController.deleteEntry);
 router.get("/folio/:bookingId/totals", folioController.getTotals);
 
 // Room Blocking / Maintenance
-router.get("/room-blocks",             roomBlockController.getAll);
-router.post("/room-block",             roomBlockController.create);
-router.put("/room-block/:id",          roomBlockController.updateStatus);
+// ─── Room Blocks (role-protected) ─────────────────────────────────────────────
+const roomBlockRouter = express.Router();
+roomBlockRouter.use(authMiddleware);
+roomBlockRouter.get("/", roleMiddleware(["admin","manager","receptionist","housekeeping","accountant","staff"]), roomBlockController.getAll);
+roomBlockRouter.post("/", roleMiddleware(["admin","manager","receptionist"]), roomBlockController.create);
+roomBlockRouter.put("/:id", roleMiddleware(["admin","manager"]), roomBlockController.updateStatus);
+router.use("/room-blocks", roomBlockRouter);
+router.use("/room-block", roomBlockRouter);
 
 // Guest Profile / History
 router.get("/guest-profile",           guestProfileController.search);

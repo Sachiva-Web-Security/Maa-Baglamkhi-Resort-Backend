@@ -149,6 +149,20 @@ const createRecord = async (data, callback) => {
       values.push(data.notes || null);
     }
 
+    // user_id column (added in v2 schema)
+    const hasUserId = await columnExists("user_id");
+    if (hasUserId && data.user_id) {
+      columns.push("user_id");
+      values.push(data.user_id);
+    }
+
+    // salary_amount column (added in v2 schema)
+    const hasSalaryAmount = await columnExists("salary_amount");
+    if (hasSalaryAmount && (data.salary_amount !== undefined && data.salary_amount !== null)) {
+      columns.push("salary_amount");
+      values.push(data.salary_amount);
+    }
+
     const placeholders = columns.map(() => "?").join(", ");
     const sql = `INSERT INTO attendance_records (${columns.join(", ")}) VALUES (${placeholders})`;
     db.query(sql, values, callback);

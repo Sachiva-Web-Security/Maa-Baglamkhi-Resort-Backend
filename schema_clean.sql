@@ -294,6 +294,8 @@ CREATE TABLE IF NOT EXISTS `register` (
   `email`      VARCHAR(100) NOT NULL UNIQUE,
   `password`   VARCHAR(255) NOT NULL,
   `role`       ENUM('admin','manager','receptionist','waiter','kitchen','housekeeping','accountant','staff') NOT NULL DEFAULT 'staff',
+  `designation` VARCHAR(100) DEFAULT NULL,
+  `salary`     DECIMAL(10,2) DEFAULT 0.00,
   `avatar_url` VARCHAR(500) DEFAULT NULL,
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -301,17 +303,21 @@ CREATE TABLE IF NOT EXISTS `register` (
 
 -- ─── ATTENDANCE ──────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS `attendance_records` (
-  `id`         INT AUTO_INCREMENT PRIMARY KEY,
-  `staff_name` VARCHAR(100) DEFAULT NULL,
-  `role`       VARCHAR(50) DEFAULT NULL,
-  `date`       DATE NOT NULL,
-  `status`     ENUM('Present','Absent','Late','Half Day') DEFAULT 'Present',
-  `in_time`    VARCHAR(10) DEFAULT NULL,
-  `out_time`   VARCHAR(10) DEFAULT NULL,
-  `notes`      TEXT DEFAULT NULL,
-  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `id`            INT AUTO_INCREMENT PRIMARY KEY,
+  `user_id`       INT DEFAULT NULL,
+  `staff_name`    VARCHAR(100) DEFAULT NULL,
+  `role`          VARCHAR(50) DEFAULT NULL,
+  `date`          DATE NOT NULL,
+  `status`        ENUM('Present','Absent','Late','Half Day','On Leave') DEFAULT 'Present',
+  `in_time`       VARCHAR(10) DEFAULT NULL,
+  `out_time`      VARCHAR(10) DEFAULT NULL,
+  `salary_amount` DECIMAL(10,2) DEFAULT 0.00,
+  `notes`         TEXT DEFAULT NULL,
+  `created_at`    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX `idx_att_date`  (`date`),
-  INDEX `idx_att_staff` (`staff_name`)
+  INDEX `idx_att_staff` (`staff_name`),
+  INDEX `idx_att_user`  (`user_id`),
+  FOREIGN KEY (`user_id`) REFERENCES `register`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ─── ROOM CATEGORIES ─────────────────────────────────────────────────
