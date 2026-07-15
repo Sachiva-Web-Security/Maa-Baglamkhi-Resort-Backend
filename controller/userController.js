@@ -259,7 +259,35 @@ exports.getMe = (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      phone: user.phone || null,
       avatarUrl: user.avatar_url || null,
+    });
+  });
+};
+
+exports.updateMyPhone = (req, res) => {
+  const email = req.user?.email;
+  const { phone } = req.body || {};
+
+  if (!email) {
+    return res.status(400).json({ message: "Missing user context" });
+  }
+
+  // Accept numbers only (normalize to digits-only, max 15 chars)
+  const digitsOnly = String(phone || "").replace(/\D+/g, "").slice(0, 15);
+  if (!digitsOnly) {
+    return res.status(400).json({ message: "Please provide a valid phone number" });
+  }
+
+  UserModel.updatePhoneByEmail(digitsOnly, email, (err, result) => {
+    if (err) return res.status(500).json({ message: "DB Error", error: err.message });
+    if (!result || result.affectedRows === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.json({
+      message: "Phone number updated successfully.",
+      phone: digitsOnly,
     });
   });
 };

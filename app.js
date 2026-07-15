@@ -138,6 +138,7 @@ app.use("/api/inventory", require("./routes/inventoryRoutes"));
 app.use("/api/inventory-masters", require("./routes/inventoryMastersRoutes"));
 app.use("/api/menu-recipes", require("./routes/menuRecipeRoutes"));
 app.use("/api/audit-logs", require("./routes/auditLogRoutes"));
+app.use("/api/settings", require("./routes/settingsRoutes"));
 app.use("/api/housekeeping", require("./routes/housekeepingRoutes"));
 app.use("/api/salary", require("./routes/salaryRoutes"));
 
@@ -171,11 +172,31 @@ async function bootstrapSchema(label, task) {
 }
 
 async function ensureDefaultStaffLogins() {
+  // ── Ensure register table has a `phone` column (for WhatsApp invoice sending) ──
+  try {
+    await db.promise().query(
+      "ALTER TABLE register ADD COLUMN IF NOT EXISTS phone VARCHAR(20) DEFAULT NULL AFTER email"
+    );
+  } catch (e) {
+    // MySQL < 8.0 doesn't support ADD COLUMN IF NOT EXISTS; try the legacy form
+    try {
+      const [[{ COUNT }]] = await db.promise().query(
+        "SELECT COUNT(*) AS COUNT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'register' AND COLUMN_NAME = 'phone'"
+      );
+      if (!COUNT) {
+        await db.promise().query("ALTER TABLE register ADD COLUMN phone VARCHAR(20) DEFAULT NULL AFTER email");
+      }
+    } catch (alterErr) {
+      console.warn("Could not add `phone` column to register table:", alterErr.message);
+    }
+  }
+
   await db.promise().query(`
     CREATE TABLE IF NOT EXISTS register (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(191) NOT NULL,
       email VARCHAR(191) NOT NULL UNIQUE,
+      phone VARCHAR(20) DEFAULT NULL,
       password VARCHAR(255) NOT NULL,
       role VARCHAR(50) NOT NULL DEFAULT 'staff',
       avatar_url VARCHAR(255) DEFAULT NULL

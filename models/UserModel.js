@@ -35,6 +35,16 @@ const updateAvatarUrlByEmail = (email, avatarUrl, callback) => {
   db.query(sql, [avatarUrl, email], callback);
 };
 
+const updatePhoneByEmail = (phone, email, callback) => {
+  const sql = "UPDATE register SET phone = ? WHERE email = ?";
+  db.query(sql, [phone, email], callback);
+};
+
+const findAdminUser = (callback) => {
+  const sql = "SELECT id, name, email, phone FROM register WHERE LOWER(role) = 'admin' ORDER BY id ASC LIMIT 1";
+  db.query(sql, callback);
+};
+
 const getAllUsers = (callback) => {
   const sql = "SELECT id, name, email, role FROM register";
   db.query(sql, callback);
@@ -66,6 +76,8 @@ module.exports = {
   countUsers,
   updatePasswordByEmail,
   updateAvatarUrlByEmail,
+  updatePhoneByEmail,
+  findAdminUser,
   getAllUsers,
   deleteUserById,
   updateUserById,
