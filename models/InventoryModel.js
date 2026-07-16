@@ -284,6 +284,7 @@ const ensureSchema = async () => {
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
       category VARCHAR(120) NULL,
+      subcategory VARCHAR(120) NULL,
       stock DECIMAL(10,2) NOT NULL DEFAULT 0,
       unit VARCHAR(60) NULL,
       price DECIMAL(10,2) NOT NULL DEFAULT 0,
@@ -297,6 +298,7 @@ const ensureSchema = async () => {
 
   const inventoryColumns = [
     ["category", "VARCHAR(120) NULL"],
+    ["subcategory", "VARCHAR(120) NULL"],
     ["stock", "DECIMAL(10,2) NOT NULL DEFAULT 0"],
     ["unit", "VARCHAR(60) NULL"],
     ["price", "DECIMAL(10,2) NOT NULL DEFAULT 0"],
@@ -471,12 +473,13 @@ const Inventory = {
           connection,
           `
             INSERT INTO inventory
-              (name, category, stock, unit, price, reorder_point, expiry, branch)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              (name, category, subcategory, stock, unit, price, reorder_point, expiry, branch)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           `,
           [
             data.name,
             data.category,
+            data.subcategory || null,
             openingStock,
             data.unit,
             rate,
@@ -517,7 +520,7 @@ const Inventory = {
 
   getAll: (callback) => {
     db.query(
-      `SELECT id, name, category, stock, unit, price,
+      `SELECT id, name, category, subcategory, stock, unit, price,
               reorder_point AS reorderPoint,
               DATE_FORMAT(expiry, '%Y-%m-%d') AS expiry,
               branch,
@@ -530,7 +533,7 @@ const Inventory = {
 
   getById: (id, callback) => {
     db.query(
-      `SELECT id, name, category, stock, unit, price,
+      `SELECT id, name, category, subcategory, stock, unit, price,
               reorder_point AS reorderPoint,
               DATE_FORMAT(expiry, '%Y-%m-%d') AS expiry,
               branch
@@ -569,13 +572,14 @@ const Inventory = {
           connection,
           `
             UPDATE inventory
-            SET name=?, category=?, stock=?, unit=?, price=?,
+            SET name=?, category=?, subcategory=?, stock=?, unit=?, price=?,
                 reorder_point=?, expiry=?, branch=?
             WHERE id=?
           `,
           [
             data.name,
             data.category,
+            data.subcategory || null,
             nextStock,
             data.unit,
             data.price,
