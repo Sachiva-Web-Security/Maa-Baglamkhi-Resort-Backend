@@ -9,6 +9,15 @@ const SECTION_DEFINITIONS = {
       { key: "status", column: "status" },
     ],
   },
+  "stock-categories": {
+    table: "inventory_stock_categories",
+    required: ["name"],
+    fields: [
+      { key: "name", column: "name" },
+      { key: "subcategory", column: "subcategory" },
+      { key: "status", column: "status" },
+    ],
+  },
   segments: {
     table: "inventory_segments",
     required: ["name"],
@@ -128,6 +137,16 @@ const CREATE_STATEMENTS = [
     CREATE TABLE IF NOT EXISTS inventory_menu_categories (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
+      status VARCHAR(60) NOT NULL DEFAULT 'Active',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS inventory_stock_categories (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      subcategory VARCHAR(255) NULL,
       status VARCHAR(60) NOT NULL DEFAULT 'Active',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
