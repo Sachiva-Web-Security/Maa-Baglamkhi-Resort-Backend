@@ -1,5 +1,6 @@
 const db = require("../config/db");
 const { getRequestActor, isWaiterActor } = require("../utils/requestActor");
+const { ensureSchema } = require("../models/kitchen");
 
 const q = (sql, params = []) =>
   new Promise((resolve, reject) =>
@@ -105,6 +106,7 @@ exports.createOrder = async (req, res) => {
 exports.getOrders = async (req, res) => {
   const actor = getRequestActor(req);
   try {
+    await ensureSchema();
     const params = [];
     let sql = "SELECT * FROM kitchen_orders WHERE COALESCE(token_status, 'Active') != 'Closed'";
     if (isWaiterActor(actor) && actor.name) {
@@ -115,6 +117,7 @@ exports.getOrders = async (req, res) => {
     const rows = await q(sql, params);
     res.json(rows.map(normalizeOrder));
   } catch (err) {
+    console.error("getOrders error:", err);
     res.status(500).json({ message: "Failed to get kitchen orders", error: err.message });
   }
 };

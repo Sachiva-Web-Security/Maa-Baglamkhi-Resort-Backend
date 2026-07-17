@@ -118,6 +118,7 @@ app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/hotel", require("./routes/bookingRoutes"));
 app.use("/api/restaurant", require("./routes/restaurantRoutes"));
 app.use("/api/room-service", require("./routes/roomServiceRoutes"));
+app.use("/api/waiter", require("./routes/waiterRoutes"));
 app.use("/api/accounts", require("./routes/accountsRoutes"));
 app.use("/api/banquet", require("./routes/banquetRoutes"));
 app.use("/api/attendance", require("./routes/attendanceRoutes"));
