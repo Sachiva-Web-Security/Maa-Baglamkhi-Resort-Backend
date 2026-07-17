@@ -5,7 +5,7 @@ const ctrl = require("../controller/housekeepingController");
 const authMiddleware = require("../middleware/authMiddleware");
 const roleMiddleware = require("../middleware/roleMiddleware");
 
-const READERS = ["admin", "manager", "housekeeping", "receptionist", "kitchen"];
+const READERS = ["admin", "manager", "housekeeping", "receptionist", "kitchen", "waiter"];
 const EDITORS = ["admin", "manager", "housekeeping", "receptionist"];
 const PARAMETER_EDITORS = ["admin", "manager"];
 
