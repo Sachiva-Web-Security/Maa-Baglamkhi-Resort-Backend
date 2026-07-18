@@ -28,7 +28,6 @@ const addTariff = async (data, callback) => {
   }
 
   try {
-    await ensureSchema();
 
     const bookingId = Number(data.booking_id);
     const roomNumber = String(data.roomNumber).trim();

@@ -65,7 +65,6 @@ const generateBookingCode = () => {
 
 const createGuest = async (data, callback) => {
   try {
-    await ensureSchema();
     const normalizedStatus = ["cancelled", "checked in", "checked out"].includes(
       String(data.bookingStatus || "").trim().toLowerCase(),
     )

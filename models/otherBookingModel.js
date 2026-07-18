@@ -34,8 +34,6 @@ const createOtherBooking = async (data, callback) => {
   }
 
   try {
-    await ensureSchema();
-
     const sql = `
       INSERT INTO other_booking
       (guest_id, booking_type, booking_source, booking_reference, address, country, state, city, pincode)
