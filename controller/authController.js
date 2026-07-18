@@ -15,6 +15,9 @@ const LOGIN_EMAIL_ALIASES = {
   "tarun@resort.com": "hk@test.com",
   "waiter@resort.com": "waiter@test.com",
   "waiter@test.com": "waiter@resort.com",
+  "kitchen@resort.com": "kitchen@test.com",
+  "kitchen@test.com": "kitchen@resort.com",
+  "chef@resort.com": "kitchen@test.com",
 };
 
 const buildCandidateEmails = (email) => {
