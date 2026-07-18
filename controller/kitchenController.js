@@ -1,6 +1,7 @@
 const db = require("../config/db");
 const { getRequestActor, isWaiterActor } = require("../utils/requestActor");
 const { ensureSchema } = require("../models/kitchen");
+const { createNotification } = require("../controller/notificationController");
 
 const q = (sql, params = []) =>
   new Promise((resolve, reject) =>
@@ -84,6 +85,16 @@ exports.createOrder = async (req, res) => {
       prepTimeMinutes: prepMinutes,
       expectedReadyAt: expectedAt,
     });
+    // Persist a DB notification for kitchen role so chef dashboard can surface it
+    try {
+      await createNotification({
+        user_role: "kitchen",
+        type: "new_order",
+        title: `New Order: ${entityType || "Table"} ${table || "--"}`,
+        message: `KOT ${kot} — ${items.length} items from ${createdWaiter}`,
+        data: { orderId: result.insertId, kotNo: kot, table, waiter: createdWaiter, entityType },
+      });
+    } catch (e) { console.error("kitchen notification failed:", e); }
     res.json({
       id: result.insertId,
       message: "Kitchen order created",

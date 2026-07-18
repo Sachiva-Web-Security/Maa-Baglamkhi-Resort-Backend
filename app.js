@@ -137,6 +137,7 @@ app.use("/api/invoices", invoiceRoutes);
 app.use("/api/invoice", invoiceRoutes);
 
 app.use("/api/kitchen", require("./routes/kitchenRoutes"));
+app.use("/api/chef", require("./routes/chefRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
 app.use("/api/inventory", require("./routes/inventoryRoutes"));
 app.use("/api/inventory-masters", require("./routes/inventoryMastersRoutes"));
@@ -215,6 +216,7 @@ async function ensureDefaultStaffLogins() {
     ["CA Accounts", "accounts@resort.com", "accountant"],
     ["Tarun HK", "tarun@resort.com", "housekeeping"],
     ["Ramu Waiter", "waiter@resort.com", "waiter"],
+    ["Chef Kumar", "kitchen@resort.com", "kitchen"],
   ];
 
   for (const [name, email, role] of defaultUsers) {
