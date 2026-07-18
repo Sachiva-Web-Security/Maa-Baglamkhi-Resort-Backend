@@ -29,8 +29,6 @@ const createReference = async (data, callback) => {
   }
 
   try {
-    await ensureSchema();
-
     const sql = `
       INSERT INTO reference_notes
       (guest_id, guest_type, guest_notes, internal_notes)

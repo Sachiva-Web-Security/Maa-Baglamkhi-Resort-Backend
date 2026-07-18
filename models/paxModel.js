@@ -37,8 +37,6 @@ const addPax = async (data, callback) => {
   }
 
   try {
-    await ensureSchema();
-
     for (const row of rows) {
       const roomNumber = String(row.roomNumber || "").trim() || null;
       const adults = Number(row.adults || 0);

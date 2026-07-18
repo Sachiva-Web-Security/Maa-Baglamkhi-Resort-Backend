@@ -824,63 +824,87 @@ exports.refundBooking = async (req, res) => {
 exports.updateAdvance = (req, res) => {
   const data = { booking_id: req.params.id, ...req.body };
 
-  Promise.all([AdvanceModel.ensureSchema(), Paymentadvance.ensureSchema()])
-    .then(() => {
-      Paymentadvance.addPayment(data, (paymentError) => {
-        if (paymentError) {
-          if (process.env.NODE_ENV !== "test") {
-            console.error(paymentError);
-          }
-          return res.status(500).json({
-            message: "Payment history failed",
-            error: paymentError.message,
-          });
-        }
-
-        AdvanceModel.addAdvance(data, (advanceError) => {
-          if (advanceError) {
-            if (process.env.NODE_ENV !== "test") {
-              console.error(advanceError);
-            }
-            return res.status(500).json({
-              message: "Advance save failed",
-              error: advanceError.message,
-            });
-          }
-
-          InvoiceModel.generateCustomerInvoice(Number(req.params.id))
-            .then(() => fireWhatsAppInvoice(req.params.id).catch((err) => {
-              if (process.env.NODE_ENV !== "test") {
-                console.error("[WhatsApp] fire-after-payment error:", err.message);
-              }
-            }))
-            .then(() =>
-              res.json({
-                message: "Payment Added + History Saved",
-              }),
-            )
-            .catch((invoiceError) => {
-              if (process.env.NODE_ENV !== "test") {
-                console.error(invoiceError);
-              }
-
-              return res.status(500).json({
-                message: "Invoice sync failed after payment save",
-                error: invoiceError.message,
-              });
-            });
-        });
-      });
-    })
-    .catch((schemaError) => {
+  Paymentadvance.addPayment(data, (paymentError) => {
+    if (paymentError) {
       if (process.env.NODE_ENV !== "test") {
-        console.error(schemaError);
+        console.error(paymentError);
       }
       return res.status(500).json({
-        message: "Payment schema init failed",
-        error: schemaError.message,
+        message: "Payment history failed",
+        error: paymentError.message,
+      });
+    }
+
+    AdvanceModel.addAdvance(data, (advanceError) => {
+      if (advanceError) {
+        if (process.env.NODE_ENV !== "test") {
+          console.error(advanceError);
+        }
+        return res.status(500).json({
+          message: "Advance save failed",
+          error: advanceError.message,
+        });
+      }
+
+      // Respond immediately — invoice + WhatsApp run in the background so a
+      // slow PDF generator or WhatsApp API never blocks the booking save.
+      res.json({ message: "Payment Added + History Saved" });
+
+      setImmediate(async () => {
+        try {
+          const invoice = await InvoiceModel.generateCustomerInvoice(Number(req.params.id));
+          if (!invoice) return;
+          const pdf = await InvoicePdfService.generateInvoicePdf(invoice);
+          const publicBase =
+            (process.env.PUBLIC_BASE_URL ||
+              process.env.CLIENT_URL ||
+              `http://localhost:${process.env.PORT || 5002}`
+            ).replace(/\/+$/, "");
+          const fileUrl = `${publicBase}/uploads/invoices/${pdf.fileName}`;
+          const guestName = invoice.customerName || "Valued Guest";
+          const message = `Dear ${guestName},\n\nThank you for staying at Maa Baglamukhi Resort.\n\nYour invoice ${invoice.invoiceNo || ""} is attached.\nTotal: ₹${invoice.totalAmount?.toFixed(2) || "0.00"}\n\nRegards,\nMaa Baglamukhi Resort`;
+          const customer = WhatsAppService.normalizePhoneNumber(invoice.phone);
+          if (customer) {
+            await WhatsAppService.sendWhatsAppMessage({
+              number: customer,
+              message,
+              fileUrl,
+              fileName: pdf.fileName,
+            });
+          }
+          // Resolve admin phone from register table (not from env/ADMIN_WHATSAPP_NUMBER)
+          let adminNumber = "";
+          try {
+            const adminRows = await new Promise((resolve, reject) => {
+              UserModel.findAdminUser((err, rows) =>
+                err ? reject(err) : resolve(rows),
+              );
+            });
+            adminNumber = adminRows?.[0]?.phone || "";
+          } catch (e) {
+            // ignore — service will return a "no admin number" reason
+          }
+
+          await WhatsAppService.sendInvoiceNotifications(
+            invoice,
+            { fileUrl, fileName: pdf.fileName },
+            { adminNumber },
+          );
+          if (process.env.NODE_ENV !== "test") {
+            console.log(
+              `[auto-whatsapp] invoice ${invoice.invoiceNo || req.params.id} delivered`,
+            );
+          }
+        } catch (autoErr) {
+          console.error(
+            "[auto-whatsapp] fire-after-payment error for booking",
+            req.params.id,
+            autoErr.message || autoErr,
+          );
+        }
       });
     });
+  });
 };
 
 exports.checkInBooking = async (req, res) => {
