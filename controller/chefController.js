@@ -2,6 +2,7 @@ const db = require("../config/db");
 const { getRequestActor, isWaiterActor } = require("../utils/requestActor");
 const { ensureSchema: ensureKitchenSchema } = require("../models/kitchen");
 const notificationController = require("../controller/notificationController");
+const { syncRestaurantOrdersToKitchen } = require("../utils/kitchenOrderSync");
 
 const q = (sql, params = []) =>
   new Promise((resolve, reject) =>
@@ -47,7 +48,7 @@ const normalizePrepTime = (value) => {
 
 exports.getKitchenOrders = async (req, res) => {
   try {
-    await ensureKitchenSchema();
+    await syncRestaurantOrdersToKitchen();
     const rows = await q(
       `SELECT * FROM kitchen_orders WHERE COALESCE(token_status, 'Active') != 'Closed' ORDER BY created_at DESC`
     );
