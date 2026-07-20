@@ -12,7 +12,7 @@ const {
 const authMiddleware = require("../middleware/authMiddleware");
 const roleMiddleware = require("../middleware/roleMiddleware");
 
-const READERS = ["admin", "manager", "kitchen", "accountant", "receptionist"];
+const READERS = ["admin", "manager", "kitchen", "chef", "accountant", "receptionist"];
 const EDITORS = ["admin", "manager", "receptionist"];
 
 router.get("/sections", authMiddleware, roleMiddleware(READERS), listSections);

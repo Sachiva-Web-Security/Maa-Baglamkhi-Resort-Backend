@@ -15,7 +15,7 @@ const {
 const authMiddleware = require("../middleware/authMiddleware");
 const roleMiddleware = require("../middleware/roleMiddleware");
 
-const READERS = ["admin", "manager", "kitchen", "accountant", "receptionist"];
+const READERS = ["admin", "manager", "kitchen", "chef", "accountant", "receptionist"];
 const EDITORS = ["admin", "manager", "receptionist"];
 
 router.get("/", authMiddleware, roleMiddleware(READERS), getItems);
@@ -23,8 +23,8 @@ router.get("/alerts/low-stock", authMiddleware, roleMiddleware(READERS), getLowS
 router.get("/alerts/expiring", authMiddleware, roleMiddleware(READERS), getExpiringItems);
 
 router.get("/waste", authMiddleware, roleMiddleware(READERS), getWasteLogs);
-router.post("/waste", authMiddleware, roleMiddleware(["admin", "manager", "kitchen", "receptionist"]), logWaste);
-router.put("/waste/:id", authMiddleware, roleMiddleware(["admin", "manager", "kitchen", "receptionist"]), updateWasteLog);
+router.post("/waste", authMiddleware, roleMiddleware(["admin", "manager", "kitchen", "chef", "receptionist"]), logWaste);
+router.put("/waste/:id", authMiddleware, roleMiddleware(["admin", "manager", "kitchen", "chef", "receptionist"]), updateWasteLog);
 router.delete("/waste/:id", authMiddleware, roleMiddleware(EDITORS), deleteWasteLog);
 
 router.get("/purchase-orders", authMiddleware, roleMiddleware(READERS), getPurchaseOrders);
@@ -50,8 +50,8 @@ router.post("/audit", authMiddleware, roleMiddleware(EDITORS), submitAudit);
 router.get("/audit/report", authMiddleware, roleMiddleware(READERS), getAuditReport);
 
 router.get("/transfers", authMiddleware, roleMiddleware(READERS), getTransfers);
-router.post("/transfers", authMiddleware, roleMiddleware(["admin", "manager", "kitchen", "receptionist"]), recordTransfer);
-router.put("/transfers/:id", authMiddleware, roleMiddleware(["admin", "manager", "kitchen", "receptionist"]), updateTransfer);
+router.post("/transfers", authMiddleware, roleMiddleware(["admin", "manager", "kitchen", "chef", "receptionist"]), recordTransfer);
+router.put("/transfers/:id", authMiddleware, roleMiddleware(["admin", "manager", "kitchen", "chef", "receptionist"]), updateTransfer);
 router.delete("/transfers/:id", authMiddleware, roleMiddleware(EDITORS), deleteTransfer);
 
 router.get("/:id", authMiddleware, roleMiddleware(READERS), getItem);
