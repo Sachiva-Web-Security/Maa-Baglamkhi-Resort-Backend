@@ -102,8 +102,9 @@ const sendWhatsAppMessage = async ({ number, message, fileUrl } = {}) => {
       file_url: fileUrl,
     });
     if (response?.status === "error") {
-      const err = new Error(response.error || "Wasend reported an error");
-      err.statusCode = response.code || 400;
+      const rawCode = response.code || response.statusCode || 0;
+      const err = new Error(response.error || response.message || `Wasend reported an error (code: ${rawCode})`);
+      err.statusCode = typeof rawCode === "number" ? rawCode : Number(rawCode) || 400;
       err.body = response;
       throw err;
     }
@@ -113,6 +114,7 @@ const sendWhatsAppMessage = async ({ number, message, fileUrl } = {}) => {
       ok: false,
       statusCode: err.statusCode || 0,
       error: err.message,
+      body: err.body,
       number: normalised,
       channel: "whatsapp",
     };

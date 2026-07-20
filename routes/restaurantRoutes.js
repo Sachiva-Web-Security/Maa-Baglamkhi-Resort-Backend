@@ -1,6 +1,7 @@
 const express = require("express");
 const controller = require("../controller/restaurantController");
 const upload = require("../utils/upload");
+const restaurantWaController = require("../controller/restaurantWhatsappController");
 
 const router = express.Router();
 
@@ -41,5 +42,8 @@ router.post("/bill/pay", controller.payBill);
 router.post("/split-bills/:id/charge-to-room", controller.chargeBillToRoom);
 router.post("/split-bills/charge-to-room", controller.chargeBillToRoom);
 router.get("/bills", controller.getBills);
+
+// WHATSAPP
+router.post("/invoice/send-whatsapp/:billId", restaurantWaController.sendRestaurantInvoiceWhatsApp);
 
 module.exports = router;
