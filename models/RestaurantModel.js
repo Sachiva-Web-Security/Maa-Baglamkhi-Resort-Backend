@@ -621,6 +621,49 @@ exports.markOrderPaid = (orderId, callback) => {
   db.query("UPDATE orders SET status='paid' WHERE id=?", [orderId], callback);
 };
 
+exports.getBillById = (billId, callback) => {
+  db.query(
+    `
+      SELECT
+        b.id,
+        b.tableNumber,
+        b.token_id AS tokenId,
+        t.token_code AS tokenCode,
+        b.entityType,
+        b.waiter_name,
+        b.customerName,
+        b.phone,
+        b.subtotal,
+        b.gst,
+        b.total,
+        b.discountAmount,
+        b.paymentMethod,
+        b.invoiceStatus,
+        b.split_no,
+        b.split_count,
+        b.paid_at,
+        b.paid_at AS paidAt,
+        b.posted_to_room AS postedToRoom,
+        b.posted_room_number AS postedRoomNumber,
+        b.room_booking_id AS roomBookingId,
+        b.room_booking_code AS roomBookingCode,
+        b.folio_entry_id AS folioEntryId,
+        b.source_table_number AS sourceTableNumber,
+        b.posted_at AS postedAt,
+        b.created_at
+      FROM bills b
+      LEFT JOIN tokens t ON t.id = b.token_id
+      WHERE b.id = ?
+      LIMIT 1
+    `,
+    [billId],
+    (err, rows) => {
+      if (err) return callback(err);
+      callback(null, rows?.[0] || null);
+    },
+  );
+};
+
 exports.addItemActionRequest = (data, callback) => {
   const sql = `
     INSERT INTO restaurant_item_action_requests
@@ -1471,6 +1514,7 @@ module.exports = {
   getOrderItems: exports.getOrderItems,
   createBill: exports.createBill,
   getBills: exports.getBills,
+  getBillById: exports.getBillById,
   markOrderPaid: exports.markOrderPaid,
   addItemActionRequest: exports.addItemActionRequest,
   getItemActionRequests: exports.getItemActionRequests,
