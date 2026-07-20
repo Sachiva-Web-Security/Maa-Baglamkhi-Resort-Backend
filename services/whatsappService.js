@@ -3,8 +3,8 @@
  *
  * Uses GET requests with query parameters as per Wasend API docs:
  *   GET https://wasend.sachiva.cloud/api/send-message
- *     ?username={username}&token={api_key}&number={recipient}&message={text}
- *     [&file_url={url}&file_name={filename}]
+ *     ?api_key={api_key}&number={recipient}&message={text}
+ *     [&file_url={url}]
  */
 
 const https = require("https");
@@ -17,7 +17,6 @@ const DEFAULT_BASE_URL =
     .replace(/\?.*$/, ""); // strip any query params from the base URL
 
 const API_KEY = process.env.wasachiva_key || process.env.WASACHIVA_KEY || "";
-const FALLBACK_USERNAME = process.env.wasachiva_username || process.env.WASACHIVA_USERNAME || "ankit";
 
 const normalizePhoneNumber = (raw) => {
   if (raw === null || raw === undefined) return null;
@@ -31,17 +30,17 @@ const normalizePhoneNumber = (raw) => {
 
 /**
  * GET request to Wasend gateway with query parameters.
+ * Per docs: api_key, number, message, file_url (username/token only needed
+ * as a fallback pair when no api_key is issued — we always use api_key here).
  */
 const getFromGateway = (pathname, params = {}) => {
   const baseUrl = new URL(DEFAULT_BASE_URL);
   const url = new URL(pathname, baseUrl);
 
-  url.searchParams.set("username", params.username || FALLBACK_USERNAME);
-  url.searchParams.set("token", params.token || API_KEY);
+  url.searchParams.set("api_key", params.api_key || API_KEY);
   url.searchParams.set("number", params.number || "");
   if (params.message) url.searchParams.set("message", params.message);
   if (params.file_url) url.searchParams.set("file_url", params.file_url);
-  if (params.file_name) url.searchParams.set("file_name", params.file_name);
   if (params.type) url.searchParams.set("type", params.type);
 
   const isHttps = url.protocol === "https:";
@@ -86,7 +85,7 @@ const getFromGateway = (pathname, params = {}) => {
 /**
  * Send a WhatsApp message via Wasend GET API.
  */
-const sendWhatsAppMessage = async ({ number, message, fileUrl, fileName, username } = {}) => {
+const sendWhatsAppMessage = async ({ number, message, fileUrl } = {}) => {
   const normalised = normalizePhoneNumber(number);
   if (!normalised) {
     return { ok: false, error: `Invalid phone number: ${number}`, number, channel: "whatsapp" };
@@ -97,13 +96,17 @@ const sendWhatsAppMessage = async ({ number, message, fileUrl, fileName, usernam
 
   try {
     const response = await getFromGateway("/api/send-message", {
-      username: username || FALLBACK_USERNAME,
-      token: API_KEY,
+      api_key: API_KEY,
       number: normalised,
       message: message || "",
       file_url: fileUrl,
-      file_name: fileName,
     });
+    if (response?.status === "error") {
+      const err = new Error(response.error || "Wasend reported an error");
+      err.statusCode = response.code || 400;
+      err.body = response;
+      throw err;
+    }
     return { ok: true, statusCode: 200, response, number: normalised, channel: "whatsapp" };
   } catch (err) {
     return {
@@ -130,12 +133,17 @@ const sendSmsMessage = async ({ number, message } = {}) => {
 
   try {
     const response = await getFromGateway("/api/send-message", {
-      username: FALLBACK_USERNAME,
-      token: API_KEY,
+      api_key: API_KEY,
       number: normalised,
       message: message || "",
       type: "sms",
     });
+    if (response?.status === "error") {
+      const err = new Error(response.error || "Wasend reported an error");
+      err.statusCode = response.code || 400;
+      err.body = response;
+      throw err;
+    }
     return { ok: true, statusCode: 200, response, number: normalised, channel: "sms" };
   } catch (err) {
     return {

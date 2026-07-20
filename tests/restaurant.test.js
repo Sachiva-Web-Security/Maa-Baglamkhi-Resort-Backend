@@ -599,12 +599,12 @@ describe("Restaurant Order APIs", () => {
       [{}, 400],
       [{ tableNumber: "T1", splitLabel: "A" }, 400],
     ])("validates split bill payload %#", async (payload, status) => {
-      const res = await api().post("/api/restaurant/split-bills").send(payload);
+      const res = await api().post("/api/restaurant/bill/charge-to-room").send(payload);
       expect(res.status).toBe(status);
     });
 
     test("creates split bill", async () => {
-      const res = await api().post("/api/restaurant/split-bills").send({
+      const res = await api().post("/api/restaurant/bill/charge-to-room").send({
         billId: 1,
         tableNumber: "T1",
         entityType: "Table",
