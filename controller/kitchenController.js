@@ -118,7 +118,11 @@ exports.createOrder = async (req, res) => {
 exports.getOrders = async (req, res) => {
   const actor = getRequestActor(req);
   try {
-    await syncRestaurantOrdersToKitchen();
+    try {
+      await syncRestaurantOrdersToKitchen();
+    } catch (syncErr) {
+      console.error("kitchen sync error (non-fatal):", syncErr.message);
+    }
     const params = [];
     let sql = "SELECT * FROM kitchen_orders WHERE COALESCE(token_status, 'Active') != 'Closed'";
     if (isWaiterActor(actor) && actor.name) {

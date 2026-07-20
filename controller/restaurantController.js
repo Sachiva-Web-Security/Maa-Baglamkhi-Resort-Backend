@@ -645,6 +645,9 @@ exports.chargeBillToRoom = async (req, res) => {
     return res.status(403).json({ message: "Waiter cannot charge bill to room" });
   }
 
+  console.log("[chargeBillToRoom] incoming body keys:", Object.keys(req.body || {}));
+  console.log("[chargeBillToRoom] billId:", req.body?.billId, "params.id:", req.params?.id, "roomNumber:", req.body?.roomNumber);
+
   try {
     const result = await Restaurant.chargeBillToRoom({
       ...req.body,
@@ -656,6 +659,7 @@ exports.chargeBillToRoom = async (req, res) => {
       ...result,
     });
   } catch (error) {
+    console.error("[chargeBillToRoom] ERROR:", error?.message, error?.sqlMessage);
     res.status(Number(error.statusCode || 500)).json({
       message: error.message || "Unable to post bill to room",
     });
@@ -728,6 +732,10 @@ exports.reviewItemActionRequest = (req, res) => {
 };
 
 exports.createSplitBill = (req, res) => {
+  const traceId = `csb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  console.log(`[createSplitBill ${traceId}] request body keys:`, Object.keys(req.body || {}));
+  console.log(`[createSplitBill ${traceId}] tableNumber:`, req.body?.tableNumber, "splitLabel:", req.body?.splitLabel, "splitNo:", req.body?.splitNo, "splitCount:", req.body?.splitCount);
+
   const {
     tableNumber,
     entityType,
@@ -746,6 +754,9 @@ exports.createSplitBill = (req, res) => {
     return res.status(400).json({ message: "Missing split bill fields" });
   }
 
+  console.log(`[createSplitBill ${traceId}] calling Restaurant.createSplitBill`);
+  const startTime = Date.now();
+
   Restaurant.createSplitBill(
     {
       billId,
@@ -761,7 +772,12 @@ exports.createSplitBill = (req, res) => {
       itemsJson: JSON.stringify(items || []),
     },
     (err, result) => {
-      if (err) return res.status(500).json(err);
+      const elapsed = Date.now() - startTime;
+      if (err) {
+        console.error(`[createSplitBill ${traceId}] ERROR after ${elapsed}ms:`, err.message);
+        return res.status(500).json(err);
+      }
+      console.log(`[createSplitBill ${traceId}] success after ${elapsed}ms, insertId:`, result?.insertId);
       res.json({ message: "Split bill saved", id: result.insertId });
     }
   );

@@ -60,6 +60,7 @@ const {
 } = require("./models/TokenModel");
 const {
   ensureSchema: ensureRestaurantSchema,
+  bootstrapLegacyBills,
 } = require("./models/RestaurantModel");
 const {
   ensureSchema: ensureKitchenSchema,
@@ -273,6 +274,13 @@ async function initializeDatabase(options = {}) {
     await bootstrapSchema("Room service schema init", ensureRoomServiceSchema);
     await bootstrapSchema("Token schema init", ensureTokenSchema);
     await bootstrapSchema("Restaurant schema init", ensureRestaurantSchema);
+    // One-time migration: sync legacy restaurant_bills from bills. Runs once
+    // on startup after the schema is in place — never per-request.
+    try {
+      await bootstrapLegacyBills();
+    } catch (err) {
+      console.error("Legacy bill sync bootstrap failed:", err.message);
+    }
     await bootstrapSchema("Kitchen schema init", ensureKitchenSchema);
     await bootstrapSchema("Audit log schema init", ensureAuditLogSchema);
     await bootstrapSchema("Completed cleaning log schema init", ensureCompletedCleaningLogSchema);

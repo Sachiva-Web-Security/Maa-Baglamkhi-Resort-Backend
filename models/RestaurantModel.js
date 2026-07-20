@@ -12,6 +12,12 @@ const toComparableTime = (value) => {
   return Number.isFinite(timestamp) ? timestamp : 0;
 };
 
+// Schema bootstrap runs ONCE per process. ensureSchema() is now a cheap no-op
+// after the first call, so per-request endpoints (like chargeBillToRoom) no
+// longer pay the cost of a full DDL + legacy-sync pass on every call.
+let schemaReady = false;
+let bootstrapInFlight = null;
+
 const scoreLegacyBillCandidate = (billRow, legacyRow) => {
   const billTokenId = Number(billRow?.tokenId || 0);
   const legacyTokenId = Number(legacyRow?.tokenId || 0);
@@ -59,270 +65,307 @@ const ensureIndex = async (tableName, indexName, definition) => {
 };
 
 const ensureSchema = async () => {
-  await run(`
-    CREATE TABLE IF NOT EXISTS ${TABLES_TABLE} (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      number VARCHAR(50) NOT NULL UNIQUE
-    )
-  `);
-
-  await run(`
-    CREATE TABLE IF NOT EXISTS menu_items (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      name VARCHAR(191) NOT NULL,
-      price DECIMAL(10,2) NOT NULL DEFAULT 0,
-      category VARCHAR(120) DEFAULT 'Other',
-      table_number VARCHAR(50) DEFAULT NULL,
-      image_url VARCHAR(255) DEFAULT NULL,
-      tax DECIMAL(6,2) NOT NULL DEFAULT 5,
-      happy_hour_price DECIMAL(10,2) DEFAULT NULL,
-      happy_hour_start TIME DEFAULT NULL,
-      happy_hour_end TIME DEFAULT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  await ensureColumn(TABLES_TABLE, "status", "VARCHAR(50) DEFAULT 'available' AFTER number");
-  await ensureColumn(TABLES_TABLE, "guestCount", "INT DEFAULT 4 AFTER status");
-  await ensureColumn(TABLES_TABLE, "floor_name", "VARCHAR(80) DEFAULT NULL AFTER guestCount");
-  await ensureColumn(TABLES_TABLE, "section_name", "VARCHAR(80) DEFAULT NULL AFTER floor_name");
-  await ensureColumn(TABLES_TABLE, "seat_count", "INT NOT NULL DEFAULT 4 AFTER section_name");
-  await ensureColumn(TABLES_TABLE, "status_color", "VARCHAR(30) DEFAULT NULL AFTER seat_count");
-
-  await ensureColumn("menu_items", "image_url", "VARCHAR(255) DEFAULT NULL AFTER table_number");
-  await ensureColumn("menu_items", "tax", "DECIMAL(6,2) NOT NULL DEFAULT 5 AFTER image_url");
-  await ensureColumn("menu_items", "description", "TEXT DEFAULT NULL AFTER image_url");
-  await ensureColumn("menu_items", "food_type", "VARCHAR(30) DEFAULT 'Veg' AFTER description");
-  await ensureColumn("menu_items", "status", "VARCHAR(40) DEFAULT 'Available' AFTER food_type");
-  await ensureColumn("menu_items", "availability_status", "VARCHAR(40) DEFAULT 'Available' AFTER food_type");
-  await ensureColumn("menu_items", "happy_hour_price", "DECIMAL(10,2) DEFAULT NULL AFTER tax");
-  await ensureColumn("menu_items", "happy_hour_start", "TIME DEFAULT NULL AFTER happy_hour_price");
-  await ensureColumn("menu_items", "happy_hour_end", "TIME DEFAULT NULL AFTER happy_hour_start");
-
-  await run(`
-    CREATE TABLE IF NOT EXISTS orders (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      tableNumber VARCHAR(50) NOT NULL,
-      waiter_name VARCHAR(191) DEFAULT NULL,
-      status VARCHAR(30) NOT NULL DEFAULT 'pending',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  await ensureColumn("orders", "waiter_name", "VARCHAR(191) DEFAULT NULL AFTER tableNumber");
-  await ensureIndex("orders", "idx_orders_waiter_name", "INDEX idx_orders_waiter_name (waiter_name)");
-  await run(`
-    UPDATE orders o
-    LEFT JOIN tokens t
-      ON t.tableNumber = o.tableNumber
-     AND t.status = 'active'
-    SET o.waiter_name = COALESCE(NULLIF(o.waiter_name, ''), t.waiter)
-    WHERE o.waiter_name IS NULL OR o.waiter_name = ''
-  `);
-
-  await run(`
-    CREATE TABLE IF NOT EXISTS order_items (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      order_id INT NOT NULL,
-      name VARCHAR(191) NOT NULL,
-      price DECIMAL(10,2) NOT NULL DEFAULT 0,
-      quantity INT NOT NULL DEFAULT 1,
-      CONSTRAINT fk_order_items_order
-      FOREIGN KEY (order_id) REFERENCES orders(id)
-      ON DELETE CASCADE
-    )
-  `);
-
-  await run(`
-    CREATE TABLE IF NOT EXISTS bills (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      tableNumber VARCHAR(50) NOT NULL,
-      entityType VARCHAR(30) DEFAULT 'Table',
-      customerName VARCHAR(191) DEFAULT NULL,
-      phone VARCHAR(30) DEFAULT NULL,
-      subtotal DECIMAL(10,2) NOT NULL DEFAULT 0,
-      gst DECIMAL(10,2) NOT NULL DEFAULT 0,
-      total DECIMAL(10,2) NOT NULL DEFAULT 0,
-      paymentMethod VARCHAR(50) DEFAULT NULL,
-      invoiceStatus VARCHAR(50) DEFAULT 'Saved',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  await ensureColumn("bills", "customerName", "VARCHAR(191) DEFAULT NULL AFTER tableNumber");
-  await ensureColumn("bills", "token_id", "INT DEFAULT NULL AFTER tableNumber");
-  await ensureColumn("bills", "entityType", "VARCHAR(30) DEFAULT 'Table' AFTER tableNumber");
-  await ensureColumn("bills", "phone", "VARCHAR(30) DEFAULT NULL AFTER customerName");
-  await ensureColumn("bills", "invoiceStatus", "VARCHAR(50) DEFAULT 'Saved' AFTER paymentMethod");
-  await ensureColumn("bills", "waiter_name", "VARCHAR(191) DEFAULT NULL AFTER entityType");
-  await ensureColumn("bills", "split_no", "INT DEFAULT NULL AFTER invoiceStatus");
-  await ensureColumn("bills", "split_count", "INT DEFAULT NULL AFTER split_no");
-  await ensureColumn("bills", "discountAmount", "DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER total");
-  await ensureColumn("bills", "paid_at", "DATETIME DEFAULT NULL AFTER split_count");
-  await ensureColumn("bills", "payment_id", "INT DEFAULT NULL AFTER paid_at");
-  await ensureColumn("bills", "account_transaction_id", "INT DEFAULT NULL AFTER payment_id");
-  await ensureColumn("bills", "posted_to_room", "TINYINT(1) NOT NULL DEFAULT 0 AFTER account_transaction_id");
-  await ensureColumn("bills", "posted_room_number", "VARCHAR(50) DEFAULT NULL AFTER posted_to_room");
-  await ensureColumn("bills", "room_booking_id", "INT DEFAULT NULL AFTER posted_room_number");
-  await ensureColumn("bills", "room_booking_code", "VARCHAR(80) DEFAULT NULL AFTER room_booking_id");
-  await ensureColumn("bills", "folio_entry_id", "INT DEFAULT NULL AFTER room_booking_code");
-  await ensureColumn("bills", "source_table_number", "VARCHAR(50) DEFAULT NULL AFTER folio_entry_id");
-  await ensureColumn("bills", "posted_at", "DATETIME DEFAULT NULL AFTER source_table_number");
-  await ensureIndex("bills", "uniq_bills_token_id", "UNIQUE KEY uniq_bills_token_id (token_id)");
-
-  await run(`
-    CREATE TABLE IF NOT EXISTS restaurant_bills (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      modern_bill_id INT DEFAULT NULL,
-      tableNumber VARCHAR(50) DEFAULT NULL,
-      tokenId INT DEFAULT NULL,
-      entityType VARCHAR(30) DEFAULT 'Table',
-      waiter_name VARCHAR(191) DEFAULT NULL,
-      customerName VARCHAR(191) DEFAULT NULL,
-      phone VARCHAR(30) DEFAULT NULL,
-      subtotal DECIMAL(10,2) DEFAULT 0,
-      gst DECIMAL(10,2) DEFAULT 0,
-      discount DECIMAL(10,2) DEFAULT 0,
-      total DECIMAL(10,2) DEFAULT 0,
-      paymentMethod VARCHAR(50) DEFAULT NULL,
-      invoiceStatus VARCHAR(30) DEFAULT 'unpaid',
-      paid_at DATETIME DEFAULT NULL,
-      payment_id INT DEFAULT NULL,
-      account_transaction_id INT DEFAULT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  await ensureColumn("restaurant_bills", "modern_bill_id", "INT DEFAULT NULL AFTER id");
-  await ensureColumn("restaurant_bills", "waiter_name", "VARCHAR(191) DEFAULT NULL AFTER entityType");
-  await ensureColumn("restaurant_bills", "customerName", "VARCHAR(191) DEFAULT NULL AFTER waiter_name");
-  await ensureColumn("restaurant_bills", "phone", "VARCHAR(30) DEFAULT NULL AFTER customerName");
-  await ensureColumn("restaurant_bills", "paid_at", "DATETIME DEFAULT NULL AFTER invoiceStatus");
-  await ensureColumn("restaurant_bills", "payment_id", "INT DEFAULT NULL AFTER paid_at");
-  await ensureColumn("restaurant_bills", "account_transaction_id", "INT DEFAULT NULL AFTER payment_id");
-  await ensureColumn("restaurant_bills", "posted_to_room", "TINYINT(1) NOT NULL DEFAULT 0 AFTER account_transaction_id");
-  await ensureColumn("restaurant_bills", "posted_room_number", "VARCHAR(50) DEFAULT NULL AFTER posted_to_room");
-  await ensureColumn("restaurant_bills", "room_booking_id", "INT DEFAULT NULL AFTER posted_room_number");
-  await ensureColumn("restaurant_bills", "room_booking_code", "VARCHAR(80) DEFAULT NULL AFTER room_booking_id");
-  await ensureColumn("restaurant_bills", "folio_entry_id", "INT DEFAULT NULL AFTER room_booking_code");
-  await ensureColumn("restaurant_bills", "source_table_number", "VARCHAR(50) DEFAULT NULL AFTER folio_entry_id");
-  await ensureColumn("restaurant_bills", "posted_at", "DATETIME DEFAULT NULL AFTER source_table_number");
-  await ensureIndex("restaurant_bills", "uniq_restaurant_bills_modern_bill_id", "UNIQUE KEY uniq_restaurant_bills_modern_bill_id (modern_bill_id)");
-
-  await run(`
-    UPDATE restaurant_bills rb
-    INNER JOIN bills b ON b.id = rb.modern_bill_id
-    SET
-      rb.tableNumber = b.tableNumber,
-      rb.tokenId = b.token_id,
-      rb.entityType = b.entityType,
-      rb.waiter_name = b.waiter_name,
-      rb.customerName = b.customerName,
-      rb.phone = b.phone,
-      rb.subtotal = b.subtotal,
-      rb.gst = b.gst,
-      rb.discount = COALESCE(b.discountAmount, 0),
-      rb.total = b.total,
-      rb.paymentMethod = b.paymentMethod,
-      rb.invoiceStatus = b.invoiceStatus,
-      rb.paid_at = b.paid_at,
-      rb.payment_id = b.payment_id,
-      rb.account_transaction_id = b.account_transaction_id,
-      rb.posted_to_room = COALESCE(b.posted_to_room, 0),
-      rb.posted_room_number = b.posted_room_number,
-      rb.room_booking_id = b.room_booking_id,
-      rb.room_booking_code = b.room_booking_code,
-      rb.folio_entry_id = b.folio_entry_id,
-      rb.source_table_number = b.source_table_number,
-      rb.posted_at = b.posted_at
-  `);
-
-  const [unlinkedBills] = await run(`
-    SELECT b.id
-    FROM bills b
-    LEFT JOIN restaurant_bills rb ON rb.modern_bill_id = b.id
-    WHERE rb.id IS NULL
-    ORDER BY b.created_at ASC, b.id ASC
-  `);
-
-  for (const billRow of unlinkedBills) {
-    await syncLegacyRestaurantBill(connection, billRow.id);
+  if (schemaReady) return;
+  if (bootstrapInFlight) {
+    console.log("[RestaurantModel] Waiting for in-flight schema bootstrap...");
+    await bootstrapInFlight;
+    return;
   }
 
-  await run(`
-    UPDATE restaurant_bills rb
-    LEFT JOIN bills bt ON bt.token_id = rb.tokenId
-    LEFT JOIN bills bb ON bb.tableNumber = rb.tableNumber AND bb.entityType = rb.entityType
-    SET
-      rb.tableNumber = COALESCE(rb.tableNumber, bt.tableNumber, bb.tableNumber),
-      rb.waiter_name = COALESCE(rb.waiter_name, bt.waiter_name, bb.waiter_name),
-      rb.customerName = COALESCE(rb.customerName, bt.customerName, bb.customerName),
-      rb.phone = COALESCE(rb.phone, bt.phone, bb.phone),
-      rb.paymentMethod = COALESCE(rb.paymentMethod, bt.paymentMethod, bb.paymentMethod),
-      rb.invoiceStatus = COALESCE(NULLIF(rb.invoiceStatus, 'unpaid'), bt.invoiceStatus, bb.invoiceStatus, rb.invoiceStatus),
-      rb.paid_at = COALESCE(rb.paid_at, bt.paid_at, bb.paid_at),
-      rb.payment_id = COALESCE(rb.payment_id, bt.payment_id, bb.payment_id),
-      rb.account_transaction_id = COALESCE(rb.account_transaction_id, bt.account_transaction_id, bb.account_transaction_id),
-      rb.posted_to_room = COALESCE(rb.posted_to_room, bt.posted_to_room, bb.posted_to_room, rb.posted_to_room),
-      rb.posted_room_number = COALESCE(rb.posted_room_number, bt.posted_room_number, bb.posted_room_number),
-      rb.room_booking_id = COALESCE(rb.room_booking_id, bt.room_booking_id, bb.room_booking_id),
-      rb.room_booking_code = COALESCE(rb.room_booking_code, bt.room_booking_code, bb.room_booking_code),
-      rb.folio_entry_id = COALESCE(rb.folio_entry_id, bt.folio_entry_id, bb.folio_entry_id),
-      rb.source_table_number = COALESCE(rb.source_table_number, bt.source_table_number, bb.source_table_number),
-      rb.posted_at = COALESCE(rb.posted_at, bt.posted_at, bb.posted_at),
-      rb.subtotal = CASE
-        WHEN COALESCE(rb.subtotal, 0) = 0 THEN COALESCE(bt.subtotal, bb.subtotal, rb.subtotal)
-        ELSE rb.subtotal
-      END,
-      rb.gst = CASE
-        WHEN COALESCE(rb.gst, 0) = 0 THEN COALESCE(bt.gst, bb.gst, rb.gst)
-        ELSE rb.gst
-      END,
-      rb.discount = CASE
-        WHEN COALESCE(rb.discount, 0) = 0 THEN COALESCE(bt.discountAmount, bb.discountAmount, rb.discount)
-        ELSE rb.discount
-      END,
-      rb.total = CASE
-        WHEN COALESCE(rb.total, 0) = 0 THEN COALESCE(bt.total, bb.total, rb.total)
-        ELSE rb.total
-      END
-    WHERE rb.modern_bill_id IS NULL
-  `);
+  console.log("[RestaurantModel] Running one-time schema bootstrap...");
+  bootstrapInFlight = (async () => {
+    try {
+      // ── DDL ONLY — fast, idempotent ─────────────────────────────────────
+      await run(`
+        CREATE TABLE IF NOT EXISTS ${TABLES_TABLE} (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          number VARCHAR(50) NOT NULL UNIQUE
+        )
+      `);
 
-  await run(`
-    CREATE TABLE IF NOT EXISTS restaurant_item_action_requests (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      token_item_id INT NOT NULL,
-      table_number VARCHAR(50) NOT NULL,
-      action_type VARCHAR(30) NOT NULL,
-      reason TEXT NOT NULL,
-      requested_by VARCHAR(191) DEFAULT NULL,
-      status VARCHAR(30) NOT NULL DEFAULT 'Pending',
-      manager_note TEXT DEFAULT NULL,
-      approved_by VARCHAR(191) DEFAULT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    )
-  `);
+      await run(`
+        CREATE TABLE IF NOT EXISTS menu_items (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(191) NOT NULL,
+          price DECIMAL(10,2) NOT NULL DEFAULT 0,
+          category VARCHAR(120) DEFAULT 'Other',
+          table_number VARCHAR(50) DEFAULT NULL,
+          image_url VARCHAR(255) DEFAULT NULL,
+          tax DECIMAL(6,2) NOT NULL DEFAULT 5,
+          happy_hour_price DECIMAL(10,2) DEFAULT NULL,
+          happy_hour_start TIME DEFAULT NULL,
+          happy_hour_end TIME DEFAULT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
 
-  await run(`
-    CREATE TABLE IF NOT EXISTS restaurant_split_bills (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      bill_id INT DEFAULT NULL,
-      table_number VARCHAR(50) NOT NULL,
-      entity_type VARCHAR(30) DEFAULT 'Table',
-      split_label VARCHAR(80) NOT NULL,
-      split_no INT NOT NULL,
-      split_count INT NOT NULL,
-      subtotal DECIMAL(10,2) NOT NULL DEFAULT 0,
-      gst DECIMAL(10,2) NOT NULL DEFAULT 0,
-      total DECIMAL(10,2) NOT NULL DEFAULT 0,
-      payment_method VARCHAR(50) DEFAULT NULL,
-      items_json LONGTEXT DEFAULT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
+      await ensureColumn(TABLES_TABLE, "status", "VARCHAR(50) DEFAULT 'available' AFTER number");
+      await ensureColumn(TABLES_TABLE, "guestCount", "INT DEFAULT 4 AFTER status");
+      await ensureColumn(TABLES_TABLE, "floor_name", "VARCHAR(80) DEFAULT NULL AFTER guestCount");
+      await ensureColumn(TABLES_TABLE, "section_name", "VARCHAR(80) DEFAULT NULL AFTER floor_name");
+      await ensureColumn(TABLES_TABLE, "seat_count", "INT NOT NULL DEFAULT 4 AFTER section_name");
+      await ensureColumn(TABLES_TABLE, "status_color", "VARCHAR(30) DEFAULT NULL AFTER seat_count");
+
+      await ensureColumn("menu_items", "image_url", "VARCHAR(255) DEFAULT NULL AFTER table_number");
+      await ensureColumn("menu_items", "tax", "DECIMAL(6,2) NOT NULL DEFAULT 5 AFTER image_url");
+      await ensureColumn("menu_items", "description", "TEXT DEFAULT NULL AFTER image_url");
+      await ensureColumn("menu_items", "food_type", "VARCHAR(30) DEFAULT 'Veg' AFTER description");
+      await ensureColumn("menu_items", "status", "VARCHAR(40) DEFAULT 'Available' AFTER food_type");
+      await ensureColumn("menu_items", "availability_status", "VARCHAR(40) DEFAULT 'Available' AFTER food_type");
+      await ensureColumn("menu_items", "happy_hour_price", "DECIMAL(10,2) DEFAULT NULL AFTER tax");
+      await ensureColumn("menu_items", "happy_hour_start", "TIME DEFAULT NULL AFTER happy_hour_price");
+      await ensureColumn("menu_items", "happy_hour_end", "TIME DEFAULT NULL AFTER happy_hour_start");
+
+      await run(`
+        CREATE TABLE IF NOT EXISTS orders (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tableNumber VARCHAR(50) NOT NULL,
+          waiter_name VARCHAR(191) DEFAULT NULL,
+          status VARCHAR(30) NOT NULL DEFAULT 'pending',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await ensureColumn("orders", "waiter_name", "VARCHAR(191) DEFAULT NULL AFTER tableNumber");
+      await ensureIndex("orders", "idx_orders_waiter_name", "INDEX idx_orders_waiter_name (waiter_name)");
+
+      await run(`
+        CREATE TABLE IF NOT EXISTS order_items (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          order_id INT NOT NULL,
+          name VARCHAR(191) NOT NULL,
+          price DECIMAL(10,2) NOT NULL DEFAULT 0,
+          quantity INT NOT NULL DEFAULT 1,
+          CONSTRAINT fk_order_items_order
+          FOREIGN KEY (order_id) REFERENCES orders(id)
+          ON DELETE CASCADE
+        )
+      `);
+
+      await run(`
+        CREATE TABLE IF NOT EXISTS bills (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tableNumber VARCHAR(50) NOT NULL,
+          entityType VARCHAR(30) DEFAULT 'Table',
+          customerName VARCHAR(191) DEFAULT NULL,
+          phone VARCHAR(30) DEFAULT NULL,
+          subtotal DECIMAL(10,2) NOT NULL DEFAULT 0,
+          gst DECIMAL(10,2) NOT NULL DEFAULT 0,
+          total DECIMAL(10,2) NOT NULL DEFAULT 0,
+          paymentMethod VARCHAR(50) DEFAULT NULL,
+          invoiceStatus VARCHAR(50) DEFAULT 'Saved',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await ensureColumn("bills", "customerName", "VARCHAR(191) DEFAULT NULL AFTER tableNumber");
+      await ensureColumn("bills", "token_id", "INT DEFAULT NULL AFTER tableNumber");
+      await ensureColumn("bills", "entityType", "VARCHAR(30) DEFAULT 'Table' AFTER tableNumber");
+      await ensureColumn("bills", "phone", "VARCHAR(30) DEFAULT NULL AFTER customerName");
+      await ensureColumn("bills", "invoiceStatus", "VARCHAR(50) DEFAULT 'Saved' AFTER paymentMethod");
+      await ensureColumn("bills", "waiter_name", "VARCHAR(191) DEFAULT NULL AFTER entityType");
+      await ensureColumn("bills", "split_no", "INT DEFAULT NULL AFTER invoiceStatus");
+      await ensureColumn("bills", "split_count", "INT DEFAULT NULL AFTER split_no");
+      await ensureColumn("bills", "discountAmount", "DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER total");
+      await ensureColumn("bills", "paid_at", "DATETIME DEFAULT NULL AFTER split_count");
+      await ensureColumn("bills", "payment_id", "INT DEFAULT NULL AFTER paid_at");
+      await ensureColumn("bills", "account_transaction_id", "INT DEFAULT NULL AFTER payment_id");
+      await ensureColumn("bills", "posted_to_room", "TINYINT(1) NOT NULL DEFAULT 0 AFTER account_transaction_id");
+      await ensureColumn("bills", "posted_room_number", "VARCHAR(50) DEFAULT NULL AFTER posted_to_room");
+      await ensureColumn("bills", "room_booking_id", "INT DEFAULT NULL AFTER posted_room_number");
+      await ensureColumn("bills", "room_booking_code", "VARCHAR(80) DEFAULT NULL AFTER room_booking_id");
+      await ensureColumn("bills", "folio_entry_id", "INT DEFAULT NULL AFTER room_booking_code");
+      await ensureColumn("bills", "source_table_number", "VARCHAR(50) DEFAULT NULL AFTER folio_entry_id");
+      await ensureColumn("bills", "posted_at", "DATETIME DEFAULT NULL AFTER source_table_number");
+      await ensureIndex("bills", "uniq_bills_token_id", "UNIQUE KEY uniq_bills_token_id (token_id)");
+
+      await run(`
+        CREATE TABLE IF NOT EXISTS restaurant_bills (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          modern_bill_id INT DEFAULT NULL,
+          tableNumber VARCHAR(50) DEFAULT NULL,
+          tokenId INT DEFAULT NULL,
+          entityType VARCHAR(30) DEFAULT 'Table',
+          waiter_name VARCHAR(191) DEFAULT NULL,
+          customerName VARCHAR(191) DEFAULT NULL,
+          phone VARCHAR(30) DEFAULT NULL,
+          subtotal DECIMAL(10,2) DEFAULT 0,
+          gst DECIMAL(10,2) DEFAULT 0,
+          discount DECIMAL(10,2) DEFAULT 0,
+          total DECIMAL(10,2) DEFAULT 0,
+          paymentMethod VARCHAR(50) DEFAULT NULL,
+          invoiceStatus VARCHAR(30) DEFAULT 'unpaid',
+          paid_at DATETIME DEFAULT NULL,
+          payment_id INT DEFAULT NULL,
+          account_transaction_id INT DEFAULT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await ensureColumn("restaurant_bills", "modern_bill_id", "INT DEFAULT NULL AFTER id");
+      await ensureColumn("restaurant_bills", "waiter_name", "VARCHAR(191) DEFAULT NULL AFTER entityType");
+      await ensureColumn("restaurant_bills", "customerName", "VARCHAR(191) DEFAULT NULL AFTER waiter_name");
+      await ensureColumn("restaurant_bills", "phone", "VARCHAR(30) DEFAULT NULL AFTER customerName");
+      await ensureColumn("restaurant_bills", "paid_at", "DATETIME DEFAULT NULL AFTER invoiceStatus");
+      await ensureColumn("restaurant_bills", "payment_id", "INT DEFAULT NULL AFTER paid_at");
+      await ensureColumn("restaurant_bills", "account_transaction_id", "INT DEFAULT NULL AFTER payment_id");
+      await ensureColumn("restaurant_bills", "posted_to_room", "TINYINT(1) NOT NULL DEFAULT 0 AFTER account_transaction_id");
+      await ensureColumn("restaurant_bills", "posted_room_number", "VARCHAR(50) DEFAULT NULL AFTER posted_to_room");
+      await ensureColumn("restaurant_bills", "room_booking_id", "INT DEFAULT NULL AFTER posted_room_number");
+      await ensureColumn("restaurant_bills", "room_booking_code", "VARCHAR(80) DEFAULT NULL AFTER room_booking_id");
+      await ensureColumn("restaurant_bills", "folio_entry_id", "INT DEFAULT NULL AFTER room_booking_code");
+      await ensureColumn("restaurant_bills", "source_table_number", "VARCHAR(50) DEFAULT NULL AFTER folio_entry_id");
+      await ensureColumn("restaurant_bills", "posted_at", "DATETIME DEFAULT NULL AFTER source_table_number");
+      await ensureIndex("restaurant_bills", "uniq_restaurant_bills_modern_bill_id", "UNIQUE KEY uniq_restaurant_bills_modern_bill_id (modern_bill_id)");
+
+      await run(`
+        CREATE TABLE IF NOT EXISTS restaurant_item_action_requests (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          token_item_id INT NOT NULL,
+          table_number VARCHAR(50) NOT NULL,
+          action_type VARCHAR(30) NOT NULL,
+          reason TEXT NOT NULL,
+          requested_by VARCHAR(191) DEFAULT NULL,
+          status VARCHAR(30) NOT NULL DEFAULT 'Pending',
+          manager_note TEXT DEFAULT NULL,
+          approved_by VARCHAR(191) DEFAULT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+
+      await run(`
+        CREATE TABLE IF NOT EXISTS restaurant_split_bills (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          bill_id INT DEFAULT NULL,
+          table_number VARCHAR(50) NOT NULL,
+          entity_type VARCHAR(30) DEFAULT 'Table',
+          split_label VARCHAR(80) NOT NULL,
+          split_no INT NOT NULL,
+          split_count INT NOT NULL,
+          subtotal DECIMAL(10,2) NOT NULL DEFAULT 0,
+          gst DECIMAL(10,2) NOT NULL DEFAULT 0,
+          total DECIMAL(10,2) NOT NULL DEFAULT 0,
+          payment_method VARCHAR(50) DEFAULT NULL,
+          items_json LONGTEXT DEFAULT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // ── One-time waiter_name backfill ───────────────────────────────────
+      await run(`
+        UPDATE orders o
+        LEFT JOIN tokens t
+          ON t.tableNumber = o.tableNumber
+         AND t.status = 'active'
+        SET o.waiter_name = COALESCE(NULLIF(o.waiter_name, ''), t.waiter)
+        WHERE o.waiter_name IS NULL OR o.waiter_name = ''
+      `);
+
+      schemaReady = true;
+      console.log("[RestaurantModel] Schema bootstrap complete.");
+    } finally {
+      bootstrapInFlight = null;
+    }
+  })();
+
+  await bootstrapInFlight;
 };
+
+// One-time migration: sync legacy restaurant_bills rows from bills.
+// Safe to call independently — does NOT re-run if already synced.
+const bootstrapLegacyBills = async () => {
+  await ensureSchema();
+  if (!schemaReady) return;
+
+  console.log("[RestaurantModel] Running legacy bill sync...");
+  try {
+    await run(`
+      UPDATE restaurant_bills rb
+      INNER JOIN bills b ON b.id = rb.modern_bill_id
+      SET
+        rb.tableNumber = b.tableNumber,
+        rb.tokenId = b.token_id,
+        rb.entityType = b.entityType,
+        rb.waiter_name = b.waiter_name,
+        rb.customerName = b.customerName,
+        rb.phone = b.phone,
+        rb.subtotal = b.subtotal,
+        rb.gst = b.gst,
+        rb.discount = COALESCE(b.discountAmount, 0),
+        rb.total = b.total,
+        rb.paymentMethod = b.paymentMethod,
+        rb.invoiceStatus = b.invoiceStatus,
+        rb.paid_at = b.paid_at,
+        rb.payment_id = b.payment_id,
+        rb.account_transaction_id = b.account_transaction_id,
+        rb.posted_to_room = COALESCE(b.posted_to_room, 0),
+        rb.posted_room_number = b.posted_room_number,
+        rb.room_booking_id = b.room_booking_id,
+        rb.room_booking_code = b.room_booking_code,
+        rb.folio_entry_id = b.folio_entry_id,
+        rb.source_table_number = b.source_table_number,
+        rb.posted_at = b.posted_at
+    `);
+
+    const [unlinkedBills] = await run(`
+      SELECT b.id
+      FROM bills b
+      LEFT JOIN restaurant_bills rb ON rb.modern_bill_id = b.id
+      WHERE rb.id IS NULL
+      ORDER BY b.created_at ASC, b.id ASC
+    `);
+
+    for (const billRow of unlinkedBills) {
+      await syncLegacyRestaurantBill(connection, billRow.id);
+    }
+
+    await run(`
+      UPDATE restaurant_bills rb
+      LEFT JOIN bills bt ON bt.token_id = rb.tokenId
+      LEFT JOIN bills bb ON bb.tableNumber = rb.tableNumber AND bb.entityType = rb.entityType
+      SET
+        rb.tableNumber = COALESCE(rb.tableNumber, bt.tableNumber, bb.tableNumber),
+        rb.waiter_name = COALESCE(rb.waiter_name, bt.waiter_name, bb.waiter_name),
+        rb.customerName = COALESCE(rb.customerName, bt.customerName, bb.customerName),
+        rb.phone = COALESCE(rb.phone, bt.phone, bb.phone),
+        rb.paymentMethod = COALESCE(rb.paymentMethod, bt.paymentMethod, bb.paymentMethod),
+        rb.invoiceStatus = COALESCE(NULLIF(rb.invoiceStatus, 'unpaid'), bt.invoiceStatus, bb.invoiceStatus, rb.invoiceStatus),
+        rb.paid_at = COALESCE(rb.paid_at, bt.paid_at, bb.paid_at),
+        rb.payment_id = COALESCE(rb.payment_id, bt.payment_id, bb.payment_id),
+        rb.account_transaction_id = COALESCE(rb.account_transaction_id, bt.account_transaction_id, bb.account_transaction_id),
+        rb.posted_to_room = COALESCE(rb.posted_to_room, bt.posted_to_room, bb.posted_to_room, rb.posted_to_room),
+        rb.posted_room_number = COALESCE(rb.posted_room_number, bt.posted_room_number, bb.posted_room_number),
+        rb.room_booking_id = COALESCE(rb.room_booking_id, bt.room_booking_id, bb.room_booking_id),
+        rb.room_booking_code = COALESCE(rb.room_booking_code, bt.room_booking_code, bb.room_booking_code),
+        rb.folio_entry_id = COALESCE(rb.folio_entry_id, bt.folio_entry_id, bb.folio_entry_id),
+        rb.source_table_number = COALESCE(rb.source_table_number, bt.source_table_number, bb.source_table_number),
+        rb.posted_at = COALESCE(rb.posted_at, bt.posted_at, bb.posted_at),
+        rb.subtotal = CASE
+          WHEN COALESCE(rb.subtotal, 0) = 0 THEN COALESCE(bt.subtotal, bb.subtotal, rb.subtotal)
+          ELSE rb.subtotal
+        END,
+        rb.gst = CASE
+          WHEN COALESCE(rb.gst, 0) = 0 THEN COALESCE(bt.gst, bb.gst, rb.gst)
+          ELSE rb.gst
+        END,
+        rb.discount = CASE
+          WHEN COALESCE(rb.discount, 0) = 0 THEN COALESCE(bt.discountAmount, bb.discountAmount, rb.discount)
+          ELSE rb.discount
+        END,
+        rb.total = CASE
+          WHEN COALESCE(rb.total, 0) = 0 THEN COALESCE(bt.total, bb.total, rb.total)
+          ELSE rb.total
+        END
+      WHERE rb.modern_bill_id IS NULL
+    `);
+
+    console.log("[RestaurantModel] Legacy bill sync complete.");
+  } catch (err) {
+    console.error("[RestaurantModel] Legacy bill sync failed:", err.message);
+  }
+};
+
 
 /* ================= TABLES ================= */
 
@@ -1217,25 +1260,47 @@ const getRoomChargeableBooking = async (conn, roomNumber, bookingId = null) => {
 };
 
 const chargeBillToRoom = async (data) => {
+  const traceId = `cbr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const log = (msg, extra) =>
+    console.log(`[chargeBillToRoom ${traceId}] ${msg}`, extra !== undefined ? JSON.stringify(extra) : "");
+
+  log("START", {
+    billId: data?.billId,
+    roomNumber: data?.roomNumber,
+    bookingId: data?.bookingId,
+    total: data?.total,
+    splitCount: data?.splitCount,
+    splitsLen: Array.isArray(data?.splits) ? data.splits.length : 0,
+    table: data?.table,
+    tableNumber: data?.tableNumber,
+  });
+
+  // Fast-path: schema is now memoized after first call.
   await ensureSchema();
   await folioModel.ensureSchema();
+  log("schema ready");
 
   const conn = await connection.getConnection();
+  log("connection acquired");
 
   try {
     await conn.beginTransaction();
+    log("transaction started");
 
     let billId = Number(data.billId || 0) || null;
     let billRow = null;
 
     if (billId) {
+      log("looking up existing bill", { billId });
       const [existingBills] = await conn.query("SELECT * FROM bills WHERE id = ? LIMIT 1 FOR UPDATE", [billId]);
       billRow = existingBills?.[0] || null;
+      log("existing bill lookup done", { found: !!billRow, invoiceStatus: billRow?.invoiceStatus });
     }
 
     if (!billRow) {
+      log("creating new bill record");
       billId = await createBillRecord(conn, {
-        table: data.table,
+        table: data.table || data.tableNumber,
         tokenId: data.tokenId || null,
         entityType: data.entityType || "Table",
         waiterName: data.waiterName || null,
@@ -1252,6 +1317,7 @@ const chargeBillToRoom = async (data) => {
 
       const [createdBills] = await conn.query("SELECT * FROM bills WHERE id = ? LIMIT 1 FOR UPDATE", [billId]);
       billRow = createdBills?.[0] || null;
+      log("bill created", { billId });
     }
 
     if (!billRow) {
@@ -1274,10 +1340,12 @@ const chargeBillToRoom = async (data) => {
 
     const sourceTableNumber = String(data.sourceTableNumber || billRow.source_table_number || billRow.tableNumber || "").trim();
     const targetRoomNumber = String(data.roomNumber || "").trim();
+    log("looking up booking", { targetRoomNumber, bookingId: data?.bookingId });
     const booking = await getRoomChargeableBooking(conn, targetRoomNumber, data.bookingId || null);
+    log("booking lookup done", { found: !!booking });
 
     if (!booking) {
-      const error = new Error("Active in-house booking not found for this room.");
+      const error = new Error(`Active in-house booking not found for room "${targetRoomNumber}". Please verify the room is checked in.`);
       error.statusCode = 404;
       throw error;
     }
@@ -1287,6 +1355,7 @@ const chargeBillToRoom = async (data) => {
     const description = `Restaurant charge from Table ${sourceTableNumber || billRow.tableNumber || "--"} | Bill #${billId}`;
     const entryDate = new Date().toISOString().slice(0, 10);
 
+    log("inserting folio entry", { bookingId: booking.bookingId, amount: Number(data.total ?? billRow.total ?? 0) });
     const [folioResult] = await conn.query(
       `
         INSERT INTO hotel_folio_entries
@@ -1301,6 +1370,7 @@ const chargeBillToRoom = async (data) => {
         data.createdBy || "Restaurant POS",
       ],
     );
+    log("folio entry inserted", { folioEntryId: folioResult.insertId });
 
     await conn.query(
       `
@@ -1335,6 +1405,7 @@ const chargeBillToRoom = async (data) => {
         billId,
       ],
     );
+    log("bill updated to Posted To Room");
 
     if (billRow.tableNumber) {
       await conn.query(
@@ -1348,9 +1419,14 @@ const chargeBillToRoom = async (data) => {
     }
 
     await syncLegacyRestaurantBill(conn, billId);
+    log("legacy bill sync done");
+
     await conn.commit();
+    log("transaction committed");
 
     const [updatedBills] = await conn.query("SELECT * FROM bills WHERE id = ? LIMIT 1", [billId]);
+
+    log("END SUCCESS", { billId, folioEntryId: folioResult.insertId });
 
     return {
       billId,
@@ -1361,15 +1437,26 @@ const chargeBillToRoom = async (data) => {
       bill: updatedBills?.[0] || null,
     };
   } catch (error) {
-    await conn.rollback();
+    log("ERROR caught", { message: error?.message, statusCode: error?.statusCode });
+    try {
+      await conn.rollback();
+      log("transaction rolled back");
+    } catch (rollbackErr) {
+      log("rollback failed", { message: rollbackErr?.message });
+    }
     throw error;
   } finally {
-    conn.release();
+    try {
+      conn.release();
+    } catch (releaseErr) {
+      log("connection release failed", { message: releaseErr?.message });
+    }
   }
 };
 
 module.exports = {
   ensureSchema,
+  bootstrapLegacyBills,
   addTable: exports.addTable,
   getTables: exports.getTables,
   updateTable: exports.updateTable,

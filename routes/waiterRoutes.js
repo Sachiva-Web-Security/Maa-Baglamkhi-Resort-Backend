@@ -14,4 +14,7 @@ router.patch("/orders/:id/served", waiterController.markServed);
 // GET /api/waiter/live-board — all active orders with ownership flag
 router.get("/live-board", waiterController.getLiveBoard);
 
+// POST /api/waiter/release-lock — release a pickup lock on a kitchen order
+router.post("/release-lock", waiterController.releaseLock);
+
 module.exports = router;
