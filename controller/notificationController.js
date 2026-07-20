@@ -44,6 +44,7 @@ exports.listNotifications = async (req, res) => {
 
     const userId = req.user?.id || 0;
     const role = String(req.user?.role || "").toLowerCase();
+    const visibleRoles = role === "chef" ? ["chef", "kitchen"] : [role];
     const isAdmin = role === "admin";
 
     const rows = await query(
@@ -51,11 +52,11 @@ exports.listNotifications = async (req, res) => {
         SELECT id, user_id, user_role, type, title, message, data,
                is_read, created_at, read_at
         FROM notifications
-        ${isAdmin ? "" : "WHERE user_id = ? OR user_role = ?"}
+        ${isAdmin ? "" : "WHERE user_id = ? OR user_role IN (?)"}
         ORDER BY created_at DESC
         LIMIT 200
       `,
-      isAdmin ? [] : [userId, role],
+      isAdmin ? [] : [userId, visibleRoles],
     );
 
     res.json(rows);
@@ -70,6 +71,7 @@ exports.markAsRead = async (req, res) => {
     await exports.ensureSchema();
     const userId = req.user?.id || 0;
     const role = String(req.user?.role || "").toLowerCase();
+    const visibleRoles = role === "chef" ? ["chef", "kitchen"] : [role];
     const isAdmin = role === "admin";
 
     if (isAdmin) {
@@ -78,8 +80,8 @@ exports.markAsRead = async (req, res) => {
       ]);
     } else {
       await query(
-        "UPDATE notifications SET is_read = 1, read_at = NOW() WHERE id = ? AND (user_id = ? OR user_role = ?)",
-        [req.params.id, userId, role],
+        "UPDATE notifications SET is_read = 1, read_at = NOW() WHERE id = ? AND (user_id = ? OR user_role IN (?))",
+        [req.params.id, userId, visibleRoles],
       );
     }
     res.json({ success: true });
@@ -93,14 +95,15 @@ exports.markAllAsRead = async (req, res) => {
     await exports.ensureSchema();
     const userId = req.user?.id || 0;
     const role = String(req.user?.role || "").toLowerCase();
+    const visibleRoles = role === "chef" ? ["chef", "kitchen"] : [role];
     const isAdmin = role === "admin";
 
     if (isAdmin) {
       await query("UPDATE notifications SET is_read = 1, read_at = NOW() WHERE is_read = 0");
     } else {
       await query(
-        "UPDATE notifications SET is_read = 1, read_at = NOW() WHERE is_read = 0 AND (user_id = ? OR user_role = ?)",
-        [userId, role],
+        "UPDATE notifications SET is_read = 1, read_at = NOW() WHERE is_read = 0 AND (user_id = ? OR user_role IN (?))",
+        [userId, visibleRoles],
       );
     }
     res.json({ success: true });

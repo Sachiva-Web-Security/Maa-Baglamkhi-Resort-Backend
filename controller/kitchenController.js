@@ -2,6 +2,7 @@ const db = require("../config/db");
 const { getRequestActor, isWaiterActor } = require("../utils/requestActor");
 const { ensureSchema } = require("../models/kitchen");
 const { createNotification } = require("../controller/notificationController");
+const { syncRestaurantOrdersToKitchen } = require("../utils/kitchenOrderSync");
 
 const q = (sql, params = []) =>
   new Promise((resolve, reject) =>
@@ -117,7 +118,7 @@ exports.createOrder = async (req, res) => {
 exports.getOrders = async (req, res) => {
   const actor = getRequestActor(req);
   try {
-    await ensureSchema();
+    await syncRestaurantOrdersToKitchen();
     const params = [];
     let sql = "SELECT * FROM kitchen_orders WHERE COALESCE(token_status, 'Active') != 'Closed'";
     if (isWaiterActor(actor) && actor.name) {
