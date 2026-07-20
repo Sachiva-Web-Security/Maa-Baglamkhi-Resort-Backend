@@ -456,6 +456,27 @@ const ensureSchema = async () => {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS inventory_chef_issues (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      item_id INT NULL,
+      item_name VARCHAR(255) NOT NULL,
+      quantity_issued DECIMAL(10,2) NOT NULL DEFAULT 0,
+      quantity_returned DECIMAL(10,2) NOT NULL DEFAULT 0,
+      unit VARCHAR(60) NULL,
+      chef_name VARCHAR(120) NULL,
+      chef_id INT NULL,
+      purpose VARCHAR(255) NULL,
+      status VARCHAR(30) NOT NULL DEFAULT 'issued',
+      issued_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      returned_at DATETIME NULL,
+      remarks TEXT NULL,
+      created_by VARCHAR(120) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
 };
 
 const Inventory = {
@@ -815,7 +836,7 @@ const Inventory = {
           referenceId: id,
           direction: "OUT",
           quantity,
-          unit: data.unit || matchedItem.unit || null,
+          unit: data.unit || matchedItem?.unit || existing.unit || null,
           locationName: data.store || nextItem?.branch || null,
           rate: nextItem?.price || 0,
           amount: (nextItem?.price || 0) * quantity,
@@ -1598,115 +1619,48 @@ const Inventory = {
          FROM inventory_stock_ledger l
          UNION ALL
          SELECT
-           icl.id,
-           icl.inventory_item_id AS itemId,
-           icl.inventoryItemName AS itemName,
-           'consumption' AS referenceType,
-           icl.reference_id AS referenceId,
+           ci.id,
+           ci.item_id AS itemId,
+           ci.item_name AS itemName,
+           'chef_issue' AS referenceType,
+           ci.id AS referenceId,
            'OUT' AS direction,
-           icl.consumed_quantity AS quantity,
-           icl.unit,
+           ci.quantity_issued AS quantity,
+           ci.unit,
            NULL AS vendorName,
-           NULL AS locationName,
+           ci.chef_name AS locationName,
            0 AS rate,
            0 AS amount,
            NULL AS balanceAfter,
-           icl.remarks,
-           DATE_FORMAT(icl.consumed_at, '%Y-%m-%d') AS entryDate,
-           icl.consumed_at AS createdAt
-         FROM (
-           SELECT
-             c.id,
-             c.reference_id,
-             c.inventory_item_id,
-             i.name AS inventoryItemName,
-             c.consumed_quantity,
-             c.unit,
-             c.remarks,
-             c.consumed_at
-           FROM inventory_consumption_log c
-           INNER JOIN inventory i ON i.id = c.inventory_item_id
-         ) icl
+           ci.remarks,
+           DATE_FORMAT(ci.issued_at, '%Y-%m-%d') AS entryDate,
+           ci.issued_at AS createdAt
+         FROM inventory_chef_issues ci
+         WHERE ci.status IN ('issued', 'partially_returned', 'fully_returned')
+         UNION ALL
+         SELECT
+           (ci.id + 1000000) AS id,
+           ci.item_id AS itemId,
+           ci.item_name AS itemName,
+           'chef_return' AS referenceType,
+           ci.id AS referenceId,
+           'IN' AS direction,
+           ci.quantity_returned AS quantity,
+           ci.unit,
+           NULL AS vendorName,
+           ci.chef_name AS locationName,
+           0 AS rate,
+           0 AS amount,
+           NULL AS balanceAfter,
+           ci.remarks,
+           DATE_FORMAT(ci.returned_at, '%Y-%m-%d') AS entryDate,
+           ci.returned_at AS createdAt
+         FROM inventory_chef_issues ci
+         WHERE ci.quantity_returned > 0
        ) ledger
        ORDER BY entryDate DESC, createdAt DESC`,
       callback,
     );
-  },
-
-  getVendorInsights: async () => {
-    const [summaryRows, vendorRows] = await Promise.all([
-      runQuery(
-        `
-          SELECT
-            (SELECT COUNT(*) FROM inventory_vendors) AS totalVendors,
-            (SELECT COALESCE(SUM(quantity_received), 0) FROM inventory_vendor_inwards) AS totalReceivedQty,
-            (SELECT COALESCE(SUM(amount), 0) FROM inventory_vendor_inwards) AS totalReceivedValue,
-            (SELECT COALESCE(SUM(amount), 0) FROM inventory_vendor_payments WHERE status <> 'Cancelled') AS totalPaidAmount
-        `,
-      ),
-      runQuery(
-        `
-          SELECT
-            base.vendorName,
-            COALESCE(v.status, 'Active') AS status,
-            COALESCE(inwardStats.receiptsCount, 0) AS receiptsCount,
-            COALESCE(inwardStats.totalQty, 0) AS totalQty,
-            COALESCE(inwardStats.totalValue, 0) AS totalValue,
-            COALESCE(paymentStats.totalPaid, 0) AS totalPaid,
-            COALESCE(paymentStats.paymentCount, 0) AS paymentCount,
-            inwardStats.lastReceivedDate AS lastReceivedDate
-          FROM (
-            SELECT name AS vendorName FROM inventory_vendors
-            UNION
-            SELECT vendor_name AS vendorName FROM inventory_vendor_inwards
-            UNION
-            SELECT vendor_name AS vendorName FROM inventory_vendor_payments
-          ) base
-          LEFT JOIN inventory_vendors v
-            ON LOWER(v.name) = LOWER(base.vendorName)
-          LEFT JOIN (
-            SELECT
-              vendor_name,
-              COUNT(*) AS receiptsCount,
-              COALESCE(SUM(quantity_received), 0) AS totalQty,
-              COALESCE(SUM(amount), 0) AS totalValue,
-              MAX(DATE_FORMAT(received_date, '%Y-%m-%d')) AS lastReceivedDate
-            FROM inventory_vendor_inwards
-            GROUP BY vendor_name
-          ) inwardStats
-            ON LOWER(inwardStats.vendor_name) = LOWER(base.vendorName)
-          LEFT JOIN (
-            SELECT
-              vendor_name,
-              COUNT(*) AS paymentCount,
-              COALESCE(SUM(amount), 0) AS totalPaid
-            FROM inventory_vendor_payments
-            WHERE status <> 'Cancelled'
-            GROUP BY vendor_name
-          ) paymentStats
-            ON LOWER(paymentStats.vendor_name) = LOWER(base.vendorName)
-          WHERE base.vendorName IS NOT NULL AND base.vendorName <> ''
-          ORDER BY totalValue DESC, totalQty DESC, base.vendorName ASC
-        `,
-      ),
-    ]);
-
-    const summary = summaryRows?.[0] || {};
-    const vendors = (vendorRows || []).map((row) => ({
-      ...row,
-      totalDue: Math.max(Number(row.totalValue || 0) - Number(row.totalPaid || 0), 0),
-    }));
-
-    return {
-      summary: {
-        totalVendors: Number(summary.totalVendors || 0),
-        totalReceivedQty: Number(summary.totalReceivedQty || 0),
-        totalReceivedValue: Number(summary.totalReceivedValue || 0),
-        totalPaidAmount: Number(summary.totalPaidAmount || 0),
-        totalOutstandingAmount: vendors.reduce((sum, row) => sum + Number(row.totalDue || 0), 0),
-      },
-      vendors,
-    };
   },
 
   getStockFlowReport: async (options = {}) => {
@@ -1744,17 +1698,30 @@ const Inventory = {
            FROM inventory_stock_ledger l
            UNION ALL
            SELECT
-             c.inventory_item_id AS itemId,
-             i.name AS itemName,
-             'consumption' AS referenceType,
+             ci.item_id AS itemId,
+             ci.item_name AS itemName,
+             'chef_issue' AS referenceType,
              'OUT' AS direction,
-             c.consumed_quantity AS quantity,
-             c.unit,
+             ci.quantity_issued AS quantity,
+             ci.unit,
              NULL AS balanceAfter,
-             DATE_FORMAT(c.consumed_at, '%Y-%m-%d') AS entryDate,
-             c.consumed_at AS createdAt
-           FROM inventory_consumption_log c
-           INNER JOIN inventory i ON i.id = c.inventory_item_id
+             DATE_FORMAT(ci.issued_at, '%Y-%m-%d') AS entryDate,
+             ci.issued_at AS createdAt
+           FROM inventory_chef_issues ci
+           WHERE ci.status IN ('issued', 'partially_returned', 'fully_returned')
+           UNION ALL
+           SELECT
+             ci.item_id AS itemId,
+             ci.item_name AS itemName,
+             'chef_return' AS referenceType,
+             'IN' AS direction,
+             ci.quantity_returned AS quantity,
+             ci.unit,
+             NULL AS balanceAfter,
+             DATE_FORMAT(ci.returned_at, '%Y-%m-%d') AS entryDate,
+             ci.returned_at AS createdAt
+           FROM inventory_chef_issues ci
+           WHERE ci.quantity_returned > 0
          ) ledger
          ORDER BY entryDate ASC, createdAt ASC`,
       ),
@@ -1879,6 +1846,328 @@ const Inventory = {
         amount: Number(summary.amount.toFixed(2)),
       },
       rows,
+    };
+  },
+
+  createChefIssue: async (data) => {
+    const connection = await getConnection();
+    try {
+      await beginTransaction(connection);
+      const quantityIssued = normalizeNumber(data.quantityIssued);
+      const matchedItem = await findInventoryItem(connection, data.itemId, data.itemName);
+
+      if (!matchedItem) {
+        const error = new Error("Item not found in inventory.");
+        error.statusCode = 404;
+        throw error;
+      }
+
+      if (quantityIssued <= 0) {
+        const error = new Error("Quantity issued must be greater than 0.");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const currentStock = await getInventoryStock(connection, matchedItem.id);
+      if (currentStock < quantityIssued) {
+        const error = new Error("Insufficient stock. Available: " + currentStock + " " + (matchedItem.unit || ""));
+        error.statusCode = 400;
+        throw error;
+      }
+
+      await queryWithConnection(
+        connection,
+        "UPDATE inventory SET stock = stock - ? WHERE id = ?",
+        [quantityIssued, matchedItem.id],
+      );
+
+      const result = await queryWithConnection(
+        connection,
+        `
+          INSERT INTO inventory_chef_issues
+            (item_id, item_name, quantity_issued, unit, chef_name, chef_id, purpose, status, remarks, created_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'issued', ?, ?)
+        `,
+        [
+          matchedItem.id,
+          matchedItem.name,
+          quantityIssued,
+          data.unit || matchedItem.unit || null,
+          data.chefName || null,
+          data.chefId || null,
+          data.purpose || null,
+          data.remarks || null,
+          data.createdBy || "system",
+        ],
+      );
+
+      const nextItem = await getInventoryItemDetails(connection, matchedItem.id);
+      await writeLedgerEntry(connection, {
+        itemId: matchedItem.id,
+        itemName: matchedItem.name,
+        referenceType: "chef_issue",
+        referenceId: result.insertId,
+        direction: "OUT",
+        quantity: quantityIssued,
+        unit: data.unit || matchedItem.unit || null,
+        locationName: data.chefName || null,
+        rate: nextItem?.price || 0,
+        amount: (nextItem?.price || 0) * quantityIssued,
+        balanceAfter: Number(nextItem?.stock || 0),
+        remarks: data.purpose || data.remarks || null,
+        entryDate: new Date().toISOString().slice(0, 10),
+      });
+
+      await commitTransaction(connection);
+      return {
+        id: result.insertId,
+        itemId: matchedItem.id,
+        itemName: matchedItem.name,
+        quantityIssued,
+        quantityReturned: 0,
+        unit: data.unit || matchedItem.unit || null,
+        chefName: data.chefName || null,
+        chefId: data.chefId || null,
+        purpose: data.purpose || null,
+        status: "issued",
+        remarks: data.remarks || null,
+        createdBy: data.createdBy || "system",
+        balanceAfter: Number(nextItem?.stock || 0),
+      };
+    } catch (error) {
+      await rollbackTransaction(connection);
+      throw error;
+    } finally {
+      connection.release();
+    }
+  },
+
+  returnChefIssue: async (issueId, data) => {
+    const connection = await getConnection();
+    try {
+      await beginTransaction(connection);
+      const quantityReturned = normalizeNumber(data.quantityReturned);
+
+      const existingRows = await queryWithConnection(
+        connection,
+        "SELECT * FROM inventory_chef_issues WHERE id = ? LIMIT 1",
+        [issueId],
+      );
+      const existing = existingRows[0];
+      if (!existing) {
+        const error = new Error("Chef issue record not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+
+      if (existing.status === "fully_returned") {
+        const error = new Error("This item has already been fully returned.");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      if (quantityReturned <= 0) {
+        const error = new Error("Quantity returned must be greater than 0.");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const alreadyReturned = normalizeNumber(existing.quantity_returned);
+      const totalReturned = alreadyReturned + quantityReturned;
+      const totalIssued = normalizeNumber(existing.quantity_issued);
+
+      if (totalReturned > totalIssued) {
+        const error = new Error(
+          "Cannot return more than issued. Issued: " + totalIssued + ", Already returned: " + alreadyReturned,
+        );
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const matchedItem = await findInventoryItem(connection, existing.item_id, existing.item_name);
+      const newStatus = totalReturned >= totalIssued ? "fully_returned" : "partially_returned";
+
+      if (matchedItem && quantityReturned > 0) {
+        await queryWithConnection(
+          connection,
+          "UPDATE inventory SET stock = stock + ? WHERE id = ?",
+          [quantityReturned, matchedItem.id],
+        );
+      }
+
+      await queryWithConnection(
+        connection,
+        `
+          UPDATE inventory_chef_issues
+          SET quantity_returned = ?, status = ?, returned_at = NOW(), remarks = ?
+          WHERE id = ?
+        `,
+        [totalReturned, newStatus, data.remarks || existing.remarks || null, issueId],
+      );
+
+      let nextItem = null;
+      if (matchedItem) {
+        nextItem = await getInventoryItemDetails(connection, matchedItem.id);
+        await writeLedgerEntry(connection, {
+          itemId: matchedItem.id,
+          itemName: matchedItem.name,
+          referenceType: "chef_return",
+          referenceId: issueId,
+          direction: "IN",
+          quantity: quantityReturned,
+          unit: existing.unit || matchedItem.unit || null,
+          locationName: existing.chef_name || null,
+          rate: nextItem?.price || 0,
+          amount: (nextItem?.price || 0) * quantityReturned,
+          balanceAfter: Number(nextItem?.stock || 0),
+          remarks: data.remarks || existing.remarks || null,
+          entryDate: new Date().toISOString().slice(0, 10),
+        });
+      }
+
+      await commitTransaction(connection);
+      return {
+        id: issueId,
+        itemId: existing.item_id,
+        itemName: existing.item_name,
+        quantityIssued: totalIssued,
+        quantityReturned: totalReturned,
+        unit: existing.unit,
+        chefName: existing.chef_name,
+        chefId: existing.chef_id,
+        purpose: existing.purpose,
+        status: newStatus,
+        issuedAt: existing.issued_at,
+        returnedAt: new Date().toISOString(),
+        remarks: data.remarks || existing.remarks || null,
+        createdBy: existing.created_by,
+        balanceAfter: nextItem ? Number(nextItem.stock || 0) : null,
+      };
+    } catch (error) {
+      await rollbackTransaction(connection);
+      throw error;
+    } finally {
+      connection.release();
+    }
+  },
+
+  getChefIssues: (filters = {}, callback) => {
+    let sql = `
+      SELECT id, item_id AS itemId, item_name AS itemName,
+             quantity_issued AS quantityIssued, quantity_returned AS quantityReturned,
+             unit, chef_name AS chefName, chef_id AS chefId,
+             purpose, status,
+             DATE_FORMAT(issued_at, '%Y-%m-%d %H:%i') AS issuedAt,
+             DATE_FORMAT(returned_at, '%Y-%m-%d %H:%i') AS returnedAt,
+             remarks, created_by AS createdBy, created_at AS createdAt, updated_at AS updatedAt
+      FROM inventory_chef_issues
+    `;
+    const params = [];
+
+    if (filters.status) {
+      sql += " WHERE status = ?";
+      params.push(filters.status);
+    } else if (filters.chefId) {
+      sql += params.length ? " AND chef_id = ?" : " WHERE chef_id = ?";
+      params.push(filters.chefId);
+    } else if (filters.chefName) {
+      sql += params.length ? " AND chef_name = ?" : " WHERE chef_name = ?";
+      params.push(filters.chefName);
+    }
+
+    sql += " ORDER BY issued_at DESC, id DESC";
+    db.query(sql, params, callback);
+  },
+
+  getChefIssueById: (id, callback) => {
+    db.query(
+      `SELECT id, item_id AS itemId, item_name AS itemName,
+              quantity_issued AS quantityIssued, quantity_returned AS quantityReturned,
+              unit, chef_name AS chefName, chef_id AS chefId,
+              purpose, status,
+              DATE_FORMAT(issued_at, '%Y-%m-%d %H:%i') AS issuedAt,
+              DATE_FORMAT(returned_at, '%Y-%m-%d %H:%i') AS returnedAt,
+              remarks, created_by AS createdBy, created_at AS createdAt, updated_at AS updatedAt
+       FROM inventory_chef_issues
+       WHERE id = ? LIMIT 1`,
+      [id],
+      callback,
+    );
+  },
+
+  getVendorInsights: async () => {
+    const [summaryRows, vendorRows] = await Promise.all([
+      runQuery(
+        `
+          SELECT
+            (SELECT COUNT(*) FROM inventory_vendors) AS totalVendors,
+            (SELECT COALESCE(SUM(quantity_received), 0) FROM inventory_vendor_inwards) AS totalReceivedQty,
+            (SELECT COALESCE(SUM(amount), 0) FROM inventory_vendor_inwards) AS totalReceivedValue,
+            (SELECT COALESCE(SUM(amount), 0) FROM inventory_vendor_payments WHERE status <> 'Cancelled') AS totalPaidAmount
+        `,
+      ),
+      runQuery(
+        `
+          SELECT
+            base.vendorName,
+            COALESCE(v.status, 'Active') AS status,
+            COALESCE(inwardStats.receiptsCount, 0) AS receiptsCount,
+            COALESCE(inwardStats.totalQty, 0) AS totalQty,
+            COALESCE(inwardStats.totalValue, 0) AS totalValue,
+            COALESCE(paymentStats.totalPaid, 0) AS totalPaid,
+            COALESCE(paymentStats.paymentCount, 0) AS paymentCount,
+            inwardStats.lastReceivedDate AS lastReceivedDate
+          FROM (
+            SELECT name AS vendorName FROM inventory_vendors
+            UNION
+            SELECT vendor_name AS vendorName FROM inventory_vendor_inwards
+            UNION
+            SELECT vendor_name AS vendorName FROM inventory_vendor_payments
+          ) base
+          LEFT JOIN inventory_vendors v
+            ON LOWER(v.name) = LOWER(base.vendorName)
+          LEFT JOIN (
+            SELECT
+              vendor_name,
+              COUNT(*) AS receiptsCount,
+              COALESCE(SUM(quantity_received), 0) AS totalQty,
+              COALESCE(SUM(amount), 0) AS totalValue,
+              MAX(DATE_FORMAT(received_date, '%Y-%m-%d')) AS lastReceivedDate
+            FROM inventory_vendor_inwards
+            GROUP BY vendor_name
+          ) inwardStats
+            ON LOWER(inwardStats.vendor_name) = LOWER(base.vendorName)
+          LEFT JOIN (
+            SELECT
+              vendor_name,
+              COUNT(*) AS paymentCount,
+              COALESCE(SUM(amount), 0) AS totalPaid
+            FROM inventory_vendor_payments
+            WHERE status <> 'Cancelled'
+            GROUP BY vendor_name
+          ) paymentStats
+            ON LOWER(paymentStats.vendor_name) = LOWER(base.vendorName)
+          WHERE base.vendorName IS NOT NULL AND base.vendorName <> ''
+          ORDER BY totalValue DESC, totalQty DESC, base.vendorName ASC
+        `,
+      ),
+    ]);
+
+    const summary = summaryRows?.[0] || {};
+    const vendors = (vendorRows || []).map((row) => ({
+      ...row,
+      totalDue: Math.max(Number(row.totalValue || 0) - Number(row.totalPaid || 0), 0),
+    }));
+
+    return {
+      summary: {
+        totalVendors: Number(summary.totalVendors || 0),
+        totalReceivedQty: Number(summary.totalReceivedQty || 0),
+        totalReceivedValue: Number(summary.totalReceivedValue || 0),
+        totalPaidAmount: Number(summary.totalPaidAmount || 0),
+        totalOutstandingAmount: vendors.reduce((sum, row) => sum + Number(row.totalDue || 0), 0),
+      },
+      vendors,
     };
   },
 };

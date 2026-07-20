@@ -284,6 +284,68 @@ exports.getVendorInsights = (req, res) => {
   });
 };
 
+exports.createChefIssue = (req, res) => {
+  const data = { ...req.body, createdBy: req.user?.name || req.user?.email || "system" };
+  withInventorySchema(res, async () => {
+    try {
+      const result = await Inventory.createChefIssue(data);
+      res.status(201).json({ message: "Item issued to chef.", record: result });
+    } catch (err) {
+      res.status(err?.statusCode || 500).json({ message: err.message || "Failed to issue item.", error: err });
+    }
+  });
+};
+
+exports.returnChefIssue = (req, res) => {
+  withInventorySchema(res, async () => {
+    try {
+      const result = await Inventory.returnChefIssue(req.params.id, req.body);
+      res.json({ message: "Return recorded.", record: result });
+    } catch (err) {
+      res.status(err?.statusCode || 500).json({ message: err.message || "Failed to record return.", error: err });
+    }
+  });
+};
+
+exports.getChefIssues = (req, res) => {
+  withInventorySchema(res, async () => {
+    try {
+      const filters = {};
+      if (req.query.status) filters.status = req.query.status;
+      if (req.query.chefId) filters.chefId = req.query.chefId;
+      if (req.query.chefName) filters.chefName = req.query.chefName;
+      const results = await new Promise((resolve, reject) => {
+        Inventory.getChefIssues(filters, (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows);
+        });
+      });
+      res.json(results);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch chef issues.", error: err });
+    }
+  });
+};
+
+exports.getChefIssueById = (req, res) => {
+  withInventorySchema(res, async () => {
+    try {
+      const results = await new Promise((resolve, reject) => {
+        Inventory.getChefIssueById(req.params.id, (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows);
+        });
+      });
+      if (!results || !results.length) {
+        return res.status(404).json({ message: "Chef issue record not found." });
+      }
+      res.json(results[0]);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch chef issue.", error: err });
+    }
+  });
+};
+
 exports.submitAudit = (req, res) => {
   const entries = req.body.entries || [];
   if (!entries.length) return res.status(400).json({ message: "No audit entries provided." });

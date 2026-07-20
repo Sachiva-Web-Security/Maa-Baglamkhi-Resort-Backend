@@ -38,6 +38,8 @@ router.post("/bill/:id/charge-to-room", controller.chargeBillToRoom);
 router.post("/bill/charge-to-room", controller.chargeBillToRoom);
 router.post("/bill/:id/pay", controller.payBill);
 router.post("/bill/pay", controller.payBill);
+router.post("/split-bills/:id/charge-to-room", controller.chargeBillToRoom);
+router.post("/split-bills/charge-to-room", controller.chargeBillToRoom);
 router.get("/bills", controller.getBills);
 
 module.exports = router;

@@ -10,6 +10,7 @@ const {
   createVendorInward, getVendorInwards, updateVendorInward, deleteVendorInward,
   createVendorPayment, getVendorPayments, updateVendorPayment, deleteVendorPayment,
   getStockLedger, getStockFlowReport, getVendorInsights,
+  createChefIssue, returnChefIssue, getChefIssues, getChefIssueById,
 } = require("../controller/inventoryController");
 
 const authMiddleware = require("../middleware/authMiddleware");
@@ -53,6 +54,11 @@ router.get("/transfers", authMiddleware, roleMiddleware(READERS), getTransfers);
 router.post("/transfers", authMiddleware, roleMiddleware(["admin", "manager", "kitchen", "chef", "receptionist"]), recordTransfer);
 router.put("/transfers/:id", authMiddleware, roleMiddleware(["admin", "manager", "kitchen", "chef", "receptionist"]), updateTransfer);
 router.delete("/transfers/:id", authMiddleware, roleMiddleware(EDITORS), deleteTransfer);
+
+router.get("/chef-issues", authMiddleware, roleMiddleware(READERS), getChefIssues);
+router.post("/chef-issues", authMiddleware, roleMiddleware(["admin", "manager", "kitchen", "chef", "receptionist"]), createChefIssue);
+router.put("/chef-issues/:id/return", authMiddleware, roleMiddleware(["admin", "manager", "kitchen", "chef", "receptionist"]), returnChefIssue);
+router.get("/chef-issues/:id", authMiddleware, roleMiddleware(READERS), getChefIssueById);
 
 router.get("/:id", authMiddleware, roleMiddleware(READERS), getItem);
 router.post("/", authMiddleware, roleMiddleware(EDITORS), createItem);
