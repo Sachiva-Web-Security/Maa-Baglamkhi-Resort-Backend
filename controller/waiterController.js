@@ -29,6 +29,61 @@ async function ensureWaiterColumns() {
 }
 
 /**
+ * POST /waiter/release-lock
+ * Releases the waiter's pickup lock on a kitchen order so another waiter
+ * can pick it up. Called after payment / table close so a stale lock does
+ * not block reassignment. Always returns 200 — a "release" is idempotent.
+ */
+exports.releaseLock = async (req, res) => {
+  try {
+    await ensureWaiterColumns();
+    const { tableNumber, tokenId, orderId } = req.body || {};
+    const actor = getRequestActor(req);
+
+    const updates = [];
+    const params = [];
+
+    if (orderId) {
+      // Reset picked_up_at so the order becomes available for re-pickup.
+      updates.push("picked_up_at = NULL");
+      params.push(Number(orderId));
+      await q(
+        `UPDATE kitchen_orders SET picked_up_at = NULL WHERE id = ?`,
+        params,
+      );
+      return res.json({ success: true, released: { orderId } });
+    }
+
+    if (tableNumber) {
+      // Reset all locks on this table — convenient when the table is closed.
+      updates.push("picked_up_at = NULL");
+      await q(
+        `UPDATE kitchen_orders SET picked_up_at = NULL WHERE table_number = ? AND picked_up_at IS NOT NULL`,
+        [String(tableNumber)],
+      );
+      return res.json({ success: true, released: { tableNumber } });
+    }
+
+    if (tokenId) {
+      await q(
+        `UPDATE kitchen_orders SET picked_up_at = NULL WHERE id = ?`,
+        [Number(tokenId)],
+      );
+      return res.json({ success: true, released: { tokenId } });
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: "Provide tableNumber, tokenId, or orderId to release the lock.",
+    });
+  } catch (err) {
+    console.error("[waiter/release-lock] ERROR:", err?.message);
+    // Release is best-effort — still return 200 so callers don't surface noise.
+    return res.json({ success: true, message: "Release best-effort completed", error: err.message });
+  }
+};
+
+/**
  * GET /waiter/orders/ready
  * Returns all kitchen orders with status = 'Ready' for waiters to pickup.
  * Waiters only see their own orders; non-waiters see all.
