@@ -446,7 +446,7 @@ const Housekeeping = {
         await runQuery(`
           DELETE hk1 FROM housekeeping hk1
           INNER JOIN housekeeping hk2
-            ON CAST(TRIM(hk1.roomNo) AS CHAR) = CAST(TRIM(hk2.roomNo) AS CHAR)
+            ON CAST(TRIM(hk1.roomNo) AS CHAR) COLLATE utf8mb4_general_ci = CAST(TRIM(hk2.roomNo) AS CHAR) COLLATE utf8mb4_general_ci
            AND (
              (hk1.id < hk2.id AND COALESCE(NULLIF(TRIM(hk1.status), ''), '') <> '')
              OR
@@ -471,7 +471,7 @@ const Housekeeping = {
           'No Housekeeper'
         FROM rooms r
         LEFT JOIN housekeeping hk
-          ON CAST(hk.roomNo AS CHAR) = ${roomsRoomNoExpr}
+          ON CAST(hk.roomNo AS CHAR) COLLATE utf8mb4_general_ci = ${roomsRoomNoExpr} COLLATE utf8mb4_general_ci
         WHERE hk.id IS NULL
       `);
 
@@ -482,7 +482,7 @@ const Housekeeping = {
       if (hasRooms) {
         await runQuery(`
           UPDATE housekeeping hk
-          JOIN rooms r ON CAST(r.${roomNumberColumn} AS CHAR) = CAST(hk.roomNo AS CHAR)
+          JOIN rooms r ON CAST(r.${roomNumberColumn} AS CHAR) COLLATE utf8mb4_general_ci = CAST(hk.roomNo AS CHAR) COLLATE utf8mb4_general_ci
           SET hk.status = CASE
               WHEN LOWER(${roomStatusExpr}) = 'occupied' THEN 'Occupied Dirty'
               WHEN LOWER(${roomStatusExpr}) = 'cleaning' THEN 'Cleaning In Progress'
@@ -499,7 +499,7 @@ const Housekeeping = {
         assignmentJoin = `
           LEFT JOIN (
             SELECT
-              CAST(a1.${assignmentRoomColumn} AS CHAR) AS room_number,
+              CAST(a1.${assignmentRoomColumn} AS CHAR) COLLATE utf8mb4_general_ci AS room_number,
               a1.${assignmentStaffColumn} AS staff_name
             FROM assignments a1
             INNER JOIN (
@@ -507,9 +507,9 @@ const Housekeeping = {
               FROM assignments
               GROUP BY ${assignmentRoomColumn}
             ) latest
-              ON CAST(latest.room_number AS CHAR) = CAST(a1.${assignmentRoomColumn} AS CHAR)
+              ON CAST(latest.room_number AS CHAR) COLLATE utf8mb4_general_ci = CAST(a1.${assignmentRoomColumn} AS CHAR) COLLATE utf8mb4_general_ci
              AND latest.max_id = a1.id
-          ) a ON CAST(a.room_number AS CHAR) = CAST(base.room_number AS CHAR)
+          ) a ON CAST(a.room_number AS CHAR) COLLATE utf8mb4_general_ci = CAST(base.room_number AS CHAR) COLLATE utf8mb4_general_ci
         `;
         assignmentAssigneeExpr = "NULLIF(a.staff_name, '')";
       }
@@ -523,7 +523,7 @@ const Housekeeping = {
       if (hasInventory) {
         inventoryJoin = `
           LEFT JOIN hotel_room_inventory hri
-            ON CAST(hri.room_number AS CHAR) = CAST(base.room_number AS CHAR)
+            ON CAST(hri.room_number AS CHAR) COLLATE utf8mb4_general_ci = CAST(base.room_number AS CHAR) COLLATE utf8mb4_general_ci
         `;
         hotelStatusExpr = `COALESCE(NULLIF(hri.status, ''), base.room_status)`;
         guestExpr = "hri.guest";
@@ -534,29 +534,49 @@ const Housekeeping = {
       // Authoritative logic: housekeeping.status is the source of truth when set.
       // Only fall back to the inventory/rooms hotelStatus when housekeeping has
       // no entry yet (shouldn't normally happen because we INSERT-missing above).
-      // We UNION ALL 'rooms' with 'hotel_room_inventory' so rooms that exist
-      // only in inventory still surface for the housekeeping dashboard.
-      const baseRoomListSql = hasInventory
-        ? `
-          SELECT
-            r.${roomNumberColumn} AS room_number,
-            ${roomStatusExpr} AS room_status
-          FROM rooms r
-          UNION
-          SELECT
-            hri.room_number AS room_number,
-            COALESCE(NULLIF(hri.status, ''), 'available') AS room_status
-          FROM hotel_room_inventory hri
-          LEFT JOIN rooms rr
-            ON CAST(rr.${roomNumberColumn} AS CHAR) = CAST(hri.room_number AS CHAR)
-          WHERE rr.${roomNumberColumn} IS NULL
-        `
-        : `
-          SELECT
-            r.${roomNumberColumn} AS room_number,
-            ${roomStatusExpr} AS room_status
-          FROM rooms r
+      // We UNION ALL 'rooms', 'hotel_room_inventory', AND 'housekeeping' so that
+      // rooms created ONLY through the housekeeping UI (no row in rooms or
+      // inventory) still appear on the dashboard.
+      let baseRoomListSql;
+      if (hasInventory) {
+        baseRoomListSql = `
+          SELECT room_number, room_status FROM (
+            SELECT
+              CAST(r.${roomNumberColumn} AS CHAR) COLLATE utf8mb4_general_ci AS room_number,
+              CAST(${roomStatusExpr} AS CHAR) COLLATE utf8mb4_general_ci AS room_status
+            FROM rooms r
+            UNION ALL
+            SELECT
+              CAST(hri.room_number AS CHAR) COLLATE utf8mb4_general_ci AS room_number,
+              CAST(COALESCE(NULLIF(hri.status, ''), 'available') AS CHAR) COLLATE utf8mb4_general_ci AS room_status
+            FROM hotel_room_inventory hri
+            LEFT JOIN rooms rr
+              ON CAST(rr.${roomNumberColumn} AS CHAR) COLLATE utf8mb4_general_ci = CAST(hri.room_number AS CHAR) COLLATE utf8mb4_general_ci
+            WHERE rr.${roomNumberColumn} IS NULL
+            UNION ALL
+            SELECT
+              CAST(hk.roomNo AS CHAR) COLLATE utf8mb4_general_ci AS room_number,
+              CAST(COALESCE(NULLIF(hk.status, ''), 'available') AS CHAR) COLLATE utf8mb4_general_ci AS room_status
+            FROM housekeeping hk
+          ) AS all_rooms
+          GROUP BY room_number
         `;
+      } else {
+        baseRoomListSql = `
+          SELECT room_number, room_status FROM (
+            SELECT
+              CAST(r.${roomNumberColumn} AS CHAR) COLLATE utf8mb4_general_ci AS room_number,
+              CAST(${roomStatusExpr} AS CHAR) COLLATE utf8mb4_general_ci AS room_status
+            FROM rooms r
+            UNION ALL
+            SELECT
+              CAST(hk.roomNo AS CHAR) COLLATE utf8mb4_general_ci AS room_number,
+              CAST(COALESCE(NULLIF(hk.status, ''), 'available') AS CHAR) COLLATE utf8mb4_general_ci AS room_status
+            FROM housekeeping hk
+          ) AS all_rooms
+          GROUP BY room_number
+        `;
+      }
 
       // roomIdSelectId is the housekeeping.id (preferred) so frontend PUTs hit
       // the right row. If no housekeeping row exists yet, fall back to the
@@ -605,10 +625,10 @@ const Housekeeping = {
           ${baseRoomListSql}
         ) base
         LEFT JOIN housekeeping hk
-          ON CAST(hk.roomNo AS CHAR) = CAST(base.room_number AS CHAR)
+          ON CAST(hk.roomNo AS CHAR) COLLATE utf8mb4_general_ci = CAST(base.room_number AS CHAR) COLLATE utf8mb4_general_ci
         ${assignmentJoin}
         ${inventoryJoin}
-        ORDER BY CAST(base.room_number AS UNSIGNED), base.room_number
+        ORDER BY base.room_number + 0, base.room_number
       `);
 
       const mapped = rows.map((room) => ({

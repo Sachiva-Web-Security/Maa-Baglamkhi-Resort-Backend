@@ -1012,7 +1012,7 @@ exports.updateFullBooking = async (req, res) => {
     }
 
     const updatedBooking = await getBookingSummaryById(id);
-    const roomNumbers = roomList.length
+    const syncedRoomNumbers = roomList.length
       ? roomList
           .map((room) => String(room.room_number || room.roomNumber || "").trim())
           .filter(Boolean)
@@ -1026,9 +1026,9 @@ exports.updateFullBooking = async (req, res) => {
       updatedBooking &&
       String(updatedBooking.booking_status || "").toLowerCase().includes("checked in");
 
-    if (shouldSyncRoomState && roomNumbers.length) {
+    if (shouldSyncRoomState && syncedRoomNumbers.length) {
       await Promise.all(
-        roomNumbers.map((roomNumber) =>
+        syncedRoomNumbers.map((roomNumber) =>
           roomInventoryModel.updateRoomOperationalState({
             roomNumber,
             guestName: updatedBooking.guest_name || null,
