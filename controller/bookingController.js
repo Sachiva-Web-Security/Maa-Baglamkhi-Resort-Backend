@@ -541,11 +541,18 @@ exports.getAllBookings = async (_req, res) => {
       LEFT JOIN advance_payment a ON g.id = a.booking_id
       LEFT JOIN (
         SELECT
-          booking_id,
-          COALESCE(SUM(total), 0) AS totalAmount,
-          GROUP_CONCAT(DISTINCT CAST(room_number AS CHAR) ORDER BY room_number SEPARATOR ', ') AS rooms
-        FROM room_tariff
-        GROUP BY booking_id
+          rt.booking_id,
+          COALESCE(
+            SUM(
+              (rt.tariff * rt.quantity * COALESCE(GREATEST(TIMESTAMPDIFF(DAY, g.check_in, g.check_out), 1), 1))
+              + (rt.tariff * rt.quantity * (rt.gst / 100) * COALESCE(GREATEST(TIMESTAMPDIFF(DAY, g.check_in, g.check_out), 1), 1))
+            ),
+            0
+          ) AS totalAmount,
+          GROUP_CONCAT(DISTINCT CAST(rt.room_number AS CHAR) ORDER BY room_number SEPARATOR ', ') AS rooms
+        FROM room_tariff rt
+        INNER JOIN guests g ON g.id = rt.booking_id
+        GROUP BY rt.booking_id
       ) rt ON g.id = rt.booking_id
       LEFT JOIN (
         SELECT
@@ -617,12 +624,22 @@ exports.getFullBooking = async (req, res) => {
           g.guest_email,
           DATE_FORMAT(g.check_in, '%Y-%m-%d') AS check_in,
           DATE_FORMAT(g.check_out, '%Y-%m-%d') AS check_out,
+          g.arrival,
+          g.departure,
           g.booking_status,
+          ob.booking_type,
           ob.booking_source,
+          ob.booking_reference,
+          ob.address,
+          rn.guest_notes,
+          rn.internal_notes,
           c.company_name,
+          c.gstin AS company_gst,
           IFNULL(a.amount, 0) AS paidAmount,
           IFNULL(a.discount_amount, 0) AS discountAmount,
           IFNULL(a.refund_amount, 0) AS refundAmount,
+          a.payment_mode AS paymentMode,
+          a.remarks AS paymentRemarks,
           SUM(rt.total) AS totalAmount,
           (
             SUM(rt.total) -
@@ -630,6 +647,7 @@ exports.getFullBooking = async (req, res) => {
           ) AS remainingAmount
         FROM guests g
         LEFT JOIN other_booking ob ON g.id = ob.guest_id
+        LEFT JOIN reference_notes rn ON g.id = rn.guest_id
         LEFT JOIN companies c ON g.id = c.booking_id
         LEFT JOIN advance_payment a ON g.id = a.booking_id
         LEFT JOIN room_tariff rt ON g.id = rt.booking_id
@@ -642,12 +660,22 @@ exports.getFullBooking = async (req, res) => {
           g.guest_email,
           g.check_in,
           g.check_out,
+          g.arrival,
+          g.departure,
           g.booking_status,
+          ob.booking_type,
           ob.booking_source,
+          ob.booking_reference,
+          ob.address,
+          rn.guest_notes,
+          rn.internal_notes,
           c.company_name,
+          c.gstin,
           a.amount,
           a.discount_amount,
-          a.refund_amount
+          a.refund_amount,
+          a.payment_mode,
+          a.remarks
         LIMIT 1
       `,
       [id],
@@ -662,8 +690,10 @@ exports.getFullBooking = async (req, res) => {
           rt.tariff,
           rt.gst,
           rt.total,
+          rt.quantity,
           p.adults,
-          p.children
+          p.children,
+          p.meal_plan
         FROM room_tariff rt
         LEFT JOIN pax p
           ON rt.booking_id = p.booking_id
@@ -673,13 +703,63 @@ exports.getFullBooking = async (req, res) => {
         LEFT JOIN hotel_room_categories hrc
           ON hrc.id = hri.category_id
         WHERE rt.booking_id = ?
+        ORDER BY rt.room_number ASC
       `,
       [id],
     );
 
+    // Aggregate guestCapacity (sum of adults + children across all rooms)
+    const paxSumRows = await query(
+      `SELECT
+         IFNULL(SUM(adults), 0) AS adults,
+         IFNULL(SUM(children), 0) AS children
+       FROM pax WHERE booking_id = ?`,
+      [id],
+    );
+    const paxSum = paxSumRows[0] || { adults: 0, children: 0 };
+    const guestCapacity = `${Number(paxSum.adults || 0) + Number(paxSum.children || 0)} (${Number(paxSum.adults || 0)} Adults + ${Number(paxSum.children || 0)} Children)`;
+
+    const summary = summaryResult[0] || {};
+    const nights =
+      summary.check_in && summary.check_out
+        ? Math.max(
+            Math.round(
+              (new Date(summary.check_out) - new Date(summary.check_in)) / (1000 * 60 * 60 * 24),
+            ),
+            1,
+          )
+        : 1;
+
+    // Recompute total per-row AND overall total using per-night tariff * nights * qty + GST,
+    // since `room_tariff.total` is stored as the **single-night** total only.
+    const enrichedRooms = (roomsResult || []).map((row) => {
+      const tariff = Number(row.tariff || 0);
+      const qty = Number(row.quantity || 1);
+      const gst = Number(row.gst || 0);
+      const perNightBase = tariff * qty;
+      const perNightGst = (perNightBase * gst) / 100;
+      const rowTotal = perNightBase * nights + perNightGst * nights;
+      return {
+        ...row,
+        nights,
+        rowTotal,
+      };
+    });
+
+    const storedTotal = Number(summary.totalAmount || 0);
+    const recalculatedTotal = enrichedRooms.reduce(
+      (sum, r) => sum + Number(r.rowTotal || 0),
+      0,
+    );
+
     res.json({
-      ...(summaryResult[0] || {}),
-      rooms: roomsResult,
+      ...summary,
+      guestCapacity,
+      nights,
+      rooms: enrichedRooms,
+      // If we have enriched rows, prefer the recalculated multi-night total;
+      // otherwise fall back to whatever the backend summed up.
+      totalAmount: recalculatedTotal > 0 ? recalculatedTotal : storedTotal,
     });
   } catch (error) {
     res.status(500).json(error);
@@ -690,14 +770,24 @@ exports.updateFullBooking = async (req, res) => {
   const id = req.params.id;
   const {
     guest_name,
+    guest_email,
     mobile,
     company_name,
     rooms,
     paidAmount,
+    discountAmount,
+    paymentMode,
+    paymentRemarks,
     checkIn,
     checkOut,
     arrival,
     departure,
+    bookingType,
+    bookingSource,
+    bookingReference,
+    address,
+    guestNotes,
+    internalNotes,
   } = req.body;
 
   const roomList = Array.isArray(rooms)
@@ -712,6 +802,7 @@ exports.updateFullBooking = async (req, res) => {
       `
         UPDATE guests
         SET guest_name = ?,
+            guest_email = COALESCE(?, guest_email),
             mobile = ?,
             check_in = COALESCE(?, check_in),
             check_out = COALESCE(?, check_out),
@@ -719,31 +810,129 @@ exports.updateFullBooking = async (req, res) => {
             departure = COALESCE(?, departure)
         WHERE id = ?
       `,
-      [guest_name, mobile, checkIn ?? null, checkOut ?? null, arrival ?? null, departure ?? null, id],
+      [
+        guest_name,
+        guest_email ?? null,
+        mobile,
+        checkIn ?? null,
+        checkOut ?? null,
+        arrival ?? null,
+        departure ?? null,
+        id,
+      ],
     );
 
-    await query("UPDATE companies SET company_name = ? WHERE booking_id = ?", [company_name, id]);
-    await query("UPDATE advance_payment SET amount = ? WHERE booking_id = ?", [paidAmount, id]);
+    await query(
+      "UPDATE companies SET company_name = ? WHERE booking_id = ?",
+      [company_name || "Direct Booking", id],
+    );
+
+    // Overwrite advance_payment so editing the amount does NOT stack on top
+    // of the old value (which is what ON DUPLICATE KEY UPDATE ... amount =
+    // amount + VALUES(amount) does in addAdvance).
+    const existingAdv = await query(
+      "SELECT booking_id FROM advance_payment WHERE booking_id = ? LIMIT 1",
+      [id],
+    );
+    if (existingAdv.length) {
+      await query(
+        `UPDATE advance_payment
+           SET amount = ?,
+               discount_amount = COALESCE(?, discount_amount),
+               payment_mode = ?,
+               remarks = ?
+         WHERE booking_id = ?`,
+        [
+          Number(paidAmount ?? 0),
+          Number(discountAmount ?? 0),
+          paymentMode || "Cash",
+          paymentRemarks || null,
+          id,
+        ],
+      );
+    } else if (Number(paidAmount ?? 0) > 0) {
+      await query(
+        `INSERT INTO advance_payment (booking_id, amount, discount_amount, payment_mode, remarks)
+         VALUES (?, ?, ?, ?, ?)`,
+        [id, Number(paidAmount ?? 0), Number(discountAmount ?? 0), paymentMode || "Cash", paymentRemarks || null],
+      );
+    }
+
+    // Upsert other_booking (type / source / address)
+    const otherExisting = await query(
+      "SELECT id FROM other_booking WHERE guest_id = ? LIMIT 1",
+      [id],
+    );
+    if (otherExisting.length) {
+      await query(
+        `UPDATE other_booking
+           SET booking_type    = COALESCE(?, booking_type),
+               booking_source  = COALESCE(?, booking_source),
+               booking_reference = COALESCE(?, booking_reference),
+               address         = COALESCE(?, address)
+         WHERE guest_id = ?`,
+        [bookingType ?? null, bookingSource ?? null, bookingReference ?? null, address ?? null, id],
+      );
+    } else if (bookingType || bookingSource || address) {
+      await query(
+        `INSERT INTO other_booking (guest_id, booking_type, booking_source, booking_reference, address)
+         VALUES (?, ?, ?, ?, ?)`,
+        [id, bookingType || null, bookingSource || null, bookingReference || null, address || null],
+      );
+    }
+
+    // Upsert reference_notes
+    const refExisting = await query(
+      "SELECT id FROM reference_notes WHERE guest_id = ? LIMIT 1",
+      [id],
+    );
+    if (refExisting.length) {
+      await query(
+        `UPDATE reference_notes
+           SET guest_notes    = COALESCE(?, guest_notes),
+               internal_notes = COALESCE(?, internal_notes)
+         WHERE guest_id = ?`,
+        [guestNotes ?? null, internalNotes ?? null, id],
+      );
+    } else if (guestNotes || internalNotes) {
+      await query(
+        `INSERT INTO reference_notes (guest_id, guest_notes, internal_notes) VALUES (?, ?, ?)`,
+        [id, guestNotes || null, internalNotes || null],
+      );
+    }
 
     if (roomList.length) {
       for (const room of roomList) {
+        const roomNo = String(room.room_number || room.roomNumber || "").trim();
+        if (!roomNo) continue;
+
         await query(
           `
             UPDATE room_tariff
             SET tariff = ?, gst = ?, total = ?
             WHERE booking_id = ? AND room_number = ?
           `,
-          [room.tariff, room.gst, room.total, id, room.room_number],
+          [room.tariff, room.gst, room.total, id, roomNo],
         );
 
-        await query(
-          `
-            UPDATE pax
-            SET adults = ?, children = ?
-            WHERE booking_id = ? AND room_number = ?
-          `,
-          [room.adults, room.children, id, room.room_number],
+        // Upsert pax so adults/children persist per room even when no row exists yet
+        const paxExisting = await query(
+          "SELECT id FROM pax WHERE booking_id = ? AND room_number = ? LIMIT 1",
+          [id, roomNo],
         );
+        if (paxExisting.length) {
+          await query(
+            `UPDATE pax SET adults = ?, children = ?
+               WHERE booking_id = ? AND room_number = ?`,
+            [Number(room.adults || 0), Number(room.children || 0), id, roomNo],
+          );
+        } else {
+          await query(
+            `INSERT INTO pax (booking_id, room_number, adults, children, meal_plan)
+               VALUES (?, ?, ?, ?, ?)`,
+            [id, roomNo, Number(room.adults || 1), Number(room.children || 0), room.mealPlan || null],
+          );
+        }
       }
     }
 
