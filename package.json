@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "dev": "node --watch index.js",
+    "dev": "nodemon --watch index.js",
     "start": "node index.js",
     "init": "node initialize.js",
     "init:prod": "node initialize.js",

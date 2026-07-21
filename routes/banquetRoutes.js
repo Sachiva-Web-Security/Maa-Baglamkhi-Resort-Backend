@@ -18,6 +18,8 @@ const {
   deleteBanquetHall,
 } = require("../controller/banquetController");
 
+const { sendBanquetInvoiceWhatsApp } = require("../controller/banquetWhatsappController");
+
 router.get("/config", getBanquetPricingConfig);
 router.put("/config", updateBanquetPricingConfig);
 router.get("/", getBanquetDashboard);
@@ -31,5 +33,7 @@ router.put("/:id/bill", generateBanquetBill);
 router.post("/halls", upload.single("image"), addBanquetHall);
 router.put("/halls/:id", upload.single("image"), updateBanquetHall);
 router.delete("/halls/:id", deleteBanquetHall);
+
+router.post("/invoice/send-whatsapp/:bookingId", sendBanquetInvoiceWhatsApp);
 
 module.exports = router;
