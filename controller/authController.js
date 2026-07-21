@@ -94,6 +94,7 @@ exports.login = (req, res) => {
         httpOnly: true,
         secure: isProd,
         sameSite: isProd ? "none" : "lax",
+        partitioned: isProd,
         maxAge: cookieMaxAgeMs,
         path: "/",
       });
