@@ -489,16 +489,56 @@ exports.updatePax = (req, res) => {
   });
 };
 
-exports.updateTariff = (req, res) => {
+exports.updateTariff = async (req, res) => {
   const data = { booking_id: req.params.id, ...req.body };
+  const bookingId = Number(req.params.id);
+  const roomNumber = String(data.roomNumber || "").trim();
 
-  RoomTariffModel.addTariff(data, (err) => {
-    if (err) {
-      return res.status(500).json({ message: "Tariff save failed" });
+  if (!roomNumber) {
+    return res.status(400).json({ message: "Room number required" });
+  }
+
+  try {
+    // OVERLAP CHECK: prevent double-booking the same room for overlapping dates.
+    // Skips the current booking so editing an existing booking doesn't collide with itself.
+    const guestRows = await query(
+      "SELECT check_in, check_out FROM guests WHERE id = ? LIMIT 1",
+      [bookingId],
+    );
+
+    if (guestRows.length && guestRows[0].check_in && guestRows[0].check_out) {
+      const checkIn = String(guestRows[0].check_in).slice(0, 10);
+      const checkOut = String(guestRows[0].check_out).slice(0, 10);
+
+      const overlap = await roomInventoryModel.validateRoomAvailability({
+        roomNumbers: [roomNumber],
+        checkIn,
+        checkOut,
+        excludeBookingId: bookingId,
+      });
+
+      if (!overlap.available && overlap.conflicts.length) {
+        const conflict = overlap.conflicts[0];
+        return res.status(409).json({
+          message: `Room ${conflict.roomNumber} is already occupied from ${String(conflict.check_in).slice(0, 10)} to ${String(conflict.check_out).slice(0, 10)} by ${conflict.guest_name || "another guest"}. This room is not available for the selected dates.`,
+          conflict: conflict,
+        });
+      }
     }
 
-    res.json({ message: "Tariff Added" });
-  });
+    RoomTariffModel.addTariff(data, (err) => {
+      if (err) {
+        return res.status(500).json({ message: "Tariff save failed" });
+      }
+
+      res.json({ message: "Tariff Added" });
+    });
+  } catch (error) {
+    if (process.env.NODE_ENV !== "test") {
+      console.error("updateTariff failed:", error);
+    }
+    res.status(500).json({ message: "Tariff save failed", error: error.message });
+  }
 };
 
 exports.getAllBookings = async (_req, res) => {
@@ -798,6 +838,41 @@ exports.updateFullBooking = async (req, res) => {
         .filter(Boolean);
 
   try {
+    // OVERLAP CHECK for edit mode: validate rooms against new date range
+    const roomNumbers = roomList
+      .map((room) => String(room.room_number || room.roomNumber || "").trim())
+      .filter(Boolean);
+
+    let effectiveCheckIn = checkIn;
+    let effectiveCheckOut = checkOut;
+    if (!effectiveCheckIn || !effectiveCheckOut) {
+      const currentGuestRows = await query(
+        "SELECT check_in, check_out FROM guests WHERE id = ? LIMIT 1",
+        [id],
+      );
+      if (currentGuestRows.length) {
+        effectiveCheckIn = effectiveCheckIn || currentGuestRows[0].check_in;
+        effectiveCheckOut = effectiveCheckOut || currentGuestRows[0].check_out;
+      }
+    }
+
+    if (roomNumbers.length && effectiveCheckIn && effectiveCheckOut) {
+      const overlap = await roomInventoryModel.validateRoomAvailability({
+        roomNumbers,
+        checkIn: String(effectiveCheckIn).slice(0, 10),
+        checkOut: String(effectiveCheckOut).slice(0, 10),
+        excludeBookingId: Number(id),
+      });
+
+      if (!overlap.available && overlap.conflicts.length) {
+        const conflict = overlap.conflicts[0];
+        return res.status(409).json({
+          message: `Room ${conflict.roomNumber} is already occupied from ${String(conflict.check_in).slice(0, 10)} to ${String(conflict.check_out).slice(0, 10)}. This room is not available for the selected dates.`,
+          conflict: conflict,
+        });
+      }
+    }
+
     await query(
       `
         UPDATE guests

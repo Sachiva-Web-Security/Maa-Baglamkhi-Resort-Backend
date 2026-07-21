@@ -40,6 +40,9 @@ router.put("/cancel/:id", bookingController.cancelBooking);
 router.put("/rooms/category/:id/price", hotelRoomInventoryController.updateCategoryPrice);
 router.put("/rooms/state/:roomNumber", hotelRoomInventoryController.updateRoomOperationalState);
 
+// Room availability validation (date overlap check)
+router.post("/rooms/validate-availability", hotelRoomInventoryController.validateRoomAvailability);
+
 // FULL GET
 router.get("/full-booking/:id", bookingController.getFullBooking);
 router.get("/booking-history", bookingController.getBookingHistory);

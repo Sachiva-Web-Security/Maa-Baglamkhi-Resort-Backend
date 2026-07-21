@@ -71,3 +71,25 @@ exports.updateRoomOperationalState = async (req, res) => {
     res.status(500).json({ message: "Failed to update room operational state" });
   }
 };
+
+exports.validateRoomAvailability = async (req, res) => {
+  try {
+    const { roomNumbers, checkIn, checkOut, excludeBookingId } = req.body;
+
+    if (!roomNumbers || !Array.isArray(roomNumbers) || !roomNumbers.length) {
+      return res.json({ available: true, conflicts: [] });
+    }
+
+    const result = await roomInventoryModel.validateRoomAvailability({
+      roomNumbers,
+      checkIn: checkIn || req.query.checkIn,
+      checkOut: checkOut || req.query.checkOut,
+      excludeBookingId: excludeBookingId || req.query.excludeBookingId || null,
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to validate room availability" });
+  }
+};

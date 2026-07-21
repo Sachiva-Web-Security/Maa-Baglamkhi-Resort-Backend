@@ -253,10 +253,65 @@ const updateRoomOperationalState = async ({
   await Promise.all(updates);
 };
 
+// ─── validateRoomAvailability ──────────────────────────────────────────────────
+// Checks whether the given rooms are available for the provided date range.
+// Returns { available: true } or { available: false, conflicts: [...] }.
+const validateRoomAvailability = async ({ roomNumbers, checkIn, checkOut, excludeBookingId = null }) => {
+  await ensureSchema();
+  const safeCheckIn = normalizeDateValue(checkIn);
+  const safeCheckOut = normalizeDateValue(checkOut) || safeCheckIn;
+
+  if (!safeCheckIn || !safeCheckOut || !roomNumbers || !roomNumbers.length) {
+    return { available: true, conflicts: [] };
+  }
+
+  const conflicts = [];
+  const uniqueRooms = [...new Set(roomNumbers.map((r) => String(r || "").trim()).filter(Boolean))];
+
+  for (const roomNumber of uniqueRooms) {
+    const overlapping = await runQuery(
+      `
+        SELECT
+          g.id AS bookingId,
+          g.booking_code AS bookingCode,
+          g.guest_name,
+          g.check_in,
+          g.check_out,
+          g.booking_status,
+          rt.room_number
+        FROM guests g
+        INNER JOIN room_tariff rt ON rt.booking_id = g.id
+        WHERE LOWER(COALESCE(g.booking_status, 'confirmed')) NOT IN ('checked out', 'cancelled')
+          AND CAST(rt.room_number AS CHAR) = ?
+          AND DATE(COALESCE(g.check_in, ?)) <= DATE(?)
+          AND DATE(COALESCE(g.check_out, ?)) >= DATE(?)
+          ${excludeBookingId ? "AND g.id <> ?" : ""}
+        LIMIT 1
+      `,
+      excludeBookingId
+        ? [roomNumber, safeCheckIn, safeCheckOut, safeCheckOut, safeCheckIn, excludeBookingId]
+        : [roomNumber, safeCheckIn, safeCheckOut, safeCheckOut, safeCheckIn],
+    );
+
+    if (overlapping.length > 0) {
+      conflicts.push({
+        roomNumber,
+        ...overlapping[0],
+      });
+    }
+  }
+
+  return {
+    available: conflicts.length === 0,
+    conflicts,
+  };
+};
+
 module.exports = {
   ensureSchema,
   getRoomSetup,
   addRoom,
   updateCategoryPrice,
   updateRoomOperationalState,
+  validateRoomAvailability,
 };

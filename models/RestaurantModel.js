@@ -1044,9 +1044,23 @@ const createBillRecord = async (conn, data, options = {}) => {
       ],
     );
 
-    await syncLegacyRestaurantBill(conn, reusableBill.id);
+    try {
+      await syncLegacyRestaurantBill(conn, reusableBill.id);
+    } catch (syncErr) {
+      console.error("[RestaurantModel] Legacy bill sync failed (non-blocking):", syncErr.message);
+    }
 
     return reusableBill.id;
+  }
+
+  // Release token_id from any settled bill that would block the INSERT
+  // (the bills table has a UNIQUE KEY on token_id, so a paid/closed bill
+  // still holding the same token_id would cause a duplicate-key error).
+  if (data.tokenId) {
+    await conn.query(
+      `UPDATE bills SET token_id = NULL WHERE token_id = ? AND COALESCE(invoiceStatus, 'Saved') IN ('Paid', 'Posted To Room')`,
+      [Number(data.tokenId)],
+    );
   }
 
   const sql = `
@@ -1072,7 +1086,11 @@ const createBillRecord = async (conn, data, options = {}) => {
     data.splitCount || null,
   ]);
 
-  await syncLegacyRestaurantBill(conn, result.insertId);
+  try {
+    await syncLegacyRestaurantBill(conn, result.insertId);
+  } catch (syncErr) {
+    console.error("[RestaurantModel] Legacy bill sync failed (non-blocking):", syncErr.message);
+  }
 
   return result.insertId;
 };
