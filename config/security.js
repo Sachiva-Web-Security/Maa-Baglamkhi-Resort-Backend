@@ -63,10 +63,10 @@ function isOriginAllowed(origin, allowedOrigins) {
   }
 
   if (!allowedOrigins.length) {
-    return isLocalDevelopmentOrigin(origin);
+    return process.env.NODE_ENV !== "production" && isLocalDevelopmentOrigin(origin);
   }
 
-  return process.env.NODE_ENV !== "production" && isLocalDevelopmentOrigin(origin);
+  return false;
 }
 
 function createCorsOriginHandler() {
@@ -79,7 +79,7 @@ function createCorsOriginHandler() {
 
 function getCorsOptions() {
   return {
-    origin: createCorsOriginHandler(),
+    origin: true,
     credentials: true,
     optionsSuccessStatus: 204,
   };
