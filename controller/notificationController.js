@@ -112,28 +112,31 @@ exports.markAllAsRead = async (req, res) => {
   }
 };
 
+const _createNotification = async (payload) => {
+  await exports.ensureSchema();
+  const { user_id, user_role, type, title, message, data } = payload || {};
+
+  if (!title && !message) {
+    throw new Error("title or message is required");
+  }
+
+  return query(
+    `INSERT INTO notifications (user_id, user_role, type, title, message, data)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      user_id || null,
+      user_role || null,
+      type || "general",
+      title || "",
+      message || "",
+      data ? JSON.stringify(data) : null,
+    ],
+  );
+};
+
 exports.createNotification = async (req, res) => {
   try {
-    await exports.ensureSchema();
-    const { user_id, user_role, type, title, message, data } = req.body || {};
-
-    if (!title && !message) {
-      return res.status(400).json({ message: "title or message is required" });
-    }
-
-    const result = await query(
-      `INSERT INTO notifications (user_id, user_role, type, title, message, data)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        user_id || null,
-        user_role || null,
-        type || "general",
-        title || "",
-        message || "",
-        data ? JSON.stringify(data) : null,
-      ],
-    );
-
+    const result = await _createNotification(req.body || {});
     res.json({ success: true, id: result.insertId });
   } catch (error) {
     res.status(500).json({ message: "Failed to create notification", error: error.message });
