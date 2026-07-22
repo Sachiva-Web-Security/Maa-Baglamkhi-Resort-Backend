@@ -103,31 +103,48 @@ const createGuest = async (data, callback) => {
       return;
     }
 
-    const bookingCode = generateBookingCode();
-    const sql = `
-      INSERT INTO guests
-      (booking_code, mobile, guest_name, guest_email, check_in, check_out, arrival, departure, booking_status)
-      VALUES (?,?,?,?,?,?,?,?,?)
-    `;
+    let attempt = 0;
+    while (attempt < 5) {
+      const bookingCode = generateBookingCode();
+      const sql = `
+        INSERT INTO guests
+        (booking_code, mobile, guest_name, guest_email, check_in, check_out, arrival, departure, booking_status)
+        VALUES (?,?,?,?,?,?,?,?,?)
+      `;
 
-    db.query(
-      sql,
-      [
-        bookingCode,
-        data.mobile,
-        data.guestName,
-        data.guestEmail,
-        data.checkIn,
-        data.checkOut,
-        data.arrival,
-        data.departure,
-        normalizedStatus,
-      ],
-      (error, result) => {
-        if (error) return callback(error);
+      try {
+        const result = await new Promise((resolve, reject) => {
+          db.query(
+            sql,
+            [
+              bookingCode,
+              data.mobile,
+              data.guestName,
+              data.guestEmail,
+              data.checkIn,
+              data.checkOut,
+              data.arrival,
+              data.departure,
+              normalizedStatus,
+            ],
+            (error, result) => {
+              if (error) return reject(error);
+              resolve(result);
+            },
+          );
+        });
         callback(null, { ...result, bookingCode });
-      },
-    );
+        return;
+      } catch (error) {
+        // Retry on UNIQUE constraint collision for booking_code
+        if (error.code === "ER_DUP_ENTRY" && attempt < 4) {
+          attempt++;
+          continue;
+        }
+        callback(error);
+        return;
+      }
+    }
   } catch (error) {
     callback(error);
   }

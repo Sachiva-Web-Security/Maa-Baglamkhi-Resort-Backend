@@ -346,7 +346,14 @@ const updateRoomsForBooking = async (booking, nextStatus) => {
 exports.createGuest = (req, res) => {
   GuestModel.createGuest(req.body, (err, result) => {
     if (err) {
-      return res.status(500).json({ message: "Guest creation failed" });
+      console.error("[createGuest] DB error:", err);
+      return res.status(500).json({
+        message: "Guest creation failed",
+        error: err.message,
+        code: err.code,
+        sqlState: err.sqlState,
+        errno: err.errno,
+      });
     }
 
     const bookingId = result.insertId;
