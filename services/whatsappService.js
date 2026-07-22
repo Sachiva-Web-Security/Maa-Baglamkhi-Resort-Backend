@@ -84,8 +84,11 @@ const getFromGateway = (pathname, params = {}) => {
 
 /**
  * Send a WhatsApp message via Wasend GET API.
+ *
+ * Pass `type: "document"` (or another Wasend-supported value) to ensure
+ * the message is sent as a document/attachment rather than plain text.
  */
-const sendWhatsAppMessage = async ({ number, message, fileUrl } = {}) => {
+const sendWhatsAppMessage = async ({ number, message, fileUrl, type } = {}) => {
   const normalised = normalizePhoneNumber(number);
   if (!normalised) {
     return { ok: false, error: `Invalid phone number: ${number}`, number, channel: "whatsapp" };
@@ -94,12 +97,15 @@ const sendWhatsAppMessage = async ({ number, message, fileUrl } = {}) => {
     return { ok: false, error: "wasachiva_key not configured", number: normalised, channel: "whatsapp" };
   }
 
+  const sendType = type || (fileUrl ? "document" : undefined);
+
   try {
     const response = await getFromGateway("/api/send-message", {
       api_key: API_KEY,
       number: normalised,
       message: message || "",
       file_url: fileUrl,
+      type: sendType,
     });
     if (response?.status === "error") {
       const rawCode = response.code || response.statusCode || 0;

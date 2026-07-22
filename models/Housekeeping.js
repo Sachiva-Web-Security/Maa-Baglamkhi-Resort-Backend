@@ -540,7 +540,7 @@ const Housekeeping = {
       let baseRoomListSql;
       if (hasInventory) {
         baseRoomListSql = `
-          SELECT room_number, ANY_VALUE(room_status) AS room_status FROM (
+          SELECT room_number, MAX(room_status) AS room_status FROM (
             SELECT
               CAST(r.${roomNumberColumn} AS CHAR) COLLATE utf8mb4_general_ci AS room_number,
               CAST(${roomStatusExpr} AS CHAR) COLLATE utf8mb4_general_ci AS room_status
@@ -563,7 +563,7 @@ const Housekeeping = {
         `;
       } else {
         baseRoomListSql = `
-          SELECT room_number, ANY_VALUE(room_status) AS room_status FROM (
+          SELECT room_number, MAX(room_status) AS room_status FROM (
             SELECT
               CAST(r.${roomNumberColumn} AS CHAR) COLLATE utf8mb4_general_ci AS room_number,
               CAST(${roomStatusExpr} AS CHAR) COLLATE utf8mb4_general_ci AS room_status
