@@ -29,6 +29,7 @@
     "multer": "^2.0.2",
     "mysql2": "^3.17.4",
     "pdfkit": "^0.19.1",
+    "pdf-to-printer": "^2.0.3",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3"
   },

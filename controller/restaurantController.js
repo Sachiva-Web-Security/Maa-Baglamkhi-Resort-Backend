@@ -623,9 +623,40 @@ exports.getBills = async (req, res) => {
 
 exports.payBill = async (req, res) => {
   try {
+    const actor = getRequestActor(req);
     const result = await Restaurant.processBillPayment({
       ...req.body,
       billId: req.body?.billId || req.params?.id || null,
+    });
+
+    // Auto-print restaurant bill receipt after payment
+    setImmediate(async () => {
+      try {
+        const { RestaurantPrintService } = require("../services/RestaurantPrintService");
+        const { InvoicePrintService } = require("../services/InvoicePrintService");
+
+        // Print thermal POS receipt
+        await RestaurantPrintService.immediatePrintRestaurantBill({
+          ...result,
+          customerName: req.body.customerName || req.body.customer_name || "Walk-in Customer",
+          tableNumber: req.body.tableNumber || req.body.table || "",
+          roomNumber: req.body.roomNumber || req.body.room || "",
+          paymentMethod: req.body.paymentMethod || req.body.payment_method || "Cash",
+          printedBy: actor.name || actor.email || "System",
+        });
+
+        // Also print A4 copy
+        await InvoicePrintService.immediatePrintInvoice("restaurant_bill_a4", {
+          ...result,
+          customerName: req.body.customerName || req.body.customer_name || "Walk-in Customer",
+          tableNumber: req.body.tableNumber || req.body.table || "",
+          roomNumber: req.body.roomNumber || req.body.room || "",
+          paymentMode: req.body.paymentMethod || "Cash",
+          printedBy: actor.name || actor.email || "System",
+        });
+      } catch (err) {
+        console.error("[auto-print] restaurant bill print failed:", err.message);
+      }
     });
 
     res.json({
