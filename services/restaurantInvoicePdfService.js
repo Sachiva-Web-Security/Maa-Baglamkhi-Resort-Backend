@@ -34,10 +34,10 @@ const THEME = {
   primaryDark: "#0A3A66",
   accent: "#F59E0B",         // warm amber
   accentDark: "#B45309",
-  ink: "#0F172A",            // near-black text
-  inkSoft: "#334155",        // secondary text
-  muted: "#64748B",          // labels / captions
-  line: "#E2E8F0",           // dividers
+  ink: "#000000",            // print-sharp text
+  inkSoft: "#000000",        // secondary text
+  muted: "#000000",          // labels / captions
+  line: "#000000",           // dividers
   band: "#F8FAFC",           // card background
   altRow: "#F1F5F9",         // alternating row
   pill: "#ECFDF5",           // paid badge
@@ -89,7 +89,7 @@ const hexToRgb = (hex) => {
 const drawRoundedRect = (doc, x, y, w, h, radius, fillColor, strokeColor) => {
   doc.save();
   if (fillColor) doc.fillColor(fillColor);
-  if (strokeColor) doc.strokeColor(strokeColor).lineWidth(0.6);
+  if (strokeColor) doc.strokeColor(strokeColor).lineWidth(1);
   doc.roundedRect(x, y, w, h, radius);
   if (fillColor && strokeColor) doc.fillAndStroke();
   else if (fillColor) doc.fill();
@@ -175,7 +175,7 @@ const generateRestaurantInvoicePdf = async (bill) => {
 
     doc.font("Helvetica")
       .fontSize(10)
-      .fillColor("#BFDBFE")
+      .fillColor(THEME.white)
       .text("Restaurant & POS Billing", 116, 56, { width: PAGE.width - 280 });
 
     // Status pill (right side)
@@ -196,7 +196,7 @@ const generateRestaurantInvoicePdf = async (bill) => {
       .fillColor(THEME.white)
       .text(`Invoice #${invoiceNo}`, 116, 80, { continued: true, width: 300 })
       .font("Helvetica")
-      .fillColor("#E0F2FE")
+      .fillColor(THEME.white)
       .text(`  ·  ${date}  ·  ${time}`, { width: 320 });
 
     // ── META STRIP (4 cells) ──────────────────────────────────────────────
@@ -327,7 +327,7 @@ const generateRestaurantInvoicePdf = async (bill) => {
         const amount = round2(qty * rate);
         const rowH = 24;
         if (idx % 2 === 0) {
-          drawRoundedRect(doc, tableX, cursorY, tableW, rowH, 0, THEME.altRow, null);
+          drawRoundedRect(doc, tableX, cursorY, tableW, rowH, 0, THEME.altRow, THEME.line);
         }
         const textY = cursorY + 7;
         doc.fillColor(THEME.ink)
@@ -340,7 +340,7 @@ const generateRestaurantInvoicePdf = async (bill) => {
             align: cols.name.align,
             ellipsis: true,
           });
-        doc.font("Helvetica")
+        doc.font("Helvetica-Bold")
           .fillColor(THEME.inkSoft)
           .text(String(qty), cols.qty.x, textY, { width: cols.qty.w, align: cols.qty.align });
         doc.text(`${INR} ${formatINR(rate)}`, cols.rate.x, textY, {
@@ -359,7 +359,7 @@ const generateRestaurantInvoicePdf = async (bill) => {
 
     // Bottom border under table
     cursorY += 4;
-    doc.save().strokeColor(THEME.line).lineWidth(0.6)
+    doc.save().strokeColor(THEME.line).lineWidth(1)
       .moveTo(tableX, cursorY).lineTo(tableX + tableW, cursorY).stroke().restore();
 
     cursorY += 14;
@@ -389,7 +389,7 @@ const generateRestaurantInvoicePdf = async (bill) => {
 
     let tY = totalsStartY + 4;
     totalsRows.forEach((row) => {
-      doc.font(row.bold ? "Helvetica-Bold" : "Helvetica")
+      doc.font(row.bold ? "Helvetica-Bold" : "Helvetica-Bold")
         .fontSize(10)
         .fillColor(row.muted ? "#B91C1C" : THEME.inkSoft)
         .text(row.label, totalsX, tY, { width: 130 });
@@ -404,7 +404,7 @@ const generateRestaurantInvoicePdf = async (bill) => {
 
     // Divider above grand total
     tY += 2;
-    doc.save().strokeColor(THEME.line).lineWidth(0.8)
+    doc.save().strokeColor(THEME.line).lineWidth(1.2)
       .moveTo(totalsX, tY).lineTo(totalsX + totalsW, tY).stroke().restore();
     tY += 6;
 
@@ -428,7 +428,7 @@ const generateRestaurantInvoicePdf = async (bill) => {
     // ── FOOTER ─────────────────────────────────────────────────────────────
     // Thank-you band
     const footerY = PAGE.height - 60;
-    doc.save().strokeColor(THEME.line).lineWidth(0.6)
+    doc.save().strokeColor(THEME.line).lineWidth(1)
       .moveTo(CONTENT.x, footerY - 12).lineTo(CONTENT.x + CONTENT.w, footerY - 12).stroke().restore();
 
     doc.font("Helvetica-Bold")
@@ -436,7 +436,7 @@ const generateRestaurantInvoicePdf = async (bill) => {
       .fillColor(THEME.primary)
       .text("Thank you for dining with us!", CONTENT.x, footerY, { width: CONTENT.w, align: "center" });
 
-    doc.font("Helvetica")
+    doc.font("Helvetica-Bold")
       .fontSize(8)
       .fillColor(THEME.muted)
       .text(

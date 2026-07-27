@@ -83,11 +83,12 @@ const generateInvoicePdf = async (booking) => {
     doc.pipe(stream);
 
     // ── Branding header ──────────────────────────────────────────────────
-    doc.fontSize(22).font("Helvetica-Bold").text("Maa Baglamukhi Resort", { align: "center" });
+    doc.fillColor("#000000").fontSize(22).font("Helvetica-Bold").text("Maa Baglamukhi Resort", { align: "center" });
     doc.moveDown(0.2);
     doc
       .fontSize(10)
       .font("Helvetica")
+      .fillColor("#000000")
       .text("Your Stay, Our Blessing", { align: "center" });
     doc.moveDown(0.2);
     doc.text("Contact: +91-XXXXXXXXXX | Email: info@maabaglamukhiresort.com", { align: "center" });
@@ -95,28 +96,28 @@ const generateInvoicePdf = async (booking) => {
       .moveDown(0.6)
       .moveTo(50, doc.y)
       .lineTo(545, doc.y)
-      .strokeColor("#cccccc")
-      .lineWidth(1)
+      .strokeColor("#000000")
+      .lineWidth(1.2)
       .stroke();
 
     // ── Invoice meta ─────────────────────────────────────────────────────
     const metaY = doc.y + 10;
-    doc.fontSize(10).font("Helvetica-Bold");
+    doc.fillColor("#000000").fontSize(10).font("Helvetica-Bold");
     doc.text("INVOICE", 50, metaY);
     doc.text(`#${booking.invoiceNo}`, 200, metaY);
     doc.text(`Date: ${booking.date || "N/A"}`, 330, metaY);
 
     doc.y = metaY + 30;
 
-    doc.font("Helvetica-Bold");
+    doc.fillColor("#000000").font("Helvetica-Bold");
     doc.text("BILL TO:", 50, doc.y);
-    doc.font("Helvetica");
+    doc.fillColor("#000000").font("Helvetica");
     doc.text(booking.customerName || "Guest", 50, doc.y + 14);
     doc.text(`Phone: ${booking.phone || "N/A"}`, 50, doc.y + 28);
 
     // ── Booking details ──────────────────────────────────────────────────
     doc.moveDown(0.8);
-    doc.font("Helvetica-Bold").text("BOOKING DETAILS", { underline: true });
+    doc.fillColor("#000000").font("Helvetica-Bold").text("BOOKING DETAILS", { underline: true });
     doc.moveDown(0.1);
     const detailRows = [
       ["Booking ID", String(booking.bookingId || safeId)],
@@ -128,34 +129,34 @@ const generateInvoicePdf = async (booking) => {
     ];
 
     detailRows.forEach(([label, value]) => {
-      doc.font("Helvetica-Bold").text(label + ":", { continued: false });
-      doc.font("Helvetica").text(value, { continued: false, indent: 130 });
+      doc.fillColor("#000000").font("Helvetica-Bold").text(label + ":", { continued: false });
+      doc.fillColor("#000000").font("Helvetica").text(value, { continued: false, indent: 130 });
       doc.moveDown(0.1);
     });
 
     // ── Line-items table ─────────────────────────────────────────────────
     doc.moveDown(0.8);
-    doc.font("Helvetica-Bold").text("ITEM DETAILS", { underline: true });
+    doc.fillColor("#000000").font("Helvetica-Bold").text("ITEM DETAILS", { underline: true });
     doc.moveDown(0.1);
 
     const tableTop = doc.y;
     const colX = [50, 320, 390, 470, 530]; // sl, name, price, qty, total
     const headerLabels = ["#", "Description", "Rate", "Qty", "Amount"];
 
-    doc.font("Helvetica-Bold");
+    doc.fillColor("#000000").font("Helvetica-Bold");
     headerLabels.forEach((label, i) => {
       doc.text(label, colX[i], tableTop);
     });
 
     doc.y = tableTop + 16;
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor("#cccccc").lineWidth(0.5).stroke();
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor("#000000").lineWidth(0.9).stroke();
     doc.moveDown(0.15);
 
-    doc.font("Helvetica");
+    doc.fillColor("#000000").font("Helvetica");
     const items = Array.isArray(booking.items) ? booking.items : [];
     items.forEach((item, idx) => {
       const rowY = doc.y;
-      doc.font("Helvetica").text(String(idx + 1), colX[0], rowY);
+      doc.fillColor("#000000").font("Helvetica").text(String(idx + 1), colX[0], rowY);
       doc.text(String(item.name || item.category || "Charge"), colX[1], rowY);
       doc.text(`${INR} ${formatINR(item.price)}`, colX[2], rowY);
       doc.text(String(item.quantity || 1), colX[3], rowY);
@@ -163,7 +164,7 @@ const generateInvoicePdf = async (booking) => {
       doc.moveDown(0.25);
     });
 
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor("#cccccc").lineWidth(0.5).stroke();
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor("#000000").lineWidth(0.9).stroke();
 
     // ── Totals block ─────────────────────────────────────────────────────
     const totalsX = 370;
@@ -182,7 +183,7 @@ const generateInvoicePdf = async (booking) => {
 
     totals.forEach(([label, val], idx) => {
       const isLast = idx === totals.length - 1;
-      doc.font(isLast ? "Helvetica-Bold" : "Helvetica");
+      doc.fillColor("#000000").font(isLast ? "Helvetica-Bold" : "Helvetica");
       doc.text(label, totalsX, totalsStartY + idx * 16, { width: 100 });
       doc.text(
         `${INR} ${formatINR(Math.abs(val))}`,
@@ -196,7 +197,7 @@ const generateInvoicePdf = async (booking) => {
 
     // ── Footer ───────────────────────────────────────────────────────────
     doc.moveDown(2);
-    doc.fontSize(8).font("Helvetica").fillColor("#888888");
+    doc.fontSize(8).font("Helvetica-Bold").fillColor("#000000");
     doc.text("Thank you for choosing Maa Baglamukhi Resort.", {
       align: "center",
     });

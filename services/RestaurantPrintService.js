@@ -79,6 +79,27 @@ const immediatePrintRestaurantBill = async (billData) => {
 };
 
 /**
+ * Queue processor entrypoint for queued restaurant POS bill jobs.
+ */
+const printBill = async (billData, printerKey = "THERMAL_PRINTER") => {
+  const receiptData = {
+    hotelName: "Maa Baglamukhi Resort",
+    receiptNo: billData.receiptNo || billData.invoiceNo || billData.billNumber || `REST-${Date.now()}`,
+    guestName: billData.guestName || billData.customerName || "",
+    roomNumber: billData.roomNumber || "",
+    paymentType: billData.paymentType || "Restaurant Bill",
+    amount: billData.amount || billData.total || billData.grandTotal || 0,
+    method: billData.method || billData.paymentMethod || "Cash",
+    date: billData.date || new Date(),
+    notes: billData.notes || `Table: ${billData.tableNumber || billData.table || ""}`,
+    printedBy: billData.printedBy || "System",
+  };
+
+  return ThermalPrintService.printReceipt("restaurant_pos_bill", receiptData, printerKey);
+};
+
+
+/**
  * Print a room service bill.
  */
 const printRoomServiceBill = async (billData) => {
@@ -138,6 +159,7 @@ module.exports = {
   RestaurantPrintService: {
     autoPrintRestaurantBill,
     immediatePrintRestaurantBill,
+    printBill,
     printRoomServiceBill,
     printRestaurantBillA4,
     reprintRestaurantBill,

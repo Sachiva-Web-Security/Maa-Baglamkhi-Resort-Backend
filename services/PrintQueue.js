@@ -10,7 +10,7 @@
  */
 
 const db = require("../config/db");
-const { buildPrintNo } = require("../models/PrintLogModel");
+const { buildPrintNo, ensureSchema } = require("../models/PrintLogModel");
 const PrintConfig = require("../PrintConfig");
 
 const runQuery = (sql, params = []) =>
@@ -36,6 +36,8 @@ class PrintQueue {
    * @returns {Promise<string>} jobId
    */
   async enqueue(printType, payload = {}, priority = 0, maxRetries = 3) {
+    await ensureSchema();
+
     const printerKey = PrintConfig.resolvePrinterWithOverride(printType);
     const printer = PrintConfig.getPrinter(printerKey);
     const jobId = `JOB-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
