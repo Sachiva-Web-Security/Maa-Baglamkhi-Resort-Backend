@@ -197,13 +197,19 @@ const buildPaymentReceipt = (data) => {
  * Print a KOT to the thermal printer.
  * Generates a thermal-width PDF and sends it to the printer.
  */
-const printKOT = async (data, printerKey = "THERMAL_PRINTER") => {
+const printKOT = async (data, printerKey = "KITCHEN_PRINTER") => {
   const printer = PrintConfig.getPrinter(printerKey);
   const receiptText = buildKOTReceipt(data);
 
   try {
-    // Generate thermal-width PDF
-    const pdfResult = await generateThermalPdfFromText(receiptText);
+    // KITCHEN_PRINTER (HP inkjet): generate A5-size PDF that HP drivers understand.
+    // THERMAL_PRINTER: generate narrow 80mm thermal PDF.
+    let pdfResult;
+    if (printer.type === "inkjet" || printer.type === "a4") {
+      pdfResult = await generateInkjetKOTPdf(data, printer.paperSize || "A5");
+    } else {
+      pdfResult = await generateThermalPdfFromText(receiptText);
+    }
 
     // Send to printer
     const printResult = await printPdfToPrinter(pdfResult.filePath, printer.name);
@@ -263,6 +269,129 @@ const generateThermalPdfFromText = async (textContent) => {
 };
 
 /**
+ * Generate a KOT PDF for inkjet printers (e.g. HP Smart Tank).
+ * Uses A5 paper size — readable for kitchen staff and HP-compatible.
+ */
+const generateInkjetKOTPdf = async (data, paperSize = "A5") => {
+  const path = require("path");
+  const fs = require("fs");
+  const PDFDocument = require("pdfkit");
+
+  const OUTPUT_DIR =
+    process.env.THERMAL_UPLOAD_DIR ||
+    path.resolve(__dirname, "..", "uploads", "thermal");
+  if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+
+  const fileName = `kot_inkjet_${Date.now()}.pdf`;
+  const filePath = path.join(OUTPUT_DIR, fileName);
+
+  // A5: 420 x 595 pt (roughly half of A4)
+  // A4: 595 x 842 pt
+  const sizeMap = {
+    A5: [420, 595],
+    A4: [595, 842],
+  };
+  const dims = sizeMap[paperSize] || sizeMap.A5;
+
+  const doc = new PDFDocument({
+    size: dims,
+    margin: 20,
+  });
+  const stream = fs.createWriteStream(filePath);
+
+  return new Promise((resolve, reject) => {
+    stream.on("finish", () => resolve({ filePath, fileName }));
+    stream.on("error", reject);
+    doc.pipe(stream);
+
+    // ── Header
+    doc.fillColor("#000000").fontSize(18).font("Helvetica-Bold")
+      .text("KITCHEN ORDER TICKET", { align: "center" });
+    doc.moveDown(0.2);
+    doc.fillColor("#444444").fontSize(9).font("Helvetica")
+      .text("Hotel POS — Auto-Print", { align: "center" });
+    doc.moveDown(0.5);
+
+    // ── Divider
+    doc.moveTo(20, doc.y).lineTo(dims[0] - 20, doc.y).strokeColor("#000000").lineWidth(1).stroke();
+    doc.moveDown(0.5);
+
+    // ── Meta info
+    doc.fillColor("#000000").fontSize(11).font("Helvetica-Bold");
+    const meta = [
+      ["KOT No", data.kotNo || "—"],
+      ["Order No", data.orderNo || "—"],
+      ["Table/Room", data.tableNumber || data.table || data.roomNumber || "—"],
+      ["Type", data.orderType || (data.roomNumber ? "Room Service" : "Dine-In")],
+      ["Waiter", data.waiterName || data.waiter || "—"],
+      ["Date/Time", `${formatDate(data.date || new Date())} ${formatTime(data.date || new Date())}`],
+    ];
+    meta.forEach(([label, value]) => {
+      doc.font("Helvetica-Bold").text(`${label}: `, { continued: true });
+      doc.font("Helvetica").text(String(value));
+    });
+    doc.moveDown(0.5);
+
+    doc.moveTo(20, doc.y).lineTo(dims[0] - 20, doc.y).strokeColor("#000000").lineWidth(1).stroke();
+    doc.moveDown(0.5);
+
+    // ── Items table header
+    doc.fillColor("#000000").fontSize(11).font("Helvetica-Bold");
+    doc.text("ITEMS", { align: "left", underline: true });
+    doc.moveDown(0.3);
+
+    const items = Array.isArray(data.items) ? data.items : [];
+    const startY = doc.y;
+    const colX = { idx: 25, name: 55, qty: dims[0] - 90, rate: dims[0] - 45 };
+
+    doc.font("Helvetica-Bold").fontSize(10);
+    doc.text("#", colX.idx, startY);
+    doc.text("Item", colX.name, startY);
+    doc.text("Qty", colX.qty, startY, { width: 40, align: "right" });
+    doc.text("Rate", colX.rate, startY, { width: 40, align: "right" });
+    doc.moveDown(0.3);
+
+    doc.moveTo(20, doc.y).lineTo(dims[0] - 20, doc.y).strokeColor("#888888").lineWidth(0.5).stroke();
+    doc.moveDown(0.2);
+
+    doc.font("Helvetica").fontSize(10);
+    items.forEach((item, idx) => {
+      const y = doc.y;
+      const qty = Number(item.quantity || item.qty || 1);
+      const rate = Number(item.price || item.rate || 0);
+      const name = String(item.name || item.itemName || "Item");
+      doc.text(String(idx + 1), colX.idx, y);
+      doc.text(name.slice(0, 32), colX.name, y, { width: dims[0] - 150 });
+      doc.text(String(qty), colX.qty, y, { width: 40, align: "right" });
+      doc.text(rate.toFixed(2), colX.rate, y, { width: 40, align: "right" });
+      doc.moveDown(0.5);
+
+      const note = item.specialInstructions || item.note || "";
+      if (note) {
+        doc.font("Helvetica-Oblique").fontSize(9).fillColor("#555555")
+          .text(`>> ${note}`, colX.name + 10, doc.y, { width: dims[0] - 100 });
+        doc.fillColor("#000000").font("Helvetica").fontSize(10);
+      }
+    });
+
+    doc.moveDown(0.5);
+    doc.moveTo(20, doc.y).lineTo(dims[0] - 20, doc.y).strokeColor("#000000").lineWidth(1).stroke();
+    doc.moveDown(0.5);
+
+    // ── Footer
+    doc.fillColor("#000000").fontSize(9).font("Helvetica-Oblique")
+      .text(`Printed: ${formatTime(new Date())} | Printed By: ${data.printedBy || "System"}`, {
+        align: "center",
+      });
+    doc.moveDown(0.2);
+    doc.fillColor("#000000").fontSize(10).font("Helvetica-Bold")
+      .text("-- KITCHEN COPY --", { align: "center" });
+
+    doc.end();
+  });
+};
+
+/**
  * Send ESC/POS raw data to the printer via thermal PDF conversion.
  */
 const sendToPrinter = async (escPosBuffer, printer) => {
@@ -291,5 +420,6 @@ module.exports = {
   },
   buildKOTReceipt,
   buildPaymentReceipt,
+  generateInkjetKOTPdf,
   ESC_POS,
 };
