@@ -121,6 +121,34 @@ const immediatePrintKOT = async (orderData) => {
 };
 
 /**
+ * Queue processor entrypoint.
+ * PrintQueue calls this method when it processes a queued "kot" job.
+ */
+const printKOT = async (orderData, printerKey = "THERMAL_PRINTER") => {
+  const { kotNo, orderId, tableNumber, entityType, waiterName, items } = orderData;
+
+  const kotData = {
+    kotNo: kotNo || `KOT-${Date.now()}`,
+    orderNo: orderId ? `ORD-${String(orderId).padStart(5, "0")}` : "",
+    tableNumber: tableNumber || orderData.table || "",
+    table: tableNumber || orderData.table || "",
+    roomNumber: entityType === "Room" ? tableNumber || orderData.roomNumber || "" : "",
+    room: entityType === "Room" ? tableNumber || orderData.room || "" : "",
+    guestName: orderData.guestName || "",
+    waiterName: waiterName || orderData.waiter || "Waiter",
+    waiter: waiterName || orderData.waiter || "Waiter",
+    date: orderData.date || new Date(),
+    orderType: entityType === "Room" ? "Room Service" : "Dine-In",
+    items: Array.isArray(items) ? items : [],
+    specialInstructions: orderData.specialInstructions || [],
+    hotelName: orderData.hotelName || "Maa Baglamukhi Resort",
+    printedBy: orderData.printedBy || waiterName || "System",
+  };
+
+  return ThermalPrintService.printKOT(kotData, printerKey);
+};
+
+/**
  * Reprint a KOT.
  */
 const reprintKOT = async (kotNo, printedBy) => {
@@ -178,6 +206,7 @@ module.exports = {
   KitchenPrintService: {
     autoPrintKOT,
     immediatePrintKOT,
+    printKOT,
     reprintKOT,
   },
 };

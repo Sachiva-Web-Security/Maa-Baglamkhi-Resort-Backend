@@ -90,10 +90,10 @@ const generateBanquetInvoicePdf = async (booking) => {
   const TEAL = "#0F6E64";
   const AMBER = "#C8791A";
   const ROSE = "#B5442E";
-  const INK = "#1C231F";
-  const INK_SOFT = "#4A4E44";
-  const MUTED = "#6B6F66";
-  const LINE = "#E4E1D8";
+  const INK = "#000000";
+  const INK_SOFT = "#000000";
+  const MUTED = "#000000";
+  const LINE = "#000000";
   const BAND = "#F6F5F1";
   const ALT_ROW = "#FAF9F6";
   const WHITE = "#FFFFFF";
@@ -172,7 +172,7 @@ const generateBanquetInvoicePdf = async (booking) => {
 
     doc.font("Helvetica")
       .fontSize(10)
-      .fillColor("#BFDBFE")
+      .fillColor(WHITE)
       .text("Banquet & Events", 120, 50, { width: 340 });
 
     // Invoice pill
@@ -189,7 +189,7 @@ const generateBanquetInvoicePdf = async (booking) => {
       .fillColor(WHITE)
       .text(`#${safeInvoiceNo}`, 120, 72, { continued: true, width: 250 })
       .font("Helvetica")
-      .fillColor("#E0F2FE")
+      .fillColor(WHITE)
       .text(`  ·  ${formattedDate}`, { width: 260 });
 
     // ── DETAILS GRID ──────────────────────────────────────────────────────────
@@ -198,24 +198,24 @@ const generateBanquetInvoicePdf = async (booking) => {
 
     // Left card — Guest details
     doc.fillColor(BAND).roundedRect(48, gridY, colW, 96, 8).fill();
-    doc.strokeColor(LINE).lineWidth(0.8).roundedRect(48, gridY, colW, 96, 8).stroke();
+    doc.strokeColor(LINE).lineWidth(1).roundedRect(48, gridY, colW, 96, 8).stroke();
 
     doc.font("Helvetica-Bold").fontSize(9).fillColor(MUTED).text("GUEST DETAILS", 62, gridY + 12);
     doc.font("Helvetica-Bold").fontSize(13).fillColor(INK).text(booking.customerName || "Guest", 62, gridY + 26);
     if (booking.phone) {
-      doc.font("Helvetica").fontSize(10).fillColor(INK_SOFT).text(`Phone: ${booking.phone}`, 62, gridY + 44);
+      doc.font("Helvetica-Bold").fontSize(10).fillColor(INK_SOFT).text(`Phone: ${booking.phone}`, 62, gridY + 44);
     }
     if (booking.guestEmail) {
-      doc.font("Helvetica").fontSize(10).fillColor(INK_SOFT).text(`Email: ${booking.guestEmail}`, 62, gridY + 58);
+      doc.font("Helvetica-Bold").fontSize(10).fillColor(INK_SOFT).text(`Email: ${booking.guestEmail}`, 62, gridY + 58);
     }
     if (booking.eventTitle) {
-      doc.font("Helvetica").fontSize(10).fillColor(INK_SOFT).text(`Event: ${booking.eventTitle}`, 62, gridY + 72);
+      doc.font("Helvetica-Bold").fontSize(10).fillColor(INK_SOFT).text(`Event: ${booking.eventTitle}`, 62, gridY + 72);
     }
 
     // Right card — Event details
     const rightX = 48 + colW + 16;
     doc.fillColor(BAND).roundedRect(rightX, gridY, colW, 96, 8).fill();
-    doc.strokeColor(LINE).lineWidth(0.8).roundedRect(rightX, gridY, colW, 96, 8).stroke();
+    doc.strokeColor(LINE).lineWidth(1).roundedRect(rightX, gridY, colW, 96, 8).stroke();
 
     doc.font("Helvetica-Bold").fontSize(9).fillColor(MUTED).text("EVENT DETAILS", rightX + 14, gridY + 12);
     const eventRows = [
@@ -227,7 +227,7 @@ const generateBanquetInvoicePdf = async (booking) => {
     ];
     eventRows.forEach(([label, value], idx) => {
       const ry = gridY + 28 + idx * 14;
-      doc.font("Helvetica").fontSize(9).fillColor(MUTED).text(label, rightX + 14, ry, { width: 50 });
+      doc.font("Helvetica-Bold").fontSize(9).fillColor(MUTED).text(label, rightX + 14, ry, { width: 50 });
       doc.font("Helvetica-Bold").fontSize(10).fillColor(INK).text(value, rightX + 64, ry, { width: colW - 78 });
     });
 
@@ -259,9 +259,10 @@ const generateBanquetInvoicePdf = async (booking) => {
     lineItems.forEach((item, idx) => {
       if (idx % 2 === 0) {
         doc.fillColor(ALT_ROW).rect(48, cursorY, tableW, rowH).fill();
+        doc.strokeColor(LINE).lineWidth(0.8).rect(48, cursorY, tableW, rowH).stroke();
       }
       doc.fillColor(INK)
-        .font("Helvetica")
+        .font("Helvetica-Bold")
         .fontSize(10)
         .text(item.label, 62, cursorY + 7, { width: tableW - 140 });
       doc.font("Helvetica-Bold")
@@ -275,12 +276,12 @@ const generateBanquetInvoicePdf = async (booking) => {
 
     // Bottom border
     cursorY += 2;
-    doc.save().strokeColor(LINE).lineWidth(0.6)
+    doc.save().strokeColor(LINE).lineWidth(1)
       .moveTo(48, cursorY).lineTo(48 + tableW, cursorY).stroke().restore();
     cursorY += 10;
 
     // Subtotal row
-    doc.font("Helvetica").fontSize(10).fillColor(INK_SOFT)
+    doc.font("Helvetica-Bold").fontSize(10).fillColor(INK_SOFT)
       .text("Subtotal", 62, cursorY, { width: tableW - 140 });
     doc.font("Helvetica-Bold")
       .fillColor(INK)
@@ -289,14 +290,14 @@ const generateBanquetInvoicePdf = async (booking) => {
 
     // Discount row
     if (discount > 0) {
-      doc.font("Helvetica").fontSize(10).fillColor(ROSE)
+      doc.font("Helvetica-Bold").fontSize(10).fillColor(ROSE)
         .text("Discount", 62, cursorY, { width: tableW - 140 });
       doc.font("Helvetica-Bold")
         .fillColor(ROSE)
         .text(`- ${INR} ${formatINR(discount)}`, 48 + tableW - 100, cursorY, { width: 90, align: "right" });
       cursorY += 18;
 
-      doc.font("Helvetica").fontSize(10).fillColor(INK_SOFT)
+      doc.font("Helvetica-Bold").fontSize(10).fillColor(INK_SOFT)
         .text("Taxable Amount", 62, cursorY, { width: tableW - 140 });
       doc.font("Helvetica-Bold")
         .fillColor(INK)
@@ -305,7 +306,7 @@ const generateBanquetInvoicePdf = async (booking) => {
     }
 
     // GST row
-    doc.font("Helvetica").fontSize(10).fillColor(INK_SOFT)
+    doc.font("Helvetica-Bold").fontSize(10).fillColor(INK_SOFT)
       .text(`GST (${gstPercent}%)`, 62, cursorY, { width: tableW - 140 });
     doc.font("Helvetica-Bold")
       .fillColor(INK)
@@ -372,7 +373,7 @@ const generateBanquetInvoicePdf = async (booking) => {
 
     // ── FOOTER ────────────────────────────────────────────────────────────────
     const footerY = 770;
-    doc.save().strokeColor(LINE).lineWidth(0.6)
+    doc.save().strokeColor(LINE).lineWidth(1)
       .moveTo(48, footerY).lineTo(48 + tableW, footerY).stroke().restore();
 
     doc.font("Helvetica-Bold")
@@ -383,7 +384,7 @@ const generateBanquetInvoicePdf = async (booking) => {
         align: "center",
       });
 
-    doc.font("Helvetica")
+    doc.font("Helvetica-Bold")
       .fontSize(8)
       .fillColor(MUTED)
       .text(
