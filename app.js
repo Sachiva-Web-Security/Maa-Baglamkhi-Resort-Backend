@@ -153,6 +153,10 @@ app.use("/api/audit-logs", require("./routes/auditLogRoutes"));
 app.use("/api/settings", require("./routes/settingsRoutes"));
 app.use("/api/housekeeping", require("./routes/housekeepingRoutes"));
 app.use("/api/salary", require("./routes/salaryRoutes"));
+app.use("/api/print", require("./routes/printRoutes"));
+
+// Start print queue processor (moved to index.js — starts only after DB init)
+// try/catch block intentionally removed to avoid silent failures; consumer in index.js handles it
 
 app.get("/api/health", (req, res) => {
   res.json({
@@ -287,6 +291,10 @@ async function initializeDatabase(options = {}) {
     await bootstrapSchema("Accounts expansion schema init", ensureAccountsExpansionSchema);
     await bootstrapSchema("Inventory masters schema init", ensureInventoryMastersSchema);
     await bootstrapSchema("Menu recipe schema init", ensureMenuRecipeSchema);
+    await bootstrapSchema("Print log schema init", async () => {
+      const printLogModel = require("./models/PrintLogModel");
+      await printLogModel.ensureSchema();
+    });
     await bootstrapSchema("Default staff login bootstrap", ensureDefaultStaffLogins);
   } catch (error) {
     console.error(

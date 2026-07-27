@@ -78,6 +78,21 @@ exports.createOrder = async (req, res) => {
         VALUES (?, ?, ?, 'Pending', 'Active', ?, ?, ?, ?)`,
       [createdWaiter, String(table || ""), itemsJson, kot, entityType || "Table", prepMinutes, expectedAt]
     );
+    // Fire-and-forget: auto-print KOT to kitchen thermal printer
+    try {
+      const { KitchenPrintService } = require("../services/KitchenPrintService");
+      KitchenPrintService.autoPrintKOT({
+        kotNo: kot,
+        orderId: result.insertId,
+        tableNumber: String(table || ""),
+        entityType: entityType || "Table",
+        waiterName: createdWaiter,
+        items: Array.isArray(items) ? items : [],
+        date: new Date(),
+        printedBy: createdWaiter,
+      }).catch((err) => console.error("[auto-print KOT] failed:", err.message));
+    } catch (e) { console.error("[auto-print KOT] import error:", e.message); }
+
     global.io?.emit("kitchen-order-created", {
       id: result.insertId,
       table: String(table || ""),

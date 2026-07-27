@@ -1174,6 +1174,30 @@ exports.updateAdvance = (req, res) => {
           );
         }
       });
+
+      // Auto-print advance payment receipt
+      setImmediate(async () => {
+        try {
+          const { InvoicePrintService } = require("../services/InvoicePrintService");
+          const booking = await getBookingSummaryById(req.params.id);
+          await InvoicePrintService.immediatePrintInvoice("advance_payment", {
+            bookingId: req.params.id,
+            invoiceNo: `ADV-${req.params.id}`,
+            customerName: booking?.guest_name || "Guest",
+            phone: booking?.mobile || "",
+            roomNumber: booking?.rooms || "",
+            totalAmount: Number(data.amount || data.paidAmount || 0),
+            discount: Number(data.discountAmount || data.discount_amount || 0),
+            subtotal: Number(data.amount || data.paidAmount || 0),
+            tax: 0,
+            paymentMode: data.paymentMode || "Cash",
+            paymentStatus: "Paid",
+            printedBy: "System (Advance)",
+          });
+        } catch (err) {
+          console.error("[auto-print] advance receipt failed:", err.message);
+        }
+      });
     });
   });
 };
@@ -1187,6 +1211,24 @@ exports.checkInBooking = async (req, res) => {
 
     await query("UPDATE guests SET booking_status = ? WHERE id = ?", ["Checked In", req.params.id]);
     await updateRoomsForBooking(booking, "Checked In");
+
+    // Auto-print guest registration form after check-in
+    setImmediate(async () => {
+      try {
+        const { InvoicePrintService } = require("../services/InvoicePrintService");
+        await InvoicePrintService.immediatePrintInvoice("guest_registration", {
+          bookingId: req.params.id,
+          customerName: booking.guest_name,
+          phone: booking.mobile,
+          roomNumber: booking.rooms,
+          checkIn: booking.check_in,
+          checkOut: booking.check_out,
+          printedBy: "System (Check-in)",
+        });
+      } catch (err) {
+        console.error("[auto-print] check-in registration failed:", err.message);
+      }
+    });
 
     res.json({ message: "Booking checked in successfully" });
   } catch (error) {
@@ -1206,6 +1248,25 @@ exports.checkOutBooking = async (req, res) => {
 
     await query("UPDATE guests SET booking_status = ? WHERE id = ?", ["Checked Out", req.params.id]);
     await updateRoomsForBooking(booking, "Checked Out");
+
+    // Auto-print final invoice after check-out
+    setImmediate(async () => {
+      try {
+        const { InvoicePrintService } = require("../services/InvoicePrintService");
+        const Invoice = require("../models/InvoiceModel");
+
+        // Generate and print the final invoice
+        const invoice = await Invoice.generateCustomerInvoice(Number(req.params.id));
+        if (invoice) {
+          await InvoicePrintService.immediatePrintInvoice("checkout_bill", {
+            ...invoice,
+            printedBy: "System (Check-out)",
+          });
+        }
+      } catch (err) {
+        console.error("[auto-print] check-out invoice failed:", err.message);
+      }
+    });
 
     res.json({ message: "Booking checked out successfully" });
   } catch (error) {

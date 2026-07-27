@@ -6,7 +6,14 @@ server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-initializeDatabase();
+initializeDatabase().then(() => {
+  try {
+    const { printQueue } = require("./services/PrintQueue");
+    printQueue.start();
+  } catch (e) {
+    console.error("Print queue init failed:", e.message);
+  }
+});
 
 process.once("SIGINT", () => shutdown("SIGINT"));
 process.once("SIGTERM", () => shutdown("SIGTERM"));
