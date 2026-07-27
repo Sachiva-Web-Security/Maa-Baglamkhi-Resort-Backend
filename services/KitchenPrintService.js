@@ -124,7 +124,7 @@ const immediatePrintKOT = async (orderData) => {
  * Queue processor entrypoint.
  * PrintQueue calls this method when it processes a queued "kot" job.
  */
-const printKOT = async (orderData, printerKey = "THERMAL_PRINTER") => {
+const printKOT = async (orderData, printerKey = "KITCHEN_PRINTER") => {
   const { kotNo, orderId, tableNumber, entityType, waiterName, items } = orderData;
 
   const kotData = {

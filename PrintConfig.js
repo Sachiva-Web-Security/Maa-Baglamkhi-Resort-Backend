@@ -6,14 +6,19 @@
  *
  * Default Printers:
  *   1. HP Smart Tank 580 Series (A4) — for GST invoices, reports, guest bills
- *   2. RP326 ESC/POS Thermal Receipt Printer (80mm) — for POS bills, KOT,
- *      Room Service bills, and payment receipts
+ *   2. HP Smart Tank Kitchen Printer — for KOT (auto-detected via env var)
+ *   3. RP326 ESC/POS Thermal Receipt Printer (80mm) — for POS bills,
+ *      Room Service bills, and payment receipts (optional)
+ *
+ * Set KITCHEN_PRINTER_NAME env var to your HP printer's Windows name.
+ * Example: KITCHEN_PRINTER_NAME="HP Smart Tank 580-590 series PCL-3 (V4)"
  *
  * Supports:
- *   - ESC/POS Commands
- *   - Auto Paper Cut
- *   - Cash Drawer Open
+ *   - ESC/POS Commands (thermal only)
+ *   - Auto Paper Cut (thermal only)
+ *   - Cash Drawer Open (thermal only)
  *   - Silent Printing
+ *   - Browser-based printing (HP path)
  */
 
 /**
@@ -46,6 +51,17 @@ const PRINTERS = {
       "folio_statement",
     ],
   },
+  KITCHEN_PRINTER: {
+    printerKey: "KITCHEN_PRINTER",
+    name: process.env.KITCHEN_PRINTER_NAME || "kitchen",
+    type: "inkjet",
+    paperSize: "A5",
+    driver: "pdf-to-printer",
+    defaultFor: [
+      "kot",
+      "kot_customer_copy",
+    ],
+  },
   THERMAL_PRINTER: {
     printerKey: "THERMAL_PRINTER",
     name: "RP326 ESC/POS Thermal Receipt Printer",
@@ -55,12 +71,10 @@ const PRINTERS = {
     defaultFor: [
       "restaurant_pos_bill",
       "room_service_bill",
-      "kot",
       "advance_receipt",
       "cash_receipt",
       "refund_receipt",
       "payment_receipt",
-      "kot_customer_copy",
     ],
   },
 };
@@ -131,7 +145,7 @@ const PRINT_TYPES = {
   },
   kot: {
     label: "Kitchen Order Ticket",
-    printerKey: "THERMAL_PRINTER",
+    printerKey: "KITCHEN_PRINTER",
     description: "Auto-printed KOT for kitchen",
   },
   cash_receipt: {
@@ -191,7 +205,10 @@ const getPrintTypesForPrinter = (printerKey) => {
 /**
  * Resolve printer from environment override.
  * Env var: PRINT_PRINTER_OVERRIDE_<printType>
- * e.g., PRINT_PRINTER_OVERRIDE_kot=THERMAL_PRINTER
+ * e.g., PRINT_PRINTER_OVERRIDE_kot=KITCHEN_PRINTER
+ *
+ * Special handling: if printer is KITCHEN_PRINTER and KITCHEN_PRINTER_NAME
+ * env var is set, the printer name will be the actual Windows printer name.
  */
 const resolvePrinterWithOverride = (printType) => {
   const envKey = `PRINT_PRINTER_OVERRIDE_${printType.toUpperCase()}`;
