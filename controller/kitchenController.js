@@ -81,6 +81,7 @@ exports.createOrder = async (req, res) => {
     // Fire-and-forget: auto-print KOT to kitchen thermal printer
     try {
       const { KitchenPrintService } = require("../services/KitchenPrintService");
+      console.log(`[KOT] Auto-print triggered for order #${result.insertId} (KOT ${kot}) → table ${table}`);
       KitchenPrintService.autoPrintKOT({
         kotNo: kot,
         orderId: result.insertId,
@@ -90,8 +91,16 @@ exports.createOrder = async (req, res) => {
         items: Array.isArray(items) ? items : [],
         date: new Date(),
         printedBy: createdWaiter,
-      }).catch((err) => console.error("[auto-print KOT] failed:", err.message));
-    } catch (e) { console.error("[auto-print KOT] import error:", e.message); }
+      })
+        .then((res) => {
+          if (res?.success) {
+            console.log(`[KOT] ✓ Queued for printing — KOT ${kot}`);
+          } else {
+            console.error(`[KOT] ✗ Queue failed:`, res?.error || "unknown");
+          }
+        })
+        .catch((err) => console.error(`[KOT] ✗ Auto-print failed:`, err.message));
+    } catch (e) { console.error("[KOT] ✗ Import error:", e.message); }
 
     global.io?.emit("kitchen-order-created", {
       id: result.insertId,
