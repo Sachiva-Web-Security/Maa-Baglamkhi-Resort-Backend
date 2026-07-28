@@ -127,6 +127,16 @@ class PrintQueue {
     try {
       const result = await this.executePrintJob(job);
 
+      // FIX: executePrintJob can resolve normally with { success: false, error }
+      // (e.g. printer offline, pdf-to-printer failure) instead of throwing.
+      // Previously this branch didn't check result.success, so a genuinely
+      // failed print was still marked 'completed'/'success' here — hiding
+      // the failure and skipping retries. Now we explicitly throw so the
+      // catch block below handles retry/failure logging correctly.
+      if (!result || result.success === false) {
+        throw new Error(result?.error || "Print job failed");
+      }
+
       // Success
       await runQuery(`UPDATE print_queue SET status = 'completed' WHERE id = ?`, [job.id]);
 
