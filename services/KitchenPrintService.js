@@ -34,6 +34,7 @@ const autoPrintKOT = async (orderData) => {
     table: tableNumber || "",
     roomNumber: entityType === "Room" ? tableNumber : "",
     room: entityType === "Room" ? tableNumber : "",
+    entityType: entityType || "Table",
     guestName: orderData.guestName || "",
     waiterName: waiterName || "Waiter",
     waiter: waiterName || "Waiter",
@@ -125,11 +126,11 @@ const immediatePrintKOT = async (orderData) => {
  * PrintQueue calls this method when it processes a queued "kot" job.
  */
 const printKOT = async (orderData, printerKey = "KITCHEN_PRINTER") => {
-  const { kotNo, orderId, tableNumber, entityType, waiterName, items } = orderData;
+  const { kotNo, orderId, orderNo, tableNumber, entityType, waiterName, items } = orderData;
 
   const kotData = {
     kotNo: kotNo || `KOT-${Date.now()}`,
-    orderNo: orderId ? `ORD-${String(orderId).padStart(5, "0")}` : "",
+    orderNo: orderNo || (orderId ? `ORD-${String(orderId).padStart(5, "0")}` : ""),
     tableNumber: tableNumber || orderData.table || "",
     table: tableNumber || orderData.table || "",
     roomNumber: entityType === "Room" ? tableNumber || orderData.roomNumber || "" : "",

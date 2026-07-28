@@ -10,8 +10,17 @@
 
 const path = require("path");
 const fs = require("fs");
+const { exec } = require("child_process");
+const { promisify } = require("util");
 const PDFDocument = require("pdfkit");
 const PrintConfig = require("../PrintConfig");
+
+// FIX: execAsync was used below (in printPdfToPrinter / checkPrinterStatus)
+// but was never defined anywhere in this file. Every call to it threw
+// "execAsync is not defined", which was silently swallowed by try/catch
+// blocks — so print jobs looked like they "ran" but never actually reached
+// the printer correctly.
+const execAsync = promisify(exec);
 
 const OUTPUT_DIR =
   process.env.INVOICE_UPLOAD_DIR ||
@@ -234,9 +243,6 @@ const generateA4InvoicePdf = (invoiceData) => {
 
 /**
  * Generate a thermal receipt PDF (mimics 80mm thermal paper).
- * Renders text with size-aware styling: divider/box lines get bold, content
- * lines get normal weight, all sized for kitchen-staff readability.
- *
  * @param {Buffer|null} escPosBuffer - raw ESC/POS buffer (unused, kept for compat)
  * @param {object|null} printer - printer config object (unused, kept for compat)
  * @param {string} textContent - plain text content to render
@@ -247,15 +253,33 @@ const generateThermalPdf = (escPosBuffer, printer, textContent = "") => {
   const fileName = `thermal_${Date.now()}.pdf`;
   const filePath = path.join(THERMAL_PDF_DIR, fileName);
 
-  // 80mm thermal paper ≈ 227pt wide. Use generous margins.
-  const PAGE_W = 227;
-  const MARGIN_X = 6;
-  const CONTENT_W = PAGE_W - MARGIN_X * 2; // 215pt usable
+  // For thermal printers, we generate a narrow PDF (80mm = ~227pt)
+  const PAGE_WIDTH = 227;
+  const MARGIN = { top: 10, bottom: 10, left: 8, right: 8 };
+  const CONTENT_WIDTH = PAGE_WIDTH - MARGIN.left - MARGIN.right; // 211
+  const FONT_SIZE = 10;
+  const LINE_HEIGHT = FONT_SIZE * 1.25;
+
+  // FIX: this used to be a fixed [227, 9999] page. A 9999pt-tall page is
+  // ~139 inches — most Windows/inkjet print drivers can't handle that as a
+  // real page, so they "shrink to fit" it onto your actual A4/A5 paper,
+  // which is exactly why the print came out as one tiny block of text.
+  // Instead we now measure the real content and size the page to match it,
+  // so the printer receives a page it can print at normal (1:1) size.
+  const CHARS_PER_LINE = Math.max(20, Math.floor(CONTENT_WIDTH / (FONT_SIZE * 0.6)));
+  const rawLines = String(textContent || "").split("\n");
+  let wrappedLineCount = 0;
+  for (const line of rawLines) {
+    wrappedLineCount += line.length === 0 ? 1 : Math.ceil(line.length / CHARS_PER_LINE);
+  }
+  const pageHeight = Math.max(
+    150,
+    MARGIN.top + MARGIN.bottom + wrappedLineCount * LINE_HEIGHT + 20, // +20 buffer
+  );
 
   const doc = new PDFDocument({
-    size: [PAGE_W, 9999],
-    margin: { top: 12, bottom: 12, left: MARGIN_X, right: MARGIN_X },
-    info: { Title: "Thermal Receipt" },
+    size: [PAGE_WIDTH, pageHeight],
+    margin: MARGIN,
   });
 
   const stream = fs.createWriteStream(filePath);
@@ -265,97 +289,10 @@ const generateThermalPdf = (escPosBuffer, printer, textContent = "") => {
     stream.on("error", reject);
     doc.pipe(stream);
 
-    doc.fillColor("#000000");
-
-    const lines = String(textContent || "").split("\n");
-    for (const raw of lines) {
-      const line = raw.replace(/\s+$/g, ""); // trim trailing spaces
-      if (line.length === 0) {
-        // blank line — small vertical gap
-        doc.moveDown(0.25);
-        continue;
-      }
-
-      // Heavy divider lines get bold + extra spacing
-      if (/^={6,}$/.test(line)) {
-        doc.font("Courier-Bold").fontSize(11).text(line, {
-          width: CONTENT_W,
-          align: "center",
-          lineGap: 0,
-        });
-        doc.moveDown(0.1);
-        continue;
-      }
-
-      // Dashed dividers
-      if (/^-{6,}$/.test(line)) {
-        doc.font("Courier").fontSize(10).text(line, {
-          width: CONTENT_W,
-          align: "center",
-          lineGap: 0,
-        });
-        doc.moveDown(0.05);
-        continue;
-      }
-
-      // Item header (QTY marker line) — bigger
-      if (/^\s*QTY:\s/.test(line) || /^\s*>>\s/.test(line) || /^\s*NOTE:\s/.test(line)) {
-        doc.font("Courier-Bold").fontSize(12).text(line, {
-          width: CONTENT_W,
-          align: "left",
-          lineGap: 1,
-        });
-        doc.moveDown(0.05);
-        continue;
-      }
-
-      // Item-index marker line "#01"
-      if (/^\s*#\d{1,3}\s{2,}/.test(line)) {
-        doc.font("Courier-Bold").fontSize(12).text(line, {
-          width: CONTENT_W,
-          align: "left",
-          lineGap: 1,
-        });
-        doc.moveDown(0.05);
-        continue;
-      }
-
-      // Section headers (e.g. "--- ORDER INFO ---") — bold, centered, slightly larger
-      if (/^\s*-{2,}.*-{2,}\s*$/.test(line)) {
-        doc.font("Courier-Bold").fontSize(11).text(line.trim(), {
-          width: CONTENT_W,
-          align: "center",
-          lineGap: 1,
-        });
-        doc.moveDown(0.1);
-        continue;
-      }
-
-      // Lines that contain KOT/order metadata labels (bold prefix)
-      const labelMatch = line.match(/^(\s*[A-Z][A-Za-z ]{2,12}\s*:\s*)(.*)$/);
-      if (labelMatch) {
-        const prefix = labelMatch[1];
-        const value = labelMatch[2];
-        // Render prefix in bold, value normal — using a single text call with mixed fonts
-        doc.font("Courier-Bold").fontSize(11).text(prefix, {
-          continued: true,
-          width: CONTENT_W,
-          lineGap: 1,
-        });
-        doc.font("Courier").fontSize(11).text(value, {
-          width: CONTENT_W,
-          lineGap: 1,
-        });
-        doc.moveDown(0.05);
-        continue;
-      }
-
-      // Default — normal-weight body text
-      doc.font("Courier").fontSize(11).text(line, {
-        width: CONTENT_W,
-        align: "left",
-        lineGap: 1,
-      });
+    doc.fillColor("#000000").fontSize(FONT_SIZE).font("Courier-Bold");
+    const lines = textContent.split("\n");
+    for (const line of lines) {
+      doc.text(line, { width: CONTENT_WIDTH });
     }
 
     doc.end();
