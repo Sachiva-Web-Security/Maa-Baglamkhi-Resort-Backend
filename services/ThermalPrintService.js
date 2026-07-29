@@ -288,13 +288,18 @@ const generateInkjetKOTPdf = async (data, paperSize = "A5") => {
   const fs = require("fs");
   const PDFDocument = require("pdfkit");
 
-  const OUTPUT_DIR =
-    process.env.THERMAL_UPLOAD_DIR ||
-    path.resolve(__dirname, "..", "uploads", "thermal");
-  if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  // Relative env paths are resolved from __dirname (this file lives in
+  // backend/), so the path is correct regardless of process.cwd().
+  const THERMAL_DIR = (() => {
+    const raw = process.env.THERMAL_UPLOAD_DIR;
+    if (!raw) return path.resolve(__dirname, "..", "uploads", "thermal");
+    if (path.isAbsolute(raw)) return raw;
+    return path.resolve(__dirname, "..", raw);
+  })();
+  if (!fs.existsSync(THERMAL_DIR)) fs.mkdirSync(THERMAL_DIR, { recursive: true });
 
   const fileName = `kot_inkjet_${Date.now()}.pdf`;
-  const filePath = path.join(OUTPUT_DIR, fileName);
+  const filePath = path.join(THERMAL_DIR, fileName);
 
   // A5: 420 x 595 pt (roughly half of A4)
   // A4: 595 x 842 pt

@@ -29,13 +29,21 @@ const PrintConfig = require("../PrintConfig");
 // the printer correctly.
 const execAsync = promisify(exec);
 
-const OUTPUT_DIR =
-  process.env.INVOICE_UPLOAD_DIR ||
-  path.resolve(__dirname, "..", "uploads", "invoices");
+// Relative env paths are resolved from __dirname (this file lives in
+// backend/), so the path is correct regardless of process.cwd().
+const OUTPUT_DIR = (() => {
+  const raw = process.env.INVOICE_UPLOAD_DIR;
+  if (!raw) return path.resolve(__dirname, "..", "uploads", "invoices");
+  if (path.isAbsolute(raw)) return raw;
+  return path.resolve(__dirname, "..", raw);
+})();
 
-const THERMAL_PDF_DIR =
-  process.env.THERMAL_UPLOAD_DIR ||
-  path.resolve(__dirname, "..", "uploads", "thermal");
+const THERMAL_PDF_DIR = (() => {
+  const raw = process.env.THERMAL_UPLOAD_DIR;
+  if (!raw) return path.resolve(__dirname, "..", "uploads", "thermal");
+  if (path.isAbsolute(raw)) return raw;
+  return path.resolve(__dirname, "..", raw);
+})();
 
 const ensureDir = (dir) => {
   if (!fs.existsSync(dir)) {
