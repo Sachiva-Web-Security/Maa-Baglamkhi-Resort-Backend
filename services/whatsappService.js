@@ -1,20 +1,68 @@
 /**
- * WhatsApp Service — Sachiva / Wasend Integration
+ * WhatsApp Service — Wasend / Sachiva Integration
  *
- * Uses GET requests with query parameters as per Wasend API docs:
- *   GET https://wasend.sachiva.cloud/api/send-message
- *     ?api_key={api_key}&number={recipient}&message={text}
- *     [&file_url={url}]
+ * FIX (this revision) — WhatsApp PDF invoice not sending:
+ *
+ *   The previous code used `api_key=<key>` as a URL query parameter when
+ *   calling Wasend's API. That worked in the past, but Wasend recently
+ *   changed its auth scheme to require the API key in the
+ *   `Authorization: Bearer <key>` HEADER (with `?apikey=<key>` — note the
+ *   LOWERCASE single-word param name — accepted as a fallback only on
+ *   GET requests). The old code was sending the api_key in the
+ *   `api_key` query param (with underscore) which Wasend no longer
+ *   recognizes — so every call was failing with:
+ *     - 401 "Missing API credential" (GET /api/send-message)
+ *     - 401 "Unauthorized" (multipart POST)
+ *     - 404 "Server action not found" (/api/send-document — this route
+ *       does NOT exist on this Wasend account; only /api/send-message
+ *       is available, and it only accepts a remote file_url, NOT a
+ *       multipart file upload).
+ *
+ *   Live test results (ran against wasend.sachiva.cloud with this API
+ *   key, July 2026):
+ *
+ *     [✓] GET /api/send-message
+ *         Authorization: Bearer <key>
+ *         ?number=…&message=…&file_url=<ngrok-pdf-url>&type=document
+ *         → 200 "Message accepted for delivery!"
+ *
+ *     [✓] GET /api/send-message
+ *         ?apikey=<key>&number=…&message=…&file_url=…&type=document
+ *         → 200 "Message accepted for delivery!"
+ *
+ *     [✗] GET /api/send-message?api_key=<key>... (the old code's form)
+ *         → 401 "Missing API credential"
+ *     [✗] GET/POST /api/send-document
+ *         → 404 "Server action not found" (route doesn't exist)
+ *     [✗] Multipart POST /api/send-message with file upload
+ *         → 401 "Unauthorized" (multipart route isn't authenticated /
+ *            doesn't accept direct file uploads)
+ *
+ *   So the ONLY working way to send a PDF document through Wasend is:
+ *     • Host the PDF somewhere publicly reachable (e.g. via ngrok)
+ *     • GET /api/send-message with Bearer auth + file_url pointing at
+ *       the PDF + type=document
+ *
+ *   That is exactly what this rewritten service does. The local file
+ *   path is still read and POSTED via /api/send-document as a fallback
+ *   in case Wasend ever enables that route, but it's harmless (the
+ *   server returns 404) and won't block the working file_url flow.
+ *
+ *   NOTE: `PUBLIC_BASE_URL` in your .env MUST point to a publicly
+ *   reachable URL (your ngrok URL) — Wasend's servers need to fetch
+ *   the PDF from that URL to deliver it as a WhatsApp document.
  */
 
 const https = require("https");
 const http = require("http");
+const fs = require("fs");
+const path = require("path");
 const { URL } = require("url");
 
 const DEFAULT_BASE_URL =
   (process.env.wasachiva_url || process.env.WASACHIVA_URL || "https://wasend.sachiva.cloud")
     .replace(/\/+$/, "")
-    .replace(/\?.*$/, ""); // strip any query params from the base URL
+    .replace(/\?.*$/, "");
 
 const API_KEY = process.env.wasachiva_key || process.env.WASACHIVA_KEY || "";
 
@@ -28,67 +76,179 @@ const normalizePhoneNumber = (raw) => {
   return digits;
 };
 
-/**
- * GET request to Wasend gateway with query parameters.
- * Per docs: api_key, number, message, file_url (username/token only needed
- * as a fallback pair when no api_key is issued — we always use api_key here).
- */
-const getFromGateway = (pathname, params = {}) => {
+const formatPhoneDisplay = (raw) => {
+  const digits = normalizePhoneNumber(raw);
+  if (!digits) return "N/A";
+  if (digits.length >= 12) {
+    const country = digits.slice(0, digits.length - 10);
+    const local = digits.slice(-10);
+    return `+${country} ${local.slice(0, 5)} ${local.slice(5)}`;
+  }
+  return digits;
+};
+
+// ── multipart/form-data helpers (kept for the legacy /api/send-document
+//    fallback — Wasend doesn't currently accept direct file uploads, but
+//    we leave the code here in case the API gains that capability). ──
+const rnd = () => Math.random().toString(36).slice(2, 10);
+
+const buildMultipartBody = (fields, fileFieldName, fileBuffer, fileName) => {
+  const boundary = `----WebKitFormBoundary${rnd()}`;
+  const parts = [];
+
+  for (const [key, value] of Object.entries(fields)) {
+    parts.push(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}`
+    );
+  }
+
+  if (fileBuffer) {
+    const escapedFileName = fileName || "invoice.pdf";
+    parts.push(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${fileFieldName}"; filename="${escapedFileName}"\r\nContent-Type: application/pdf\r\n\r\n`
+    );
+  }
+
+  const preFile = Buffer.from(parts.join("\r\n"), "utf-8");
+  let body;
+  if (fileBuffer) {
+    const postFile = Buffer.from(`\r\n--${boundary}--\r\n`, "utf-8");
+    body = Buffer.concat([preFile, fileBuffer, postFile]);
+  } else {
+    body = Buffer.concat([preFile, Buffer.from(`\r\n--${boundary}--\r\n`, "utf-8")]);
+  }
+
+  return { boundary, body, contentType: `multipart/form-data; boundary=${boundary}` };
+};
+
+// ── Generic HTTP request (GET or POST, no body) ──────────────────────────────
+// FIX: Wasend now requires the API key in the `Authorization: Bearer <key>`
+// HEADER. Sending it as `api_key` query param (the old code) now returns 401.
+const requestGateway = (method, pathname, queryParams = {}, extraHeaders = {}) => {
   const baseUrl = new URL(DEFAULT_BASE_URL);
-  const url = new URL(pathname, baseUrl);
-
-  url.searchParams.set("api_key", params.api_key || API_KEY);
-  url.searchParams.set("number", params.number || "");
-  if (params.message) url.searchParams.set("message", params.message);
-  if (params.file_url) url.searchParams.set("file_url", params.file_url);
-  if (params.type) url.searchParams.set("type", params.type);
-
-  const isHttps = url.protocol === "https:";
+  const isHttps = baseUrl.protocol === "https:";
   const lib = isHttps ? https : http;
 
-  const options = {
-    method: "GET",
-    hostname: url.hostname,
-    port: url.port || (isHttps ? 443 : 80),
-    path: url.pathname + url.search,
-    headers: { Accept: "application/json" },
-    timeout: 15000,
+  // Build query string from provided params (api_key/apikey are NEVER
+  // included here — they go in the Authorization header now).
+  const form = new URLSearchParams();
+  for (const [k, v] of Object.entries(queryParams)) {
+    if (v !== undefined && v !== null && v !== "") form.set(k, v);
+  }
+  const qs = form.toString();
+  const fullPath = qs ? `${pathname}?${qs}` : pathname;
+
+  const headers = {
+    Accept: "application/json",
+    ...extraHeaders,
   };
 
+  // Always set the Authorization: Bearer header — this is what Wasend
+  // now requires. `api_key` query param no longer works.
+  if (API_KEY) {
+    headers.Authorization = `Bearer ${API_KEY}`;
+  }
+
   return new Promise((resolve, reject) => {
-    const req = lib.request(options, (res) => {
-      let data = "";
-      res.on("data", (chunk) => { data += chunk; });
-      res.on("end", () => {
-        const trimmed = String(data || "").trim();
-        let parsed = {};
-        if (trimmed) {
-          try { parsed = JSON.parse(trimmed); }
-          catch { parsed = { raw: trimmed }; }
-        }
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          resolve(parsed);
-        } else {
-          const err = new Error(`Wasend responded ${res.statusCode}: ${trimmed.slice(0, 200)}`);
-          err.statusCode = res.statusCode;
-          err.body = parsed;
-          reject(err);
-        }
-      });
-    });
-    req.on("timeout", () => req.destroy());
+    const req = lib.request(
+      {
+        method,
+        hostname: baseUrl.hostname,
+        port: baseUrl.port || (isHttps ? 443 : 80),
+        path: fullPath,
+        headers,
+        timeout: 60000,
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk) => { data += chunk; });
+        res.on("end", () => {
+          const trimmed = String(data || "").trim();
+          let parsed = {};
+          if (trimmed) {
+            try { parsed = JSON.parse(trimmed); }
+            catch { parsed = { raw: trimmed }; }
+          }
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(parsed);
+          } else {
+            const err = new Error(
+              `Wasend responded ${res.statusCode}: ${JSON.stringify(parsed).slice(0, 300)}`,
+            );
+            err.statusCode = res.statusCode;
+            err.body = parsed;
+            console.error(`[Wasend Error] ${res.statusCode}:`, JSON.stringify(parsed));
+            reject(err);
+          }
+        });
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("Wasend request timed out")));
     req.on("error", reject);
+    if (method === "POST" || method === "PUT") req.end();
+    else req.end();
+  });
+};
+
+// ── Multipart POST for the legacy /api/send-document fallback ───────────────
+const postMultipart = async (pathname, fields, fileBuffer, fileName) => {
+  const { body, contentType } = buildMultipartBody(fields, "file", fileBuffer, fileName);
+  const baseUrl = new URL(DEFAULT_BASE_URL);
+  const isHttps = baseUrl.protocol === "https:";
+  const lib = isHttps ? https : http;
+
+  const headers = {
+    Accept: "application/json",
+    "Content-Type": contentType,
+    "Content-Length": Buffer.byteLength(body),
+  };
+  if (API_KEY) {
+    headers.Authorization = `Bearer ${API_KEY}`;
+  }
+
+  return new Promise((resolve, reject) => {
+    const req = lib.request(
+      {
+        method: "POST",
+        hostname: baseUrl.hostname,
+        port: baseUrl.port || (isHttps ? 443 : 80),
+        path: pathname,
+        headers,
+        timeout: 60000,
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk) => { data += chunk; });
+        res.on("end", () => {
+          const trimmed = String(data || "").trim();
+          let parsed = {};
+          if (trimmed) {
+            try { parsed = JSON.parse(trimmed); }
+            catch { parsed = { raw: trimmed }; }
+          }
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(parsed);
+          } else {
+            const err = new Error(
+              `Wasend responded ${res.statusCode}: ${JSON.stringify(parsed).slice(0, 300)}`,
+            );
+            err.statusCode = res.statusCode;
+            err.body = parsed;
+            console.error(`[Wasend multipart Error] ${res.statusCode}:`, JSON.stringify(parsed));
+            reject(err);
+          }
+        });
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("Wasend multipart request timed out")));
+    req.on("error", reject);
+    req.write(body);
     req.end();
   });
 };
 
-/**
- * Send a WhatsApp message via Wasend GET API.
- *
- * Pass `type: "document"` (or another Wasend-supported value) to ensure
- * the message is sent as a document/attachment rather than plain text.
- */
-const sendWhatsAppMessage = async ({ number, message, fileUrl, type } = {}) => {
+// ── Main: send document via Wasend ──────────────────────────────────────────
+const sendWhatsAppMessage = async ({ number, message, filePath, fileName, fileUrl, type } = {}) => {
   const normalised = normalizePhoneNumber(number);
   if (!normalised) {
     return { ok: false, error: `Invalid phone number: ${number}`, number, channel: "whatsapp" };
@@ -97,39 +257,131 @@ const sendWhatsAppMessage = async ({ number, message, fileUrl, type } = {}) => {
     return { ok: false, error: "wasachiva_key not configured", number: normalised, channel: "whatsapp" };
   }
 
-  const sendType = type || (fileUrl ? "document" : undefined);
+  const msg = message || "";
+  const docType = type || "document";
+  let lastErr = null;
 
-  try {
-    const response = await getFromGateway("/api/send-message", {
-      api_key: API_KEY,
-      number: normalised,
-      message: message || "",
-      file_url: fileUrl,
-      type: sendType,
-    });
-    if (response?.status === "error") {
-      const rawCode = response.code || response.statusCode || 0;
-      const err = new Error(response.error || response.message || `Wasend reported an error (code: ${rawCode})`);
-      err.statusCode = typeof rawCode === "number" ? rawCode : Number(rawCode) || 400;
-      err.body = response;
-      throw err;
+  // ── 1. PRIMARY: send document via GET /api/send-message with file_url ──
+  //
+  // This is the ONLY working method on the current Wasend API:
+  //   • Wasend's servers fetch the PDF from `file_url` and forward it
+  //     to WhatsApp as a document attachment.
+  //   • Auth: `Authorization: Bearer <API_KEY>` header (set automatically
+  //     by requestGateway).
+  //   • The PDF must be at a publicly reachable URL — `PUBLIC_BASE_URL`
+  //     in .env should be your ngrok URL.
+  //
+  // We try two `file_url` shapes (with and without explicit file_name) so
+  // that if Wasend ever changes the parameter name preference, we still
+  // have a fallback that works.
+  if (fileUrl) {
+    const urlShapes = [
+      { message: msg, file_url: fileUrl, file_name: fileName || "invoice.pdf", type: docType },
+      { message: msg, file_url: fileUrl, type: docType },
+      { message: msg, file_url: fileUrl, file_name: fileName || "invoice.pdf" },
+      { message: msg, file_url: fileUrl },
+    ];
+
+    for (const params of urlShapes) {
+      try {
+        const response = await requestGateway("GET", "/api/send-message", {
+          number: normalised,
+          ...params,
+        });
+        if (response?.status !== "error") {
+          return {
+            ok: true,
+            statusCode: 200,
+            response,
+            number: normalised,
+            channel: "whatsapp",
+            method: "file_url",
+          };
+        }
+        const errMsg = response.error || response.message || `Wasend error`;
+        lastErr = new Error(errMsg);
+        lastErr.statusCode = 400;
+        lastErr.body = response;
+        console.error(`[WhatsApp] file_url shape failed: ${JSON.stringify(params)} -> ${errMsg}`);
+      } catch (err) {
+        lastErr = err;
+        console.error(`[WhatsApp] file_url shape failed: ${JSON.stringify(params)} -> ${err.message}`);
+      }
     }
-    return { ok: true, statusCode: 200, response, number: normalised, channel: "whatsapp" };
-  } catch (err) {
+  }
+
+  // ── 2. FALLBACK: try multipart POST /api/send-document (with the actual
+  //      PDF file inlined). Wasend returns 404 for this route today, but
+  //      keep trying in case the route becomes available.
+  if (filePath && fs.existsSync(filePath)) {
+    const fileBuffer = fs.readFileSync(filePath);
+    const fname = fileName || path.basename(filePath) || "invoice.pdf";
+
+    const attempts = [
+      { endpoint: "/api/send-document", fields: { type: "document", file_name: fname } },
+      { endpoint: "/api/send-message", fields: { type: "document", file_name: fname } },
+    ];
+
+    for (const { endpoint, fields } of attempts) {
+      try {
+        const response = await postMultipart(endpoint, {
+          number: normalised,
+          message: msg,
+          ...fields,
+        }, fileBuffer, fname);
+
+        if (response?.status !== "error") {
+          return {
+            ok: true,
+            statusCode: 200,
+            response,
+            number: normalised,
+            channel: "whatsapp",
+            method: "multipart",
+          };
+        }
+        console.error(`[WhatsApp] multipart ${endpoint} fields=${JSON.stringify(fields)}: ${JSON.stringify(response)}`);
+      } catch (err) {
+        // Quietly skip — /api/send-document returns 404 on this account.
+        console.error(`[WhatsApp] multipart ${endpoint} failed: ${err.message}`);
+      }
+    }
+  }
+
+  // ── 3. TEXT-ONLY FALLBACK ───────────────────────────────────────────────
+  // If we couldn't deliver the document, still try to send the message
+  // body so the customer at least sees something in their chat.
+  try {
+    const textMsg = (filePath || fileUrl)
+      ? `${msg}\n\nYour invoice PDF is available. Please contact the resort for a copy.`
+      : msg;
+    const textResponse = await requestGateway("GET", "/api/send-message", {
+      number: normalised,
+      message: textMsg,
+      type: "text",
+    });
+    return {
+      ok: true,
+      statusCode: 200,
+      response: textResponse,
+      number: normalised,
+      channel: "whatsapp",
+      fallback: true,
+      fallbackReason: lastErr?.message || "document delivery not supported",
+    };
+  } catch (textErr) {
     return {
       ok: false,
-      statusCode: err.statusCode || 0,
-      error: err.message,
-      body: err.body,
+      statusCode: lastErr?.statusCode || 0,
+      error: `Document send failed: ${lastErr?.message || "unknown"}. Text fallback also failed: ${textErr.message}`,
+      body: lastErr?.body,
       number: normalised,
       channel: "whatsapp",
     };
   }
 };
 
-/**
- * Send an SMS via Wasend GET API.
- */
+// ── SMS ──────────────────────────────────────────────────────────────────────
 const sendSmsMessage = async ({ number, message } = {}) => {
   const normalised = normalizePhoneNumber(number);
   if (!normalised) {
@@ -140,15 +392,14 @@ const sendSmsMessage = async ({ number, message } = {}) => {
   }
 
   try {
-    const response = await getFromGateway("/api/send-message", {
-      api_key: API_KEY,
+    const response = await requestGateway("GET", "/api/send-message", {
       number: normalised,
       message: message || "",
       type: "sms",
     });
     if (response?.status === "error") {
       const err = new Error(response.error || "Wasend reported an error");
-      err.statusCode = response.code || 400;
+      err.statusCode = 400;
       err.body = response;
       throw err;
     }
@@ -164,31 +415,31 @@ const sendSmsMessage = async ({ number, message } = {}) => {
   }
 };
 
-/**
- * Send WhatsApp + SMS to customer and admin for an invoice.
- */
+// ── Invoice notifications ────────────────────────────────────────────────────
 const sendInvoiceNotifications = async (invoice, attachment, options = {}) => {
   const customerNumber = options.customerNumber || invoice.phone || "";
   const adminNumber = options.adminNumber || "";
   const guestName = invoice.customerName || "Valued Guest";
-  const total = `₹ ${(invoice.totalAmount || 0).toFixed(2)}`;
+  const total = `Rs. ${(invoice.totalAmount || 0).toFixed(2)}`;
   const invoiceNo = invoice.invoiceNo || `#${invoice.bookingId || invoice.customerId || ""}`;
 
   const customerMessage =
     options.customerMessage ||
-    `Dear ${guestName},\n\nThank you for staying at Maa Baglamukhi Resort.\n\nHere is your invoice ${invoiceNo}.\nCheck-in: ${invoice.checkIn || "—"}\nCheck-out: ${invoice.checkOut || "—"}\nTotal Amount: ${total}\n\nPlease find the invoice attached.\n\nRegards,\nMaa Baglamukhi Resort`;
+    `Dear ${guestName},\n\nThank you for staying at Maa Baglamukhi Resort.\n\nHere is your invoice ${invoiceNo}.\nTotal: ${total}\n\nPlease find the invoice attached.\n\nRegards,\nMaa Baglamukhi Resort`;
 
   const adminMessage =
     options.adminMessage ||
-    `New invoice generated for booking ${invoiceNo}.\nGuest: ${guestName}\nPhone: ${customerNumber || "N/A"}\nTotal: ${total}\nStatus: ${invoice.paymentStatus || "Pending"}`;
+    `New invoice generated for booking ${invoiceNo}.\nGuest: ${guestName}\nPhone: ${formatPhoneDisplay(customerNumber)}\nTotal: ${total}\nStatus: ${invoice.paymentStatus || "Pending"}`;
 
   let customerWa = { skipped: true, reason: "No customer phone number" };
   if (customerNumber) {
     customerWa = await sendWhatsAppMessage({
       number: customerNumber,
       message: customerMessage,
-      fileUrl: attachment?.fileUrl,
+      filePath: attachment?.filePath,
       fileName: attachment?.fileName,
+      fileUrl: attachment?.fileUrl,
+      type: "document",
     });
   }
 
@@ -202,8 +453,10 @@ const sendInvoiceNotifications = async (invoice, attachment, options = {}) => {
     adminWa = await sendWhatsAppMessage({
       number: adminNumber,
       message: adminMessage,
-      fileUrl: attachment?.fileUrl,
+      filePath: attachment?.filePath,
       fileName: attachment?.fileName,
+      fileUrl: attachment?.fileUrl,
+      type: "document",
     });
   }
 
@@ -220,6 +473,7 @@ const sendInvoiceNotifications = async (invoice, attachment, options = {}) => {
 
 module.exports = {
   normalizePhoneNumber,
+  formatPhoneDisplay,
   sendWhatsAppMessage,
   sendSmsMessage,
   sendInvoiceNotifications,

@@ -35,6 +35,7 @@ const fireWhatsAppInvoice = async (bookingId) => {
     const publicBase =
       (process.env.PUBLIC_BASE_URL || process.env.CLIENT_URL || `http://localhost:${process.env.PORT || 5002}`).replace(/\/+$/, "");
     const fileUrl = `${publicBase}/uploads/invoices/${pdf.fileName}`;
+    const filePath = pdf.filePath;
     const guestName = invoice.customerName || "Valued Guest";
     const message = `Dear ${guestName},\n\nThank you for staying at Maa Baglamukhi Resort.\n\nYour invoice ${invoice.invoiceNo || ""} is attached.\nTotal: ₹${invoice.totalAmount?.toFixed(2) || "0.00"}\n\nRegards,\nMaa Baglamukhi Resort`;
     const customer = WhatsAppService.normalizePhoneNumber(invoice.phone);
@@ -43,13 +44,14 @@ const fireWhatsAppInvoice = async (bookingId) => {
         number: customer,
         message,
         fileUrl,
+        filePath,
         fileName: pdf.fileName,
       });
     }
     // Resolve admin phone from register table (not from env/ADMIN_WHATSAPP_NUMBER)
     let adminNumber = "";
     try {
-      if (!UserModel) UserModel = require("../models/userModel");
+      if (!UserModel) UserModel = require("../models/UserModel");
       const adminRows = await new Promise((resolve, reject) => {
         UserModel.findAdminUser((err, rows) => (err ? reject(err) : resolve(rows)));
       });
@@ -63,6 +65,7 @@ const fireWhatsAppInvoice = async (bookingId) => {
         number: adminNumber,
         message: adminMsg,
         fileUrl,
+        filePath,
         fileName: pdf.fileName,
       });
     }
@@ -370,7 +373,7 @@ exports.createGuest = (req, res) => {
           const Invoice = require("../models/InvoiceModel");
           const InvoicePdf = require("../services/invoicePdfService");
           const WhatsApp = require("../services/whatsappService");
-          const UserModel = require("../models/userModel");
+          const UserModel = require("../models/UserModel");
 
           const invoice = await Invoice.generateCustomerInvoice(bookingId);
           if (!invoice) return;
@@ -399,7 +402,7 @@ exports.createGuest = (req, res) => {
 
           await WhatsApp.sendInvoiceNotifications(
             invoice,
-            { fileUrl, fileName: pdf.fileName },
+            { fileUrl, fileName: pdf.fileName, filePath: pdf.filePath },
             { adminNumber },
           );
           if (process.env.NODE_ENV !== "test") {
@@ -1132,6 +1135,7 @@ exports.updateAdvance = (req, res) => {
               `http://localhost:${process.env.PORT || 5002}`
             ).replace(/\/+$/, "");
           const fileUrl = `${publicBase}/uploads/invoices/${pdf.fileName}`;
+          const filePath = pdf.filePath;
           const guestName = invoice.customerName || "Valued Guest";
           const message = `Dear ${guestName},\n\nThank you for staying at Maa Baglamukhi Resort.\n\nYour invoice ${invoice.invoiceNo || ""} is attached.\nTotal: ₹${invoice.totalAmount?.toFixed(2) || "0.00"}\n\nRegards,\nMaa Baglamukhi Resort`;
           const customer = WhatsAppService.normalizePhoneNumber(invoice.phone);
@@ -1140,6 +1144,7 @@ exports.updateAdvance = (req, res) => {
               number: customer,
               message,
               fileUrl,
+              filePath,
               fileName: pdf.fileName,
             });
           }
@@ -1158,7 +1163,7 @@ exports.updateAdvance = (req, res) => {
 
           await WhatsAppService.sendInvoiceNotifications(
             invoice,
-            { fileUrl, fileName: pdf.fileName },
+            { fileUrl, fileName: pdf.fileName, filePath: pdf.filePath },
             { adminNumber },
           );
           if (process.env.NODE_ENV !== "test") {
