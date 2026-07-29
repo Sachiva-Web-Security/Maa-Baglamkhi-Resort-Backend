@@ -15,10 +15,17 @@ const path = require("path");
 const fs = require("fs");
 const PDFDocument = require("pdfkit");
 
-// Resolve to the project's /uploads/invoices directory
-const OUTPUT_DIR =
-  process.env.INVOICE_UPLOAD_DIR ||
-  path.resolve(__dirname, "..", "uploads", "invoices");
+// Resolve to the project's /uploads/invoices directory.
+// Relative env paths are resolved from __dirname (this service file in
+// backend/), not from process.cwd(), so the path is correct regardless of
+// where the server is started from.
+const resolveOutputDir = (envValue, fallbackRelPath) => {
+  if (!envValue) return path.resolve(__dirname, "..", fallbackRelPath);
+  if (path.isAbsolute(envValue)) return envValue;
+  return path.resolve(__dirname, "..", envValue);
+};
+
+const OUTPUT_DIR = resolveOutputDir(process.env.INVOICE_UPLOAD_DIR, "uploads/invoices");
 
 /**
  * Ensure the output directory exists.

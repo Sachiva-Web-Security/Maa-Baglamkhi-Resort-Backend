@@ -18,9 +18,14 @@ const fs = require("fs");
 const PDFDocument = require("pdfkit");
 
 // ─── Output directory ────────────────────────────────────────────────────────
-const OUTPUT_DIR =
-  process.env.INVOICE_UPLOAD_DIR ||
-  path.resolve(__dirname, "..", "uploads", "invoices");
+// Relative env paths are resolved from __dirname (this file lives in
+// backend/), so the path is correct regardless of process.cwd().
+const OUTPUT_DIR = (() => {
+  const raw = process.env.INVOICE_UPLOAD_DIR;
+  if (!raw) return path.resolve(__dirname, "..", "uploads", "invoices");
+  if (path.isAbsolute(raw)) return raw;
+  return path.resolve(__dirname, "..", raw);
+})();
 
 const ensureOutputDir = () => {
   if (!fs.existsSync(OUTPUT_DIR)) {
