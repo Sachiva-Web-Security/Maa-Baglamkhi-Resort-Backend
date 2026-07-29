@@ -13,7 +13,7 @@
 const Invoice = require("../models/InvoiceModel");
 const WhatsAppService = require("../services/whatsappService");
 const InvoicePdfService = require("../services/invoicePdfService");
-const UserModel = require("../models/userModel");
+const UserModel = require("../models/UserModel");
 
 /**
  * Resolve the public base URL for serving invoice PDFs.
@@ -72,7 +72,6 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
     // 3. Build the public file URL
     const publicBase = getPublicBaseUrl();
     const fileUrl = `${publicBase}/uploads/invoices/${pdfResult.fileName}`;
-
     // 3a. Resolve admin number: request body → DB lookup (prefer admin WITH phone) → env fallback → empty
     let adminNumber = req.body?.adminNumber || "";
     console.log("[send-whatsapp] adminNumber from request body:", adminNumber || "(empty)");
@@ -99,9 +98,19 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
     console.log("[send-whatsapp] Final adminNumber passed to service:", adminNumber || "(empty)");
 
     // 4. Use the high-level helper to send to customer + admin (WhatsApp + SMS)
+    //
+    // 🐛 FIX: previously only { fileUrl, fileName } was passed here — the
+    // actual local disk path (pdfResult.filePath) was dropped. whatsappService's
+    // sendWhatsAppMessage() only attempts the real multipart PDF upload when
+    // `attachment.filePath` exists and points to a real file on disk
+    // (`if (filePath && fs.existsSync(filePath))`); without it, that check
+    // always fails and the code silently falls through to a TEXT-ONLY
+    // fallback message ("Your invoice PDF is available. Please contact the
+    // resort for a copy.") — which is exactly why the customer never
+    // received the actual invoice PDF. Passing filePath through fixes it.
     const { customer, admin } = await WhatsAppService.sendInvoiceNotifications(
       invoice,
-      { fileUrl, fileName: pdfResult.fileName },
+      { fileUrl, fileName: pdfResult.fileName, filePath: pdfResult.filePath },
       {
         customerNumber: req.body?.customerNumber,
         adminNumber,

@@ -89,6 +89,7 @@ exports.updateInvoicePaymentStatus = async (req, res) => {
           // Try to generate PDF
           let fileUrl = null;
           let fileName = null;
+          let filePath = null;
           try {
             const pdf = await generateInvoicePdf(invoice);
             const publicBase =
@@ -99,6 +100,7 @@ exports.updateInvoicePaymentStatus = async (req, res) => {
               ).replace(/\/+$/, "");
             fileUrl = `${publicBase}/uploads/invoices/${pdf.fileName}`;
             fileName = pdf.fileName;
+            filePath = pdf.filePath;
           } catch (pdfErr) {
             // PDF generation failed; send text-only
             if (process.env.NODE_ENV !== "test") {
@@ -123,7 +125,7 @@ exports.updateInvoicePaymentStatus = async (req, res) => {
           }
 
           const attachment = fileUrl
-            ? { fileUrl, fileName }
+            ? { fileUrl, fileName, filePath }
             : undefined;
 
           await WhatsApp.sendInvoiceNotifications(

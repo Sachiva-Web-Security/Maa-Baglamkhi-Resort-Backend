@@ -10,7 +10,7 @@
 
 const WhatsAppService = require("../services/whatsappService");
 const BanquetPdfService = require("../services/banquetInvoicePdfService");
-const UserModel = require("../models/userModel");
+const UserModel = require("../models/UserModel");
 
 /**
  * Resolve the public base URL for serving PDFs.
@@ -279,7 +279,7 @@ exports.sendBanquetInvoiceWhatsApp = async (req, res) => {
       paymentMethod: invoicePayload.paymentMode || "Pending",
     };
 
-    const attachment = { fileUrl, fileName: pdfResult.fileName };
+    const attachment = { fileUrl, fileName: pdfResult.fileName, filePath: pdfResult.filePath };
 
     let results = await WhatsAppService.sendInvoiceNotifications(
       invoiceForService,

@@ -119,7 +119,7 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
     let adminNumber = req.body?.adminNumber || "";
     if (!adminNumber) {
       try {
-        const UserModel = require("../models/userModel");
+        const UserModel = require("../models/UserModel");
         const adminRow = await new Promise((resolve, reject) => {
           UserModel.findAdminWithPhone((err, row) => (err ? reject(err) : resolve(row)));
         });
@@ -175,7 +175,7 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
       paymentMethod: invoiceForPdf.paymentMethod,
     };
 
-    const attachment = { fileUrl, fileName: pdfResult.fileName };
+    const attachment = { fileUrl, fileName: pdfResult.fileName, filePath: pdfResult.filePath };
 
     let results = await WhatsAppService.sendInvoiceNotifications(
       invoicePayload,
