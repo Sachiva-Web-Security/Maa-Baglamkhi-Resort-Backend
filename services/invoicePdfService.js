@@ -368,9 +368,28 @@ const drawTaxInvoice = (doc, booking) => {
 
   y = tableBottom + 8;
 
-  // ── Remarks (left) + Totals Summary (right) ─────────────────────────────
+  // ── Layout constants for everything below the billing table ──────────────
+  // The right-side totals column has two sub-columns packed into ~220px:
+  //   [ label (110px) ][ value (110px) ]
+  // anchored to the right page edge. The divider at the LEFT of the right
+  // block separates it from the left-side Remarks/Note column.
+  const BLOCK_PAD     = 6;
+  const LABEL_COL_W   = 110;
+  const VALUE_COL_W   = 110;
+  // Divider runs from PAGE_LEFT to where the right block starts.
+  const VERT_DIV_X    = PAGE_RIGHT - LABEL_COL_W - VALUE_COL_W - 4; // = 555-220-4 = 331
+  // Right-side label & value columns: label sits LEFT of value, both inside page.
+  const R_LABEL_X     = VERT_DIV_X + 4;                   // = 335
+  const R_LABEL_W     = LABEL_COL_W - 6;                  // = 104
+  const R_VALUE_X     = R_LABEL_X + R_LABEL_W + 4;        // = 443
+  const R_VALUE_W     = VALUE_COL_W - 6;                  // = 104  (ends at 547, inside page)
+  // Left-side text area width
+  const LEFT_TEXT_W   = VERT_DIV_X - PAGE_LEFT - BLOCK_PAD * 2; // = 331-40-12 = 279
+
+  // ── Block 1: Remarks (left) + Totals Summary (right) ─────────────────────
   const remarksTop = y;
-  doc.font("Helvetica-Bold").fontSize(8).text("Remarks", PAGE_LEFT + 6, remarksTop);
+  const totalsRowH = 12;
+  doc.font("Helvetica-Bold").fontSize(8).text("Remarks", PAGE_LEFT + BLOCK_PAD, remarksTop);
 
   const discount = Number(booking.discount || 0);
   const taxableAmount = Number(booking.subtotal != null ? booking.subtotal : tariffTotal) - discount;
@@ -382,51 +401,58 @@ const drawTaxInvoice = (doc, booking) => {
   const finalTotal = Number(booking.totalAmount != null ? booking.totalAmount : roomTotal + serviceTotal - roundOff);
 
   const totalsRows = [
-    ["Tariff Total", formatINR(tariffTotal)],
-    ["Discount", formatINR(discount)],
-    ["Taxable Amount", formatINR(taxableAmount)],
-    ["SGST", formatINR(sgst)],
-    ["CGST", formatINR(cgst)],
-    ["Room Total", formatINR(roomTotal)],
-    ["Round Off Disc.", formatINR(roundOff)],
-    ["Final Total", formatINR(finalTotal)],
-    ["Service Total", formatINR(serviceTotal)],
+    ["Tariff Total",   formatINR(tariffTotal),     false],
+    ["Discount",       formatINR(discount),         false],
+    ["Taxable Amount", formatINR(taxableAmount),    false],
+    ["SGST",           formatINR(sgst),             false],
+    ["CGST",           formatINR(cgst),             false],
+    ["Room Total",     formatINR(roomTotal),        false],
+    ["Round Off Disc.", formatINR(roundOff),        false],
+    ["Final Total",    formatINR(finalTotal),       true],
+    ["Service Total",  formatINR(serviceTotal),     false],
   ];
 
-  const totalsLabelX = PAGE_LEFT + 305;
-  const totalsValueX = PAGE_LEFT + 425;
-  const totalsRowH = 14;
-  totalsRows.forEach(([label, val], i) => {
+  totalsRows.forEach(([label, val, isBold], i) => {
     const ry = remarksTop + i * totalsRowH;
-    const isBold = label === "Final Total";
-    doc.font(isBold ? "Helvetica-Bold" : "Helvetica").fontSize(8).text(label, totalsLabelX, ry);
-    doc.font(isBold ? "Helvetica-Bold" : "Helvetica").fontSize(8).text(val, totalsValueX, ry, { width: 110, align: "right" });
+    doc.font(isBold ? "Helvetica-Bold" : "Helvetica").fontSize(isBold ? 9 : 8);
+    doc.text(label, R_LABEL_X, ry, { width: R_LABEL_W });
+    doc.text(val,    R_VALUE_X, ry, { width: R_VALUE_W, align: "right" });
   });
 
-  const remarksBottom = remarksTop + totalsRows.length * totalsRowH + 8;
-  vLine(totalsLabelX - 8, remarksTop - 4, remarksBottom);
+  const remarksBottom = remarksTop + totalsRows.length * totalsRowH + 6;
+  // Vertical divider between left (Remarks) and right (Totals) blocks.
+  vLine(VERT_DIV_X, remarksTop - 2, remarksBottom);
   hLine(remarksBottom);
-  y = remarksBottom + 4;
+  y = remarksBottom + 3;
 
-  // ── Amount in Words (left) + Final Total (right) ────────────────────────
+  // ── Block 2: Amount in Words (left) + Final Total bar (right) ─────────────
   const wordsTop = y;
-  doc.font("Helvetica-Bold").fontSize(8).text(numberToWordsINR(finalTotal), PAGE_LEFT + 6, wordsTop + 3, {
-    width: 300,
+  // Amount-in-words keeps the full left region width.
+  doc.font("Helvetica-Bold").fontSize(8).text(
+    numberToWordsINR(finalTotal),
+    PAGE_LEFT + BLOCK_PAD, wordsTop + 2,
+    { width: LEFT_TEXT_W }
+  );
+  // Final-Total bar on the right: label left, value right, both in same
+  // columns as Block 1 so they line up neatly under it.
+  doc.font("Helvetica-Bold").fontSize(10).text("Final Total", R_LABEL_X, wordsTop + 2, {
+    width: R_LABEL_W,
   });
-  doc.font("Helvetica-Bold").fontSize(9).text("Final Total", totalsLabelX, wordsTop + 3);
-  doc.text(`${INR} ${formatINR(finalTotal)}`, totalsValueX, wordsTop + 3, { width: 110, align: "right" });
+  doc.font("Helvetica-Bold").fontSize(11).text(`${INR} ${formatINR(finalTotal)}`, R_VALUE_X, wordsTop + 1, {
+    width: R_VALUE_W, align: "right",
+  });
 
-  const wordsBottom = wordsTop + 20;
-  vLine(totalsLabelX - 8, wordsTop, wordsBottom);
+  const wordsBottom = wordsTop + 18;
+  vLine(VERT_DIV_X, wordsTop, wordsBottom);
   hLine(wordsBottom);
-  y = wordsBottom + 4;
+  y = wordsBottom + 3;
 
-  // ── Invoice Note (left) + Payment Detail (right) ─────────────────────────
+  // ── Block 3: Invoice Note (left) + Payment Detail (right) ─────────────────
   const noteTop = y;
-  doc.font("Helvetica-Bold").fontSize(8).text("INVOICE NOTE", PAGE_LEFT + 6, noteTop);
-  doc.font("Helvetica-Bold").fontSize(8).text("PAYMENT DETAIL", totalsLabelX, noteTop);
+  doc.font("Helvetica-Bold").fontSize(8).text("INVOICE NOTE", PAGE_LEFT + BLOCK_PAD, noteTop);
+  doc.font("Helvetica-Bold").fontSize(8).text("PAYMENT DETAIL", R_LABEL_X, noteTop);
 
-  doc.font("Helvetica").fontSize(8).text("Thanks Pl Visit Again!!", PAGE_LEFT + 6, noteTop + 14);
+  doc.font("Helvetica").fontSize(8).text("Thanks! Visit Again!!", PAGE_LEFT + BLOCK_PAD, noteTop + 14);
 
   const paymentRows = [
     [String(booking.paymentMode || "N/A"), formatINR(Number(booking.totalAmount != null ? booking.totalAmount : finalTotal))],
@@ -434,12 +460,12 @@ const drawTaxInvoice = (doc, booking) => {
   ];
   paymentRows.forEach(([label, val], i) => {
     const ry = noteTop + 14 + i * 14;
-    doc.font("Helvetica").fontSize(8).text(label, totalsLabelX, ry);
-    doc.font("Helvetica").fontSize(8).text(val, totalsValueX, ry, { width: 110, align: "right" });
+    doc.font("Helvetica").fontSize(8).text(label, R_LABEL_X, ry, { width: R_LABEL_W });
+    doc.font("Helvetica").fontSize(8).text(val, R_VALUE_X, ry, { width: R_VALUE_W, align: "right" });
   });
 
-  const noteBottom = noteTop + 14 + paymentRows.length * 14 + 8;
-  vLine(totalsLabelX - 8, noteTop - 4, noteBottom);
+  const noteBottom = noteTop + 14 + paymentRows.length * 14 + 6;
+  vLine(VERT_DIV_X, noteTop - 2, noteBottom);
   hLine(noteBottom);
   const boxBottom = noteBottom;
 
