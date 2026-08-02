@@ -72,6 +72,20 @@ exports.updateRoomOperationalState = async (req, res) => {
   }
 };
 
+exports.deleteRoom = async (req, res) => {
+  try {
+    const { roomNumber } = req.params;
+    const result = await roomInventoryModel.deleteRoom({ roomNumber });
+    res.json({ message: "Room deleted successfully", room: result });
+  } catch (error) {
+    console.error(error);
+    const status = error.message === "Room not found in inventory" ? 404 : 500;
+    res.status(status).json({
+      message: error.message || "Failed to delete room",
+    });
+  }
+};
+
 exports.validateRoomAvailability = async (req, res) => {
   try {
     const { roomNumbers, checkIn, checkOut, excludeBookingId } = req.body;

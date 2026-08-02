@@ -47,6 +47,9 @@ router.post("/rooms/validate-availability", hotelRoomInventoryController.validat
 router.get("/full-booking/:id", bookingController.getFullBooking);
 router.get("/booking-history", bookingController.getBookingHistory);
 
+// DELETE room from inventory
+router.delete("/rooms/:roomNumber", hotelRoomInventoryController.deleteRoom);
+
 // DELETE + REFUND
 router.post("/rooms", hotelRoomInventoryController.addRoom);
 

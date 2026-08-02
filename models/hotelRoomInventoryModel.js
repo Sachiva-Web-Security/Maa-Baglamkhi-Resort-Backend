@@ -205,6 +205,30 @@ const addRoom = async ({ categoryId, roomNumber }) => {
   };
 };
 
+// ─── deleteRoom ────────────────────────────────────────────────────────────────
+// Removes a room from the inventory by room number.
+const deleteRoom = async ({ roomNumber }) => {
+  await ensureSchema();
+  const num = String(roomNumber || "").trim();
+  if (!num) {
+    throw new Error("Room number is required");
+  }
+  const [result] = await new Promise((resolve, reject) => {
+    db.query(
+      "DELETE FROM hotel_room_inventory WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)",
+      [num],
+      (error, result) => {
+        if (error) { reject(error); return; }
+        resolve([result]);
+      },
+    );
+  });
+  if (result.affectedRows === 0) {
+    throw new Error("Room not found in inventory");
+  }
+  return { roomNumber: num };
+};
+
 // ─── updateCategoryPrice ──────────────────────────────────────────────────────
 const updateCategoryPrice = async ({ categoryId, defaultPrice }) => {
   await ensureSchema();
@@ -311,6 +335,7 @@ module.exports = {
   ensureSchema,
   getRoomSetup,
   addRoom,
+  deleteRoom,
   updateCategoryPrice,
   updateRoomOperationalState,
   validateRoomAvailability,

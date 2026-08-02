@@ -32,6 +32,15 @@ const ensureSchema = async () => {
       ADD COLUMN discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER amount
     `);
   }
+
+  // Ensure updated_at exists for audit / edit operations
+  const hasUpdatedAt = await runQuery("SHOW COLUMNS FROM payment_history LIKE 'updated_at'");
+  if (!hasUpdatedAt.length) {
+    await runQuery(`
+      ALTER TABLE payment_history
+      ADD COLUMN updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at
+    `);
+  }
 };
 
 const addPayment = (data, callback) => {
