@@ -200,7 +200,7 @@ const getBookingInvoiceBase = async (customerId) => {
   return rows[0] || null;
 };
 
-const getRoomItems = async (bookingId) => {
+const getRoomItems = async (bookingId, nights = 1) => {
   if (!(await tableExists("room_tariff"))) return [];
 
   const hasQuantity = await columnExists("room_tariff", "quantity");
@@ -212,7 +212,8 @@ const getRoomItems = async (bookingId) => {
         CAST(room_number AS CHAR) AS roomNumber,
         ${hasCategoryName ? "COALESCE(category_name, 'Room Charge')" : "'Room Charge'"} AS roomType,
         COALESCE(${hasQuantity ? "NULLIF(quantity, 0)" : "1"}, 1) AS quantity,
-        COALESCE(tariff, 0) AS price
+        COALESCE(tariff, 0) AS price,
+        COALESCE(gst, 0) AS gstPercent
       FROM room_tariff
       WHERE booking_id = ?
       ORDER BY room_number
@@ -223,12 +224,18 @@ const getRoomItems = async (bookingId) => {
   return rows.map((row) => {
     const quantity = Number(row.quantity || 1);
     const price = Number(row.price || 0);
+    const gstPercent = Number(row.gstPercent || 0);
+    const perNightBase = price * quantity;
+    const perNightGst = (perNightBase * gstPercent) / 100;
+    const rowTotal = roundMoney(perNightBase * nights + perNightGst * nights);
     return {
       category: "Hotel",
       name: `${row.roomType} - Room ${row.roomNumber}`,
       price,
       quantity,
-      total: roundMoney(price * quantity),
+      gstPercent,
+      nights,
+      total: rowTotal,
     };
   });
 };
@@ -422,7 +429,18 @@ const buildInvoicePayload = async (customerId) => {
     .map((item) => item.trim())
     .filter(Boolean);
 
-  const roomItems = await getRoomItems(customerId);
+  // Calculate nights from check-in / check-out (same logic as bookingController.js)
+  const nights = (() => {
+    if (booking.checkIn && booking.checkOut) {
+      const d1 = new Date(booking.checkIn);
+      const d2 = new Date(booking.checkOut);
+      const diff = Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+      return diff > 0 ? diff : 1;
+    }
+    return 1;
+  })();
+
+  const roomItems = await getRoomItems(customerId, nights);
   const folioData = await getFolioItems(customerId);
   const foodItems = await getFoodItems(roomNumbers);
 

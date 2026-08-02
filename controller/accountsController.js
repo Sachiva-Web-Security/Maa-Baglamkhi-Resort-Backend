@@ -64,6 +64,92 @@ exports.addExpense = (req, res) => {
   );
 };
 
+const mapTransactionBody = (body) => ({
+  date: body.date,
+  type: body.type,
+  department: body.department || "Other",
+  source_module: body.sourceModule || null,
+  description: body.description,
+  amount: Number(body.amount || 0),
+  payment_mode: body.paymentMode,
+});
+
+exports.getTransactionById = async (req, res) => {
+  try {
+    const row = await AccountsModel.getTransactionById(req.params.id);
+    if (!row) {
+      return res.status(404).json({ message: "Transaction not found" });
+    }
+    res.json(row);
+  } catch (error) {
+    console.error("Error fetching transaction:", error);
+    res.status(500).json({ message: "Error fetching transaction" });
+  }
+};
+
+exports.updateTransaction = async (req, res) => {
+  try {
+    const body = req.body || {};
+
+    // Validate required fields
+    const requiredFields = ["date", "type", "description", "amount", "paymentMode"];
+    const missingFields = requiredFields.filter(f => {
+      const value = body[f];
+      return value === undefined || value === null || String(value).trim() === "";
+    });
+    if (missingFields.length > 0) {
+      return res.status(400).json({ message: `${missingFields.join(", ")} is required` });
+    }
+
+    if (!["Income", "Expense"].includes(body.type)) {
+      return res.status(400).json({ message: "type must be Income or Expense" });
+    }
+
+    const amountNumber = Number(body.amount);
+    if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
+      return res.status(400).json({ message: "amount must be a positive number" });
+    }
+
+    const existingRow = await AccountsModel.getTransactionById(req.params.id);
+    if (!existingRow) {
+      return res.status(404).json({ message: "Transaction not found" });
+    }
+
+    const result = await AccountsModel.updateTransaction(req.params.id, {
+      ...mapTransactionBody(body),
+      updatedBy: req.user?.id || null,
+    });
+
+    if (!result?.affectedRows) {
+      return res.status(404).json({ message: "Transaction not found" });
+    }
+
+    res.json({ message: "Transaction updated" });
+  } catch (error) {
+    console.error("Error updating transaction:", error);
+    res.status(500).json({ message: "Error updating transaction" });
+  }
+};
+
+exports.deleteTransaction = async (req, res) => {
+  try {
+    const existingRow = await AccountsModel.getTransactionById(req.params.id);
+    if (!existingRow) {
+      return res.status(404).json({ message: "Transaction not found" });
+    }
+
+    const result = await AccountsModel.deleteTransaction(req.params.id);
+    if (!result?.affectedRows) {
+      return res.status(404).json({ message: "Transaction not found" });
+    }
+
+    res.json({ message: "Transaction deleted" });
+  } catch (error) {
+    console.error("Error deleting transaction:", error);
+    res.status(500).json({ message: "Error deleting transaction" });
+  }
+};
+
 exports.getSummary = (req, res) => {
   AccountsModel.getSummary((err, results) => {
     if (err) {

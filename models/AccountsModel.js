@@ -166,12 +166,62 @@ const ensureSchema = async () => {
       id INT AUTO_INCREMENT PRIMARY KEY,
       date DATE NOT NULL,
       type ENUM('Income','Expense') NOT NULL,
+      department ENUM('Room','Restaurant','Other') NOT NULL DEFAULT 'Other',
+      source_module VARCHAR(50) NULL,
       description VARCHAR(255) NOT NULL,
       amount DECIMAL(10,2) NOT NULL,
       payment_mode VARCHAR(30) NOT NULL,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NULL DEFAULT NULL,
+      created_by INT NULL,
+      updated_by INT NULL,
+      is_deleted TINYINT(1) NOT NULL DEFAULT 0
     )
   `);
+
+  await ensureColumn(
+    "accounts_transactions",
+    "updated_at",
+    "DATETIME NULL DEFAULT NULL AFTER created_at",
+  );
+  await ensureColumn(
+    "accounts_transactions",
+    "created_by",
+    "INT NULL AFTER updated_at",
+  );
+  await ensureColumn(
+    "accounts_transactions",
+    "updated_by",
+    "INT NULL AFTER created_by",
+  );
+  await ensureColumn(
+    "accounts_transactions",
+    "is_deleted",
+    "TINYINT(1) NOT NULL DEFAULT 0 AFTER updated_by",
+  );
+
+  // Add indexes for faster filtering and reporting
+  try {
+    await runQuery(
+      "CREATE INDEX idx_transactions_date ON accounts_transactions(date)",
+    );
+  } catch (e) {
+    // Index may already exist
+  }
+  try {
+    await runQuery(
+      "CREATE INDEX idx_transactions_type ON accounts_transactions(type)",
+    );
+  } catch (e) {
+    // Index may already exist
+  }
+  try {
+    await runQuery(
+      "CREATE INDEX idx_transactions_payment_mode ON accounts_transactions(payment_mode)",
+    );
+  } catch (e) {
+    // Index may already exist
+  }
 
   await ensureColumn(
     "accounts_transactions",
@@ -244,6 +294,7 @@ const getTransactions = async (callback) => {
           at.date AS sortDate,
           at.id AS sortId
         FROM accounts_transactions at
+        WHERE at.is_deleted = 0
         ${paymentHistoryUnion}
       ) entries
       ORDER BY sortDate DESC, sortId DESC
@@ -273,6 +324,95 @@ const createTransaction = (data, callback) => {
     ],
     callback,
   );
+};
+
+const getTransactionById = async (id) => {
+  if (String(id).startsWith("hotel-payment-")) {
+    const phId = Number(String(id).replace("hotel-payment-", ""));
+    if (Number.isFinite(phId)) {
+      const rows = await runQuery(
+        `SELECT
+          CONCAT('hotel-payment-', ph.id) AS id,
+          DATE_FORMAT(DATE(ph.created_at), '%d %b %Y') AS date,
+          'Income' AS type,
+          'Room' AS department,
+          'hotel-payment' AS sourceModule,
+          CONCAT(
+            'Hotel payment received - Booking #',
+            ph.booking_id,
+            CASE
+              WHEN COALESCE(g.guest_name, '') = '' THEN ''
+              ELSE CONCAT(' - ', g.guest_name)
+            END
+          ) AS description,
+          COALESCE(ph.amount, 0) AS amount,
+          COALESCE(NULLIF(ph.payment_mode, ''), 'Cash') AS paymentMode,
+          ph.created_at AS created_at,
+          ph.created_at AS updated_at,
+          NULL AS created_by,
+          NULL AS updated_by
+        FROM payment_history ph
+        LEFT JOIN guests g ON g.id = ph.booking_id
+        WHERE ph.id = ?`,
+        [phId],
+      );
+      return rows[0] || null;
+    }
+  }
+
+  const rows = await runQuery(
+    "SELECT id, date, type, department, source_module, description, amount, payment_mode, created_at, updated_at, created_by, updated_by FROM accounts_transactions WHERE id = ? AND is_deleted = 0",
+    [id],
+  );
+  return rows[0] || null;
+};
+
+const updateTransaction = async (id, data) => {
+  if (String(id).startsWith("hotel-payment-")) {
+    const numericId = Number(String(id).replace("hotel-payment-", ""));
+    const result = await runQuery(
+      `UPDATE payment_history
+       SET amount = ?, payment_mode = ?, updated_at = NOW()
+       WHERE id = ?`,
+      [data.amount, data.paymentMode, numericId],
+    );
+    return result;
+  }
+
+  const result = await runQuery(
+    `UPDATE accounts_transactions
+     SET date = ?, type = ?, department = ?, source_module = ?, description = ?, amount = ?, payment_mode = ?, updated_at = NOW(), updated_by = ?
+     WHERE id = ? AND is_deleted = 0`,
+    [
+      data.date,
+      data.type,
+      data.department || "Other",
+      data.sourceModule || null,
+      data.description,
+      data.amount,
+      data.paymentMode,
+      data.updatedBy || null,
+      id,
+    ],
+  );
+  return result;
+};
+
+const deleteTransaction = async (id) => {
+  if (String(id).startsWith("hotel-payment-")) {
+    const numericId = Number(String(id).replace("hotel-payment-", ""));
+    const result = await runQuery(
+      `UPDATE payment_history SET is_deleted = 1, updated_at = NOW() WHERE id = ? AND is_deleted = 0`,
+      [numericId],
+    );
+    return result;
+  }
+
+  const result = await runQuery(
+    "UPDATE accounts_transactions SET is_deleted = 1, updated_at = NOW() WHERE id = ? AND is_deleted = 0",
+    [id],
+  );
+  return result;
 };
 
 const getSummary = (callback) => {
@@ -620,6 +760,9 @@ module.exports = {
   ensureSchema,
   getTransactions,
   createTransaction,
+  getTransactionById,
+  updateTransaction,
+  deleteTransaction,
   getSummary,
   getDepartmentSummary,
   getHotelBillingRecords,

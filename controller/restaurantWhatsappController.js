@@ -139,29 +139,57 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
     const billDate = invoiceForPdf.created_at
       ? new Date(invoiceForPdf.created_at).toISOString().slice(0, 10)
       : "N/A";
+    const subtotalFormatted = formatINR(invoiceForPdf.subtotal);
+    const gstFormatted = formatINR(invoiceForPdf.gst);
+    const discountFormatted = formatINR(invoiceForPdf.discountAmount);
     const totalFormatted = formatINR(invoiceForPdf.total);
+    const itemCount = normalisedItems.length;
+    const paymentStatus = invoiceForPdf.invoiceStatus || "Generated";
+    const paymentMethod = invoiceForPdf.paymentMethod || "Cash";
+    const isPaid = String(paymentStatus).toLowerCase() === "paid";
+    const remainingAmount = isPaid ? 0 : round2(invoiceForPdf.total);
 
     const defaultCustomerMessage =
       `Dear ${invoiceForPdf.customerName},\n\n` +
       `Thank you for dining at Maa Baglamukhi Resort.\n\n` +
-      `Here is your restaurant invoice #${pdfResult.invoiceNo}.\n` +
+      `📋 RESTAURANT INVOICE #${pdfResult.invoiceNo}\n` +
+      `─────────────────────────────\n` +
       `${entityLabel}: ${bill.tableNumber}\n` +
       `Visit ID: ${invoiceForPdf.tokenCode || invoiceForPdf.tokenId || "N/A"}\n` +
       `Date: ${billDate}\n` +
-      `Payment Method: ${invoiceForPdf.paymentMethod}\n` +
-      `Total Amount: ₹ ${totalFormatted}\n\n` +
-      `Please find the invoice attached.\n\n` +
+      `Payment Method: ${paymentMethod}\n` +
+      `─────────────────────────────\n` +
+      `Items Ordered: ${itemCount}\n` +
+      `Food Total: ₹ ${subtotalFormatted}\n` +
+      `GST: ₹ ${gstFormatted}\n` +
+      `${invoiceForPdf.discountAmount > 0 ? `Discount: - ₹ ${discountFormatted}\n` : ""}` +
+      `─────────────────────────────\n` +
+      `Grand Total: ₹ ${totalFormatted}\n` +
+      `─────────────────────────────\n` +
+      `Payment Status: ${isPaid ? "✅ PAID" : "⏳ PENDING"}\n` +
+      `${isPaid ? "" : `Remaining Amount: ₹ ${formatINR(remainingAmount)}\n`}` +
+      `\nPlease find the invoice attached.\n\n` +
       `Regards,\nMaa Baglamukhi Resort`;
 
     const customerMessage = req.body?.customerMessage || defaultCustomerMessage;
 
     const defaultAdminMessage =
-      `New restaurant invoice generated — #${pdfResult.invoiceNo}.\n` +
+      `📋 New restaurant invoice — #${pdfResult.invoiceNo}\n` +
+      `─────────────────────────────\n` +
       `${entityLabel}: ${bill.tableNumber}\n` +
       `Guest: ${invoiceForPdf.customerName}\n` +
       `Phone: ${customerNumber || "N/A"}\n` +
-      `Total: ₹ ${totalFormatted}\n` +
-      `Status: ${invoiceForPdf.invoiceStatus}`;
+      `Visit ID: ${invoiceForPdf.tokenCode || invoiceForPdf.tokenId || "N/A"}\n` +
+      `Date: ${billDate}\n` +
+      `─────────────────────────────\n` +
+      `Items: ${itemCount}\n` +
+      `Food Total: ₹ ${subtotalFormatted}\n` +
+      `GST: ₹ ${gstFormatted}\n` +
+      `${invoiceForPdf.discountAmount > 0 ? `Discount: - ₹ ${discountFormatted}\n` : ""}` +
+      `─────────────────────────────\n` +
+      `Grand Total: ₹ ${totalFormatted}\n` +
+      `Payment: ${paymentMethod}\n` +
+      `Status: ${paymentStatus}`;
 
     const adminMessage = req.body?.adminMessage || defaultAdminMessage;
 

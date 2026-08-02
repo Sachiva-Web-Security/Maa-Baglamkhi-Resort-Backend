@@ -14,6 +14,7 @@ const Invoice = require("../models/InvoiceModel");
 const WhatsAppService = require("../services/whatsappService");
 const InvoicePdfService = require("../services/invoicePdfService");
 const UserModel = require("../models/UserModel");
+const db = require("../config/db");
 
 /**
  * Resolve the public base URL for serving invoice PDFs.
@@ -32,6 +33,8 @@ const getPublicBaseUrl = () => {
   const port = process.env.PORT || 5002;
   return `http://localhost:${port}`;
 };
+
+const round2 = (value) => Number((Number(value || 0)).toFixed(2));
 
 /**
  * POST /api/hotel/invoice/send-whatsapp/:bookingId
@@ -52,11 +55,55 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
       return res.status(400).json({ error: "Valid booking ID is required" });
     }
 
-    // 1. Generate the invoice
-    const invoice = await Invoice.generateCustomerInvoice(bookingId);
+    // 1. Fetch or generate the invoice — reuse existing if available
+    let invoice;
+    try {
+      const existing = await Invoice.getInvoiceByBookingId(bookingId);
+      if (existing) {
+        invoice = existing;
+      }
+    } catch { /* not found, will generate below */ }
+
+    if (!invoice) {
+      invoice = await Invoice.generateCustomerInvoice(bookingId);
+    }
     if (!invoice) {
       return res.status(404).json({ error: "Booking or invoice not found" });
     }
+
+    // 1b. Fetch advance payment info to calculate remaining amount correctly
+    let advanceAmount = 0;
+    let advanceDiscount = 0;
+    try {
+      const advanceRows = await new Promise((resolve, reject) => {
+        db.query("SELECT amount, discount_amount FROM advance_payment WHERE booking_id = ? LIMIT 1", [bookingId], (err, rows) => (err ? reject(err) : resolve(rows)));
+      });
+      if (advanceRows.length) {
+        advanceAmount = Number(advanceRows[0].amount || 0);
+        advanceDiscount = Number(advanceRows[0].discount_amount || 0);
+      }
+    } catch {
+      // advance_payment table may not exist; continue without advance info
+    }
+
+    // 1c. Fetch folio totals for accurate remaining calculation
+    let folioPayments = 0;
+    let folioDiscounts = 0;
+    try {
+      const FolioModel = require("../models/folioModel");
+      const folioTotals = await FolioModel.getFolioTotals(bookingId);
+      folioPayments = Number(folioTotals.payments || 0);
+      folioDiscounts = Number(folioTotals.discounts || 0);
+    } catch {
+      // folio table may not exist; continue
+    }
+
+    // Remaining = total amount - (advance paid + folio payments + advance discount + folio discount)
+    const totalPaid = advanceAmount + folioPayments + advanceDiscount + folioDiscounts;
+    const remainingAmount = round2(Number(invoice.totalAmount || 0) - totalPaid);
+    const isPaid = remainingAmount <= 0;
+    const paymentStatus = isPaid ? "Paid" : "Pending";
+    const paymentMethod = invoice.paymentMode || "Cash";
 
     // 2. Generate the PDF
     let pdfResult;
