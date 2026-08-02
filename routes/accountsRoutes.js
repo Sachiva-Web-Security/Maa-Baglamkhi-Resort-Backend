@@ -1,6 +1,9 @@
 const router = require("express").Router();
 const {
   getTransactions,
+  getTransactionById,
+  updateTransaction,
+  deleteTransaction,
   addIncome,
   addExpense,
   getSummary,
@@ -49,6 +52,9 @@ const {
 } = require("../controller/accountsController");
 
 router.get("/transactions", getTransactions);
+router.get("/transactions/:id", getTransactionById);
+router.put("/transactions/:id", updateTransaction);
+router.delete("/transactions/:id", deleteTransaction);
 router.get("/summary", getSummary);
 router.get("/department-summary", getDepartmentSummary);
 router.get("/hotel-billing", getHotelBillingRecords);

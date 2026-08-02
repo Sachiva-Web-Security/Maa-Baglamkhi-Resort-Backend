@@ -255,7 +255,14 @@ CREATE TABLE IF NOT EXISTS accounts_transactions (
   description   VARCHAR(255) NOT NULL,
   amount        DECIMAL(10,2) NOT NULL,
   payment_mode  VARCHAR(30) NOT NULL,
-  created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at    DATETIME NULL DEFAULT NULL,
+  created_by    INT NULL,
+  updated_by    INT NULL,
+  is_deleted    TINYINT(1) NOT NULL DEFAULT 0,
+  INDEX idx_transactions_date (date),
+  INDEX idx_transactions_type (type),
+  INDEX idx_transactions_payment_mode (payment_mode)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS account_bank_ledgers (
