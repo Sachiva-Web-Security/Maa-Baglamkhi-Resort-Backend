@@ -577,21 +577,40 @@ const getAllInvoices = (callback) => {
 };
 
 const getInvoiceByBookingId = (bookingId, callback) => {
-  ensureSchema()
-    .then(() =>
-      runQuery(
-        `
-          SELECT *
-          FROM invoices
-          WHERE booking_id = ? OR customer_id = ?
-          ORDER BY updated_at DESC, id DESC
-          LIMIT 1
-        `,
-        [bookingId, bookingId],
-      ),
-    )
-    .then((rows) => callback(null, rows[0] ? parseInvoiceRow(rows[0]) : null))
-    .catch((error) => callback(error));
+  if (typeof callback === 'function') {
+    ensureSchema()
+      .then(() =>
+        runQuery(
+          `
+            SELECT *
+            FROM invoices
+            WHERE booking_id = ? OR customer_id = ?
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+          `,
+          [bookingId, bookingId],
+        ),
+      )
+      .then((rows) => callback(null, rows[0] ? parseInvoiceRow(rows[0]) : null))
+      .catch((error) => callback(error));
+    return;
+  }
+
+  // async/await mode — called as: await Invoice.getInvoiceByBookingId(bookingId)
+  return (async () => {
+    await ensureSchema();
+    const rows = await runQuery(
+      `
+        SELECT *
+        FROM invoices
+        WHERE booking_id = ? OR customer_id = ?
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 1
+      `,
+      [bookingId, bookingId],
+    );
+    return rows[0] ? parseInvoiceRow(rows[0]) : null;
+  })();
 };
 
 const updateInvoice = (id, data, callback) => {
