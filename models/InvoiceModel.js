@@ -492,6 +492,8 @@ const buildInvoicePayload = async (customerId) => {
     tax,
     discount,
     totalAmount,
+    paidAmount: Number(booking.paidAmount || 0),
+    balanceDue: Number(totalAmount) - Number(booking.paidAmount || 0),
     date: formatDateKey(new Date()),
     checkIn: formatDateKey(booking.checkIn),
     checkOut: formatDateKey(booking.checkOut),
@@ -536,6 +538,7 @@ const parseInvoiceRow = (row) => ({
   subtotal: Number(row.subtotal || 0),
   tax: Number(row.gst || 0),
   discount: Number(row.discount || 0),
+  paidAmount: Number(row.paidAmount || 0),
 });
 
 const createInvoice = (data, callback) => {
@@ -584,13 +587,27 @@ const createInvoice = (data, callback) => {
 
 const getAllInvoices = (callback) => {
   ensureSchema()
-    .then(() =>
-      runQuery(`
-        SELECT *
-        FROM invoices
-        ORDER BY updated_at DESC, id DESC
-      `),
-    )
+    .then(() => {
+      const hasAdvanceTable = tableExists("advance_payment");
+      if (!hasAdvanceTable) {
+        return runQuery(`
+          SELECT *
+          FROM invoices
+          ORDER BY updated_at DESC, id DESC
+        `);
+      }
+
+      return runQuery(`
+        SELECT
+          i.*,
+          COALESCE(SUM(a.amount), 0) AS paidAmount,
+          COALESCE(SUM(a.discount_amount), 0) AS advanceDiscount
+        FROM invoices i
+        LEFT JOIN advance_payment a ON a.booking_id = i.booking_id
+        GROUP BY i.id
+        ORDER BY i.updated_at DESC, i.id DESC
+      `);
+    })
     .then((rows) => callback(null, dedupeInvoiceRows(rows).map(parseInvoiceRow)))
     .catch((error) => callback(error));
 };
