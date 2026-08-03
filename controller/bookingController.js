@@ -915,11 +915,18 @@ exports.updateFullBooking = async (req, res) => {
     // Overwrite advance_payment so editing the amount does NOT stack on top
     // of the old value (which is what ON DUPLICATE KEY UPDATE ... amount =
     // amount + VALUES(amount) does in addAdvance).
-    const existingAdv = await query(
-      "SELECT booking_id FROM advance_payment WHERE booking_id = ? LIMIT 1",
-      [id],
-    );
-    if (existingAdv.length) {
+    // 🐛 FIX: previously ran unconditionally on every booking edit, using
+    // `paidAmount ?? 0` / `paymentMode || "Cash"` as silent defaults. If a
+    // caller didn't explicitly send these fields (as the Edit Booking save
+    // used to), this wiped the booking's real advance back to ₹0/"Cash".
+    // Now only touches advance_payment when the request actually included
+    // payment info, so an edit that doesn't touch payment can't erase it.
+    const paymentFieldsProvided =
+      paidAmount !== undefined || discountAmount !== undefined || paymentMode !== undefined;
+    const existingAdv = paymentFieldsProvided
+      ? await query("SELECT booking_id FROM advance_payment WHERE booking_id = ? LIMIT 1", [id])
+      : [];
+    if (paymentFieldsProvided && existingAdv.length) {
       await query(
         `UPDATE advance_payment
            SET amount = ?,
@@ -935,11 +942,27 @@ exports.updateFullBooking = async (req, res) => {
           id,
         ],
       );
-    } else if (Number(paidAmount ?? 0) > 0) {
+    } else if (paymentFieldsProvided && Number(paidAmount ?? 0) > 0) {
       await query(
         `INSERT INTO advance_payment (booking_id, amount, discount_amount, payment_mode, remarks)
          VALUES (?, ?, ?, ?, ?)`,
         [id, Number(paidAmount ?? 0), Number(discountAmount ?? 0), paymentMode || "Cash", paymentRemarks || null],
+      );
+    }
+
+    // 🐛 FIX: advance_payment was being updated correctly above, but
+    // payment_history — the table Accounts.jsx's transaction log actually
+    // reads for "Hotel payment received" entries — was never touched by
+    // this Edit Booking save path. So changing the payment mode (Cash ->
+    // Card, Card -> UPI, etc.) here updated the booking/advance itself, but
+    // the Accounts page kept showing the OLD payment mode/amount forever.
+    // Only sync when there's something to record (an actual paid amount).
+    if (Number(paidAmount ?? 0) > 0 || Number(discountAmount ?? 0) > 0) {
+      await query("DELETE FROM payment_history WHERE booking_id = ?", [id]);
+      await query(
+        `INSERT INTO payment_history (booking_id, amount, discount_amount, payment_mode)
+         VALUES (?, ?, ?, ?)`,
+        [id, Number(paidAmount ?? 0), Number(discountAmount ?? 0), paymentMode || "Cash"],
       );
     }
 

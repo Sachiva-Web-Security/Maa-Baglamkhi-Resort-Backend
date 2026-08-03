@@ -37,15 +37,25 @@ const ensureSchema = async () => {
 };
 
 const addAdvance = (data, callback) => {
+  // 🐛 FIX: `amount = amount + VALUES(amount)` meant every EDIT of an
+  // existing advance (e.g. just changing Cash -> Card) ADDED the resubmitted
+  // amount on top of the old one instead of replacing it — so the advance
+  // total silently doubled/kept growing each time it was edited, and the
+  // balance/remaining shown everywhere (Booking Details, invoices, Accounts)
+  // went out of sync with what was actually collected. This is meant to be
+  // a single, editable advance per booking (booking_id is the PRIMARY KEY),
+  // so an edit should overwrite the stored values, not accumulate them.
   const sql = `
     INSERT INTO advance_payment 
     (booking_id, amount, discount_amount, payment_mode, receipt_account, transaction_details, remarks)
     VALUES (?, ?, ?, ?, ?, ?, ?)
     
     ON DUPLICATE KEY UPDATE
-    amount = amount + VALUES(amount),
-    discount_amount = IFNULL(discount_amount, 0) + VALUES(discount_amount),
+    amount = VALUES(amount),
+    discount_amount = VALUES(discount_amount),
     payment_mode = VALUES(payment_mode),
+    receipt_account = COALESCE(VALUES(receipt_account), receipt_account),
+    transaction_details = COALESCE(VALUES(transaction_details), transaction_details),
     remarks = COALESCE(VALUES(remarks), remarks)
   `;
 

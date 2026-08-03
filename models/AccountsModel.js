@@ -374,7 +374,7 @@ const updateTransaction = async (id, data) => {
       `UPDATE payment_history
        SET amount = ?, payment_mode = ?, updated_at = NOW()
        WHERE id = ?`,
-      [data.amount, data.paymentMode, numericId],
+      [data.amount, data.payment_mode, numericId],
     );
     return result;
   }
@@ -387,10 +387,10 @@ const updateTransaction = async (id, data) => {
       data.date,
       data.type,
       data.department || "Other",
-      data.sourceModule || null,
+      data.source_module || null,
       data.description,
       data.amount,
-      data.paymentMode,
+      data.payment_mode,
       data.updatedBy || null,
       id,
     ],
@@ -511,12 +511,14 @@ const getSummary = (callback) => {
         SELECT SUM(COALESCE(amount, 0))
         FROM accounts_transactions
         WHERE type = 'Income'
+          AND is_deleted = 0
       ), 0) AS manualIncome,
 
       COALESCE((
         SELECT SUM(COALESCE(amount, 0))
         FROM accounts_transactions
         WHERE type = 'Expense'
+          AND is_deleted = 0
       ), 0) AS totalExpense
   `;
     db.query(sql, callback);
@@ -731,10 +733,15 @@ const getRestaurantBillingRecords = async (callback) => {
           CONCAT('Room ', COALESCE(NULLIF(ro.roomNumber, ''), '-')) AS locationLabel,
           DATE_FORMAT(ro.created_at, '%Y-%m-%d') AS date,
           COALESCE(SUM(roi.price * roi.quantity), 0) AS total,
-          CASE
-            WHEN LOWER(COALESCE(ro.status, 'pending')) = 'paid' THEN 'Paid'
-            ELSE 'Pending'
-          END AS paymentMode,
+          -- 🐛 FIX: this used to put the Paid/Pending STATUS into the
+          -- paymentMode column (meant for Cash/UPI/Card), which duplicated
+          -- paymentStatus and made it look like every room-service order's
+          -- "payment mode" was literally the word "Paid" or "Pending" —
+          -- never an actual cash/UPI/card value. Room orders are charged to
+          -- the guest's room folio and settled with the room bill, so they
+          -- don't have their own cash/UPI/card payment; label that clearly
+          -- instead of faking a payment method.
+          'Billed to Room' AS paymentMode,
           CASE
             WHEN LOWER(COALESCE(ro.status, 'pending')) IN ('paid', 'served', 'completed') THEN 'Paid'
             WHEN LOWER(COALESCE(ro.status, 'pending')) IN ('cancelled', 'canceled') THEN 'Cancelled'
