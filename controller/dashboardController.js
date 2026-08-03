@@ -31,6 +31,17 @@ const getTotal = async (sql, params = []) => {
   return Number(rows?.[0]?.total || 0);
 };
 
+const detectDateColumn = async (table, candidates) => {
+  for (const col of candidates) {
+    const rows = await runQuery(
+      `SHOW COLUMNS FROM ${table} WHERE Field = ?`,
+      [col]
+    );
+    if (Array.isArray(rows) && rows.length > 0) return col;
+  }
+  return null;
+};
+
 const formatDateKey = (value) => {
   if (!value) return "";
   if (typeof value === "string") {
@@ -114,34 +125,133 @@ const getOccupiedRooms = async () => {
 const getTodayRevenue = async () => {
   let total = 0;
 
-  if (await tableExists("accounts_transactions")) {
-    total += await getTotal(`
-      SELECT COALESCE(SUM(amount), 0) AS total
-      FROM accounts_transactions
-      WHERE LOWER(COALESCE(type, '')) = 'income'
-        AND DATE(date) = CURDATE()
-    `);
+  // 1. Invoices generated today — authoritative billing (room + food + GST − discount)
+  if (await tableExists("invoices")) {
+    const dateColumn = await detectDateColumn("invoices", [
+      "created_at", "createdAt", "date", "invoice_date", "invoiceDate",
+      "generated_at", "generatedAt", "issued_at", "issuedAt", "bill_date", "billDate",
+    ]);
+    if (dateColumn) {
+      const hasTotalAmount = await columnExists("invoices", "total_amount");
+      const hasFinalTotal = await columnExists("invoices", "final_total");
+      const amountCol = hasTotalAmount ? "total_amount" : hasFinalTotal ? "final_total" : null;
+
+      if (amountCol) {
+        total += await getTotal(`
+          SELECT COALESCE(SUM(${amountCol}), 0) AS total
+          FROM invoices
+          WHERE DATE(${dateColumn}) = CURDATE()
+            AND ${amountCol} > 0
+        `);
+      }
+    }
   }
 
-  if (total > 0) {
-    return total;
-  }
-
-  const salesSource = await resolveBillSource((createdColumn) => `DATE(${createdColumn}) = CURDATE()`);
+  // 2. Restaurant / shop sales today
+  const salesSource = await resolveBillSource((createdColumn) =>
+    `DATE(${createdColumn}) = CURDATE()`,
+  );
   if (salesSource) {
-    return getTotal(`
+    total += await getTotal(`
       SELECT COALESCE(SUM(${salesSource.totalColumn}), 0) AS total
       FROM ${salesSource.tableName}
       WHERE DATE(${salesSource.createdColumn}) = CURDATE()
+        AND ${salesSource.totalColumn} IS NOT NULL
+        AND ${salesSource.totalColumn} > 0
     `);
   }
 
-  if (await tableExists("payment_history")) {
-    return getTotal(`
-      SELECT COALESCE(SUM(amount), 0) AS total
-      FROM payment_history
-      WHERE DATE(created_at) = CURDATE()
-    `);
+  // 3. Banquet bookings happening today
+  if (await tableExists("banquet_bookings") && await tableExists("banquet_halls")) {
+    const hasStartTime = await columnExists("banquet_bookings", "start_time");
+    const hasEventDate = await columnExists("banquet_bookings", "event_date");
+    const hasCreatedAt = await columnExists("banquet_bookings", "created_at");
+
+    if (hasStartTime) {
+      total += await getTotal(`
+        SELECT COALESCE(SUM(
+          COALESCE(h.rate_per_hour, 0)
+          * GREATEST(1, CEIL(TIMESTAMPDIFF(MINUTE, b.start_time, b.end_time) / 60)))
+          + COALESCE(b.decoration_fee, 0),
+          0
+        ) AS total
+        FROM banquet_bookings b
+        LEFT JOIN banquet_halls h ON h.id = b.hall_id
+        WHERE DATE(b.start_time) = CURDATE()
+      `);
+    } else if (hasEventDate) {
+      const hasRatePerHour = await columnExists("banquet_halls", "rate_per_hour");
+      const hasRatePerHourCamel = await columnExists("banquet_halls", "ratePerHour");
+      const rateCol = hasRatePerHour ? "rate_per_hour" : hasRatePerHourCamel ? "ratePerHour" : null;
+
+      if (rateCol) {
+        total += await getTotal(`
+          SELECT COALESCE(SUM(
+            COALESCE(h.${rateCol}, 0)
+            * GREATEST(1, COALESCE(b.duration_hours, 1)))
+            + COALESCE(b.decoration_fee, 0),
+            0
+          ) AS total
+          FROM banquet_bookings b
+          LEFT JOIN banquet_halls h ON h.id = b.hall_id
+          WHERE DATE(b.event_date) = CURDATE()
+        `);
+      } else {
+        total += await getTotal(`
+          SELECT COALESCE(SUM(COALESCE(b.decoration_fee, 0)), 0) AS total
+          FROM banquet_bookings b
+          WHERE DATE(b.event_date) = CURDATE()
+        `);
+      }
+    } else if (hasCreatedAt) {
+      const hasRatePerHour = await columnExists("banquet_halls", "rate_per_hour");
+      const hasRatePerHourCamel = await columnExists("banquet_halls", "ratePerHour");
+      const rateCol = hasRatePerHour ? "rate_per_hour" : hasRatePerHourCamel ? "ratePerHour" : null;
+
+      if (rateCol) {
+        total += await getTotal(`
+          SELECT COALESCE(SUM(
+            COALESCE(h.${rateCol}, 0)
+            * GREATEST(1, COALESCE(b.duration_hours, 1)))
+            + COALESCE(b.decoration_fee, 0),
+            0
+          ) AS total
+          FROM banquet_bookings b
+          LEFT JOIN banquet_halls h ON h.id = b.hall_id
+          WHERE DATE(b.created_at) = CURDATE()
+        `);
+      } else {
+        total += await getTotal(`
+          SELECT COALESCE(SUM(COALESCE(b.decoration_fee, 0)), 0) AS total
+          FROM banquet_bookings b
+          WHERE DATE(b.created_at) = CURDATE()
+        `);
+      }
+    }
+  }
+
+  // 4. Hotel bookings with check-in today (room revenue for today)
+  if (await tableExists("guests") && await tableExists("room_tariff")) {
+    const hasCheckIn = await columnExists("guests", "check_in");
+    const hasCheckInDate = await columnExists("guests", "check_in_date");
+
+    if (hasCheckIn) {
+      total += await getTotal(`
+        SELECT COALESCE(SUM(rt.total), 0) AS total
+        FROM guests g
+        INNER JOIN room_tariff rt ON rt.booking_id = g.id
+        WHERE DATE(g.check_in) = CURDATE()
+          AND rt.total IS NOT NULL AND rt.total > 0
+      `);
+    } else if (hasCheckInDate) {
+      total += await getTotal(`
+        SELECT COALESCE(SUM(rt.total), 0) AS total
+        FROM guests g
+        INNER JOIN room_tariff rt ON rt.booking_id = g.id
+        WHERE DATE(g.check_in_date) = CURDATE()
+          AND rt.total IS NOT NULL AND rt.total > 0
+      `);
+    }
   }
 
   return total;
@@ -229,25 +339,90 @@ const getArrivalMetrics = async () => {
 const getTotalRevenueGenerated = async () => {
   let total = 0;
 
-  if (await tableExists("room_tariff")) {
-    total += await getTotal(`
-      SELECT COALESCE(SUM(total), 0) AS total
-      FROM room_tariff
-    `);
+  // 1. Invoices — authoritative billing totals (room + food + GST − discount)
+  if (await tableExists("invoices")) {
+    const hasTotalAmount = await columnExists("invoices", "total_amount");
+    const hasFinalTotal = await columnExists("invoices", "final_total");
+    if (hasTotalAmount) {
+      total += await getTotal(`
+        SELECT COALESCE(SUM(total_amount), 0) AS total
+        FROM invoices
+        WHERE total_amount > 0
+      `);
+    } else if (hasFinalTotal) {
+      total += await getTotal(`
+        SELECT COALESCE(SUM(final_total), 0) AS total
+        FROM invoices
+        WHERE final_total > 0
+      `);
+    }
   }
 
+  // 2. Hotel bookings via guests + room_tariff (only bookings NOT already
+  //    covered by an invoice to avoid double-counting)
+  if (await tableExists("guests") && await tableExists("room_tariff")) {
+    const hasInvoices = await tableExists("invoices");
+    let excludeClause = "";
+    let params = [];
+
+    if (hasInvoices) {
+      const invoiceBookingRows = await runQuery(
+        "SELECT DISTINCT booking_id FROM invoices WHERE booking_id IS NOT NULL AND booking_id > 0",
+      );
+      const invoiceIds = invoiceBookingRows
+        .map((r) => Number(r.booking_id))
+        .filter(Boolean);
+      if (invoiceIds.length > 0) {
+        const placeholders = invoiceIds.map(() => "?").join(",");
+        excludeClause = `AND g.id NOT IN (${placeholders})`;
+        params = invoiceIds;
+      }
+    }
+
+    total += await getTotal(
+      `
+      SELECT COALESCE(SUM(rt.total), 0) AS total
+      FROM guests g
+      INNER JOIN room_tariff rt ON rt.booking_id = g.id
+      WHERE rt.total IS NOT NULL AND rt.total > 0
+      ${excludeClause}
+    `,
+      params,
+    );
+  }
+
+  // 3. Restaurant bills
   const salesSource = await resolveBillSource(() => "1 = 1");
   if (salesSource) {
     total += await getTotal(`
       SELECT COALESCE(SUM(${salesSource.totalColumn}), 0) AS total
       FROM ${salesSource.tableName}
+      WHERE ${salesSource.totalColumn} IS NOT NULL AND ${salesSource.totalColumn} > 0
     `);
-  } else if (!(await tableExists("room_tariff")) && (await tableExists("accounts_transactions"))) {
-    total += await getTotal(`
-      SELECT COALESCE(SUM(amount), 0) AS total
-      FROM accounts_transactions
-      WHERE LOWER(COALESCE(type, '')) = 'income'
-    `);
+  }
+
+  // 4. Banquet bookings — rate × hours + decoration fee
+  if (await tableExists("banquet_bookings") && await tableExists("banquet_halls")) {
+    const hasRatePerHour = await columnExists("banquet_halls", "rate_per_hour");
+    const hasRatePerHourCamel = await columnExists("banquet_halls", "ratePerHour");
+    if (hasRatePerHour || hasRatePerHourCamel) {
+      const rateCol = hasRatePerHour ? "rate_per_hour" : "ratePerHour";
+      total += await getTotal(`
+        SELECT COALESCE(SUM(
+          COALESCE(h.${rateCol}, 0)
+          * GREATEST(1, CEIL(TIMESTAMPDIFF(MINUTE, b.start_time, b.end_time) / 60)))
+          + COALESCE(b.decoration_fee, 0),
+          0
+        ) AS total
+        FROM banquet_bookings b
+        LEFT JOIN banquet_halls h ON h.id = b.hall_id
+      `);
+    } else {
+      total += await getTotal(`
+        SELECT COALESCE(SUM(COALESCE(b.decoration_fee, 0)), 0) AS total
+        FROM banquet_bookings b
+      `);
+    }
   }
 
   return total;
