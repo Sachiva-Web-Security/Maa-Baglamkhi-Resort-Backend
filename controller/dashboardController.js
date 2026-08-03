@@ -254,6 +254,54 @@ const getTodayRevenue = async () => {
     }
   }
 
+  // 5. Accounts income entries posted today, including manual income records.
+  if (await tableExists("accounts_transactions")) {
+    total += await getTotal(`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM accounts_transactions
+      WHERE DATE(date) = CURDATE()
+        AND type = 'Income'
+        AND is_deleted = 0
+        AND amount > 0
+    `);
+  }
+
+  // 6. Payment history incomes today that are not already covered by paid invoices.
+  if (await tableExists("payment_history")) {
+    const hasInvoiceTable = await tableExists("invoices");
+    const hasInvoiceBookingId = hasInvoiceTable && (await columnExists("invoices", "booking_id"));
+    const hasPaymentStatus = hasInvoiceTable && (await columnExists("invoices", "payment_status"));
+    const hasStatus = hasInvoiceTable && (await columnExists("invoices", "status"));
+
+    if (hasInvoiceTable && hasInvoiceBookingId) {
+      const paidStatusExpr = hasPaymentStatus && hasStatus
+        ? "LOWER(COALESCE(i.payment_status, i.status, 'pending'))"
+        : hasPaymentStatus
+          ? "LOWER(COALESCE(i.payment_status, 'pending'))"
+          : hasStatus
+            ? "LOWER(COALESCE(i.status, 'pending'))"
+            : "'pending'";
+
+      total += await getTotal(`
+        SELECT COALESCE(SUM(COALESCE(ph.amount, 0)), 0) AS total
+        FROM payment_history ph
+        LEFT JOIN invoices i
+          ON i.booking_id = ph.booking_id
+          AND ${paidStatusExpr} = 'paid'
+        WHERE DATE(ph.created_at) = CURDATE()
+          AND COALESCE(ph.amount, 0) > 0
+          AND i.id IS NULL
+      `);
+    } else {
+      total += await getTotal(`
+        SELECT COALESCE(SUM(COALESCE(ph.amount, 0)), 0) AS total
+        FROM payment_history ph
+        WHERE DATE(ph.created_at) = CURDATE()
+          AND COALESCE(ph.amount, 0) > 0
+      `);
+    }
+  }
+
   return total;
 };
 

@@ -722,6 +722,21 @@ describe("Operations, Dashboard, Reports, and Audit APIs", () => {
       expect(res.body).toHaveProperty("occupiedRooms");
     });
 
+    test("includes accounts income in today's revenue", async () => {
+      const beforeRes = await api().get("/api/dashboard/metrics");
+      expect(beforeRes.status).toBe(200);
+      const beforeRevenue = Number(beforeRes.body.todayRevenue || 0);
+
+      await runQuery(`
+        INSERT INTO accounts_transactions (date, type, description, amount, payment_mode)
+        VALUES (CURDATE(), 'Income', 'Dashboard revenue test', 500, 'Cash')
+      `);
+
+      const afterRes = await api().get("/api/dashboard/metrics");
+      expect(afterRes.status).toBe(200);
+      expect(Number(afterRes.body.todayRevenue || 0)).toBe(beforeRevenue + 500);
+    });
+
     test("returns dashboard charts", async () => {
       const res = await api().get("/api/dashboard/charts");
       expect(res.status).toBe(200);
