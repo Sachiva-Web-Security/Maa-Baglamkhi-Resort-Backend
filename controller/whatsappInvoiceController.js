@@ -45,7 +45,21 @@ const round2 = (value) => Number((Number(value || 0)).toFixed(2));
  *     "customerMessage": "Your custom message",
  *     "adminNumber": "9876543210",
  *     "adminMessage": "Your custom admin message",
- *     "deviceToken": "..."
+ *     "deviceToken": "...",
+ *     // When provided, these fields override the DB-generated invoice so the
+ *     // PDF and WhatsApp message use the SAME data the frontend is showing.
+ *     "invoiceData": {
+ *       "invoiceNo": "...",
+ *       "totalAmount": 5000,
+ *       "subtotal": 4761.90,
+ *       "tax": 238.10,
+ *       "discount": 0,
+ *       "paymentStatus": "Pending",
+ *       "paymentMode": "Cash",
+ *       "customerName": "Guest Name",
+ *       "phone": "...",
+ *       "items": [{name, price, quantity, total}, ...]
+ *     }
  *   }
  */
 exports.sendInvoiceWhatsApp = async (req, res) => {
@@ -71,6 +85,37 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
       return res.status(404).json({ error: "Booking or invoice not found" });
     }
 
+    // If the frontend sent computed invoiceData, use it to override the
+    // DB-generated values so the PDF and WhatsApp message match what the
+    // user sees on screen.
+    if (req.body?.invoiceData && typeof req.body.invoiceData === "object") {
+      const fd = req.body.invoiceData;
+      if (fd.invoiceNo) invoice.invoiceNo = fd.invoiceNo;
+      if (fd.totalAmount !== undefined) invoice.totalAmount = Number(fd.totalAmount);
+      if (fd.subtotal !== undefined) invoice.subtotal = Number(fd.subtotal);
+      if (fd.tax !== undefined) invoice.tax = Number(fd.tax);
+      if (fd.discount !== undefined) invoice.discount = Number(fd.discount);
+      if (fd.paymentStatus) invoice.paymentStatus = fd.paymentStatus;
+      if (fd.paymentMode) invoice.paymentMode = fd.paymentMode;
+      if (fd.customerName) invoice.customerName = fd.customerName;
+      if (fd.phone) invoice.phone = fd.phone;
+      if (fd.roomNumber) invoice.roomNumber = fd.roomNumber;
+      if (fd.checkIn) invoice.checkIn = fd.checkIn;
+      if (fd.checkOut) invoice.checkOut = fd.checkOut;
+      if (fd.address) invoice.address = fd.address;
+      if (fd.items && Array.isArray(fd.items)) invoice.items = fd.items;
+      if (fd.roomCharge !== undefined) invoice.roomCharge = Number(fd.roomCharge);
+      if (fd.foodCharge !== undefined) invoice.foodCharge = Number(fd.foodCharge);
+      if (fd.extraCharge !== undefined) invoice.extraCharge = Number(fd.extraCharge);
+      console.log("[send-whatsapp] Applied frontend invoiceData overrides:", {
+        invoiceNo: invoice.invoiceNo,
+        totalAmount: invoice.totalAmount,
+        subtotal: invoice.subtotal,
+        tax: invoice.tax,
+        itemsCount: invoice.items?.length || 0,
+      });
+    }
+
     // 1b. Fetch advance payment info to calculate remaining amount correctly
     let advanceAmount = 0;
     let advanceDiscount = 0;
@@ -86,17 +131,47 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
       // advance_payment table may not exist; continue without advance info
     }
 
-    // 1c. Fetch folio totals for accurate remaining calculation
+    // 1c. Fetch folio totals for accurate remaining calculation, and the
+    // "Extra Charge" total specifically (this is what the Booking Details
+    // page's "Folio Charges" figure and the WhatsApp message below show).
     let folioPayments = 0;
     let folioDiscounts = 0;
+    let folioChargesTotal = 0;
     try {
       const FolioModel = require("../models/folioModel");
       const folioTotals = await FolioModel.getFolioTotals(bookingId);
       folioPayments = Number(folioTotals.payments || 0);
       folioDiscounts = Number(folioTotals.discounts || 0);
+      const extraRows = await new Promise((resolve, reject) => {
+        db.query(
+          "SELECT COALESCE(SUM(amount), 0) AS total FROM hotel_folio_entries WHERE booking_id = ? AND entry_type = 'Extra Charge'",
+          [bookingId],
+          (err, rows) => (err ? reject(err) : resolve(rows)),
+        );
+      });
+      folioChargesTotal = Number(extraRows?.[0]?.total || 0);
     } catch {
       // folio table may not exist; continue
     }
+
+    // 🐛 FIX: `invoice.bookingId` was never set, so the WhatsApp message
+    // template's "New invoice generated for booking {invoiceNo}." printed a
+    // bare "booking #." whenever `invoice.invoiceNo` was also empty (the
+    // `#${invoice.bookingId || ...}` fallback had nothing to fall back to).
+    // 🐛 FIX: `invoice.bookingId` / `invoice.invoiceNo` could come back empty
+    // when an existing invoice row was reused (the underlying mapping bug is
+    // fixed in InvoiceModel.parseInvoiceRow, but these fallbacks make sure
+    // "Invoice No." and "Folio No." on the PDF/WhatsApp message are never
+    // blank even in edge cases).
+    invoice.bookingId = invoice.bookingId || bookingId;
+    invoice.invoiceNo =
+      invoice.invoiceNo ||
+      `HOTINV-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${String(bookingId).padStart(4, "0")}`;
+    // Also attach the folio charges total so the WhatsApp message text can
+    // include it alongside advance paid / balance due (previously the text
+    // message only showed Total/Tax/Status, none of which reflected the
+    // advance payment or folio charges shown on the Booking Details page).
+    invoice.folioCharges = folioChargesTotal;
 
     // Remaining = total amount - (advance paid + folio payments + advance discount + folio discount)
     const totalPaid = advanceAmount + folioPayments + advanceDiscount + folioDiscounts;
@@ -104,6 +179,16 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
     const isPaid = remainingAmount <= 0;
     const paymentStatus = isPaid ? "Paid" : "Pending";
     const paymentMethod = invoice.paymentMode || "Cash";
+
+    // 🐛 FIX: `totalPaid` / `remainingAmount` were being calculated above but
+    // never attached to `invoice` before it was handed to the PDF service.
+    // That's why the generated PDF's "Payment Detail" block always printed
+    // the FULL total as "paid" and hardcoded "Balance" to 0.00 — a booking
+    // with only a partial advance (e.g. ₹500 of ₹2,000 paid) looked fully
+    // settled on the invoice even though ₹1,500 was still due.
+    invoice.paidAmount = round2(totalPaid);
+    invoice.remainingAmount = remainingAmount;
+    invoice.paymentStatus = paymentStatus;
 
     // 2. Generate the PDF
     let pdfResult;

@@ -512,6 +512,25 @@ const parseInvoiceRow = (row) => ({
       return [];
     }
   })(),
+  // 🐛 FIX: this used to only spread the raw DB row (snake_case columns:
+  // invoice_no, booking_id, room_no, check_in, check_out, customer_name,
+  // etc.) without ever mapping them to the camelCase names every consumer
+  // actually reads (invoiceNo, bookingId, roomNumber, checkIn, checkOut,
+  // customerName...). A brand-new invoice (built via generateCustomerInvoice)
+  // already returns camelCase fields directly, so it looked fine the first
+  // time — but any time an EXISTING invoice was reused (getInvoiceByBookingId,
+  // which is the normal path once an invoice already exists for a booking),
+  // `invoice.invoiceNo` and `invoice.bookingId` came back undefined, which is
+  // why "Invoice No." and "Folio No." on the printed/WhatsApp'd invoice
+  // showed blank/N-A after the first send.
+  invoiceNo: row.invoiceNo || row.invoice_no || "",
+  bookingId: row.bookingId ?? row.booking_id ?? row.customer_id ?? null,
+  customerName: row.customerName || row.customer_name || "",
+  phone: row.phone || "",
+  roomNumber: row.roomNumber || row.room_no || "",
+  checkIn: row.checkIn || row.check_in || "",
+  checkOut: row.checkOut || row.check_out || "",
+  paymentMode: row.paymentMode || row.payment_mode || "",
   paymentStatus: row.payment_status || row.status || "Pending",
   totalAmount: Number(row.total_amount ?? row.final_total ?? 0),
   subtotal: Number(row.subtotal || 0),
