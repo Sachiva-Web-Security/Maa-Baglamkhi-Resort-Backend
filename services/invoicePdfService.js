@@ -328,13 +328,28 @@ const drawTaxInvoice = (doc, booking) => {
   doc.font("Helvetica").fontSize(8);
   items.forEach((item) => {
     const rowY = y;
-    const taxable = Number(item.total != null ? item.total : item.price || 0);
-    const tariff = Number(item.price || taxable);
+    // 🐛 FIX: this used to ALWAYS add a flat 5% (2.5% SGST + 2.5% CGST) on
+    // top of every line item, regardless of that room/item's actual GST
+    // rate. `item.total` from the caller is already GST-INCLUSIVE (the real
+    // amount the guest is being charged) — a room configured with 0% GST
+    // still had 5% tacked on here, so a real ₹2,000 charge printed as
+    // ₹2,100 on the invoice. Now the taxable amount and tax split are
+    // derived from the item's own gst percentage (default 0%) instead of
+    // an assumed 5%.
+    const gstPercent = Number(item.gstPercent ?? item.gst ?? 0);
+    const grossTotal = Number(
+      item.total != null ? item.total : Number(item.price || 0) * Number(item.quantity || 1),
+    );
     const disc = Number(item.discount || 0);
-    const sgst = taxable * 0.025;
-    const cgst = taxable * 0.025;
+    const taxable = gstPercent > 0 ? grossTotal / (1 + gstPercent / 100) : grossTotal;
+    const totalTax = grossTotal - taxable;
+    const sgst = totalTax / 2;
+    const cgst = totalTax / 2;
+    const tariff = Number(
+      item.price != null ? Number(item.price) * Number(item.quantity || 1) : taxable,
+    );
 
-    tariffTotal += tariff;
+    tariffTotal += taxable;
     sgstTotal += sgst;
     cgstTotal += cgst;
 
@@ -346,7 +361,7 @@ const drawTaxInvoice = (doc, booking) => {
       formatINR(taxable),
       formatINR(sgst),
       formatINR(cgst),
-      formatINR(taxable + sgst + cgst),
+      formatINR(grossTotal),
     ];
     rowValues.forEach((val, i) => {
       doc.text(val, colEnds[i] + 4, rowY + 4, { width: colEnds[i + 1] - colEnds[i] - 6 });
@@ -392,9 +407,18 @@ const drawTaxInvoice = (doc, booking) => {
   doc.font("Helvetica-Bold").fontSize(8).text("Remarks", PAGE_LEFT + BLOCK_PAD, remarksTop);
 
   const discount = Number(booking.discount || 0);
-  const taxableAmount = Number(booking.subtotal != null ? booking.subtotal : tariffTotal) - discount;
-  const sgst = booking.tax != null ? Number(booking.tax) / 2 : sgstTotal;
-  const cgst = booking.tax != null ? Number(booking.tax) / 2 : cgstTotal;
+  // 🐛 FIX: previously fell back to `booking.subtotal` / `booking.tax` when
+  // present — but those aggregate fields were frequently computed upstream
+  // (frontend) using the same flat-5%-GST assumption this file used to
+  // have, so they carried the same bug forward even after the per-item fix
+  // above. The line items now have the correct, real GST split, so always
+  // trust the sums derived from `items` when items exist.
+  const hasItems = items.length > 0;
+  const taxableAmount = hasItems
+    ? tariffTotal - discount
+    : Number(booking.subtotal || 0) - discount;
+  const sgst = hasItems ? sgstTotal : (booking.tax != null ? Number(booking.tax) / 2 : 0);
+  const cgst = hasItems ? cgstTotal : (booking.tax != null ? Number(booking.tax) / 2 : 0);
   const roomTotal = taxableAmount + sgst + cgst;
   const roundOff = 0;
   const serviceTotal = Number(booking.extraCharge || 0);
@@ -454,14 +478,42 @@ const drawTaxInvoice = (doc, booking) => {
 
   doc.font("Helvetica").fontSize(8).text("Thanks! Visit Again!!", PAGE_LEFT + BLOCK_PAD, noteTop + 14);
 
+  // 🐛 FIX (1/2): this used to always print the FULL invoice total next to
+  // the payment mode (as if the guest had paid everything) and hardcode
+  // "Balance" to 0.00. A booking with only a partial advance payment (e.g.
+  // ₹500 paid out of a ₹2,000 total) therefore looked fully settled on the
+  // invoice even though ₹1,500 was still due. Now uses the real amount
+  // paid / outstanding balance (computed server-side from advance +
+  // folio payments) when available.
+  const amountPaid = Number(
+    booking.paidAmount != null
+      ? booking.paidAmount
+      : booking.remainingAmount != null
+        ? finalTotal - Number(booking.remainingAmount)
+        : finalTotal,
+  );
+  const balanceDue = Number(
+    booking.remainingAmount != null
+      ? booking.remainingAmount
+      : Math.max(finalTotal - amountPaid, 0),
+  );
+  // 🐛 FIX (2/2): the row above only ever showed the payment MODE ("Mixed /
+  // Recorded", "Cash", etc.) as the label next to the amount, with no line
+  // that says "Advance Paid" — so even after the Balance fix, the advance
+  // the guest actually handed over wasn't clearly identified on the
+  // invoice. Now shows three explicit rows: Total Amount, Advance Paid
+  // (with its payment mode), and Balance Due.
   const paymentRows = [
-    [String(booking.paymentMode || "N/A"), formatINR(Number(booking.totalAmount != null ? booking.totalAmount : finalTotal))],
-    ["Balance", formatINR(0)],
+    ["Total Amount", formatINR(finalTotal)],
+    ["Advance Paid", formatINR(amountPaid)],
+    [`Mode: ${String(booking.paymentMode || "N/A")}`, ""],
+    ["Balance Due", formatINR(balanceDue)],
   ];
   paymentRows.forEach(([label, val], i) => {
     const ry = noteTop + 14 + i * 14;
-    doc.font("Helvetica").fontSize(8).text(label, R_LABEL_X, ry, { width: R_LABEL_W });
-    doc.font("Helvetica").fontSize(8).text(val, R_VALUE_X, ry, { width: R_VALUE_W, align: "right" });
+    doc.font(i === paymentRows.length - 1 ? "Helvetica-Bold" : "Helvetica").fontSize(8);
+    doc.text(label, R_LABEL_X, ry, { width: R_LABEL_W });
+    doc.text(val, R_VALUE_X, ry, { width: R_VALUE_W, align: "right" });
   });
 
   const noteBottom = noteTop + 14 + paymentRows.length * 14 + 6;

@@ -416,20 +416,65 @@ const sendSmsMessage = async ({ number, message } = {}) => {
 };
 
 // ── Invoice notifications ────────────────────────────────────────────────────
+const formatDateShort = (val) => {
+  if (!val) return "";
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return String(val);
+  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+};
+
+/**
+ * 🐛 FIX: the customer/admin WhatsApp text messages used to only include
+ * Total / Tax / Status — no booking reference, no check-in/check-out dates,
+ * no room vs. folio breakdown, and (biggest gap) no mention of the advance
+ * already paid or the balance still due, even though that data was
+ * available on the same `invoice` object used for the PDF. This builds a
+ * shared, fuller breakdown block used by both messages.
+ */
+const buildInvoiceDetailsBlock = (invoice) => {
+  const totalAmount = Number(invoice.totalAmount || 0);
+  const subtotal = Number(invoice.subtotal || 0);
+  const tax = Number(invoice.tax || 0);
+  const discount = Number(invoice.discount || 0);
+  const folioCharges = Number(invoice.folioCharges || 0);
+  const roomCharges = Math.max(totalAmount - folioCharges, 0);
+  const paidAmount = invoice.paidAmount != null ? Number(invoice.paidAmount) : null;
+  const remainingAmount = invoice.remainingAmount != null ? Number(invoice.remainingAmount) : null;
+
+  const lines = [];
+  if (invoice.checkIn) lines.push(`Check-In: ${formatDateShort(invoice.checkIn)}`);
+  if (invoice.checkOut) lines.push(`Check-Out: ${formatDateShort(invoice.checkOut)}`);
+  if (invoice.roomNumber) lines.push(`Room No: ${invoice.roomNumber}`);
+  if (folioCharges > 0) {
+    lines.push(`Room Charges: Rs. ${roomCharges.toFixed(2)}`);
+    lines.push(`Folio Charges: Rs. ${folioCharges.toFixed(2)}`);
+  }
+  if (subtotal > 0 || tax > 0) {
+    lines.push(`Subtotal: Rs. ${subtotal.toFixed(2)}`);
+    lines.push(`Tax (GST): Rs. ${tax.toFixed(2)}`);
+  }
+  if (discount > 0) lines.push(`Discount: Rs. ${discount.toFixed(2)}`);
+  lines.push(`Total: Rs. ${totalAmount.toFixed(2)}`);
+  if (paidAmount != null) lines.push(`Advance Paid: Rs. ${paidAmount.toFixed(2)}`);
+  if (remainingAmount != null) lines.push(`Balance Due: Rs. ${remainingAmount.toFixed(2)}`);
+  lines.push(`Status: ${invoice.paymentStatus || "Pending"}`);
+  return lines.join("\n");
+};
+
 const sendInvoiceNotifications = async (invoice, attachment, options = {}) => {
   const customerNumber = options.customerNumber || invoice.phone || "";
   const adminNumber = options.adminNumber || "";
   const guestName = invoice.customerName || "Valued Guest";
-  const total = `Rs. ${(invoice.totalAmount || 0).toFixed(2)}`;
   const invoiceNo = invoice.invoiceNo || `#${invoice.bookingId || invoice.customerId || ""}`;
+  const detailsBlock = buildInvoiceDetailsBlock(invoice);
 
   const customerMessage =
     options.customerMessage ||
-    `Dear ${guestName},\n\nThank you for staying at Maa Baglamukhi Resort.\n\nHere is your invoice ${invoiceNo}.\nTotal: ${total}\n\nPlease find the invoice attached.\n\nRegards,\nMaa Baglamukhi Resort`;
+    `Dear ${guestName},\n\nThank you for staying at Maa Baglamukhi Resort.\n\nHere is your invoice ${invoiceNo}.\n${detailsBlock}\n\nPlease find the invoice attached.\n\nRegards,\nMaa Baglamukhi Resort`;
 
   const adminMessage =
     options.adminMessage ||
-    `New invoice generated for booking ${invoiceNo}.\nGuest: ${guestName}\nPhone: ${formatPhoneDisplay(customerNumber)}\nTotal: ${total}\nStatus: ${invoice.paymentStatus || "Pending"}`;
+    `New invoice generated for booking ${invoiceNo}.\nGuest: ${guestName}\nPhone: ${formatPhoneDisplay(customerNumber)}\n${detailsBlock}`;
 
   let customerWa = { skipped: true, reason: "No customer phone number" };
   if (customerNumber) {
