@@ -143,6 +143,10 @@ exports.createNotification = async (req, res) => {
   }
 };
 
+// Exported so other controllers (e.g. kitchenController) can call this
+// directly with a plain payload object, without going through req/res.
+exports._createNotification = _createNotification;
+
 exports.deleteNotification = async (req, res) => {
   try {
     await exports.ensureSchema();

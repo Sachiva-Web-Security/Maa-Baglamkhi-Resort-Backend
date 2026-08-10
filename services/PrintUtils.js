@@ -13,6 +13,14 @@
  * still derived from the same fields and the same 5% GST assumption this
  * file already used. Thermal PDF generation and printer dispatch below are
  * unchanged.
+ *
+ * FIX (print dispatch): printPdfToPrinter previously shelled out to
+ * `npx pdf-to-printer ...` via child_process.exec. The "pdf-to-printer" npm
+ * package is a library only — it ships no CLI/bin entry point — so npx could
+ * never resolve an executable for it ("npm error could not determine
+ * executable to run"), and every KOT/print job failed and retried until it
+ * hit the retry limit. printPdfToPrinter now calls the library's own
+ * print() function directly instead of shelling out.
  */
 
 const path = require("path");
@@ -20,10 +28,11 @@ const fs = require("fs");
 const { exec } = require("child_process");
 const { promisify } = require("util");
 const PDFDocument = require("pdfkit");
+const { print: ptpPrint } = require("pdf-to-printer");
 const PrintConfig = require("../PrintConfig");
 
-// FIX: execAsync was used below (in printPdfToPrinter / checkPrinterStatus)
-// but was never defined anywhere in this file. Every call to it threw
+// FIX: execAsync was used below (in checkPrinterStatus) but was never
+// defined anywhere in this file. Every call to it threw
 // "execAsync is not defined", which was silently swallowed by try/catch
 // blocks — so print jobs looked like they "ran" but never actually reached
 // the printer correctly.
@@ -63,12 +72,12 @@ const formatINR = (value) => {
 // ─── Fixed resort details (as given in the reference invoice) ─────────────────
 const RESORT = {
   name: "MAA BAGLAMUKHI RESORT",
-  addressLine1: "Maa Baglamukhi Mandir Rasid Aashinda",
-  addressLine2: "District: Agar Malwa, 465445",
-  phone: "9522238777, 9922238777",
+  addressLine1: "Maa Baglamukhi Mandir Road, Nalkheda",
+  addressLine2: "Maa Baglamukhi mandir road Nalkheda, District: Agar Malwa 465445",
+  phone: "9522238777, 9522239777",
   email: "maabaglamukhiresort@gmail.com",
   website: "www.maabaglamukhiresort.com",
-  gstin: "23AVOPR2582L1ZG",
+  gstin: "23AVDPR2928J1ZG",
 };
 
 const numberToWordsINR = (num) => {
@@ -161,13 +170,13 @@ const drawTaxInvoice = (doc, invoiceData) => {
 
   const col = {
     date: PAGE_LEFT,
-    particulars: PAGE_LEFT + 65,
-    tariff: PAGE_LEFT + 245,
-    disc: PAGE_LEFT + 305,
-    taxable: PAGE_LEFT + 350,
-    sgst: PAGE_LEFT + 405,
-    cgst: PAGE_LEFT + 460,
-    total: PAGE_LEFT + 515,
+    particulars: PAGE_LEFT + 55,
+    tariff: PAGE_LEFT + 195,
+    disc: PAGE_LEFT + 250,
+    taxable: PAGE_LEFT + 295,
+    sgst: PAGE_LEFT + 350,
+    cgst: PAGE_LEFT + 405,
+    total: PAGE_LEFT + 460,
   };
   const colEnds = [
     col.date, col.particulars, col.tariff, col.disc, col.taxable, col.sgst, col.cgst, col.total, PAGE_RIGHT,
@@ -192,13 +201,9 @@ const drawTaxInvoice = (doc, invoiceData) => {
   const boxTop = y + 26;
   y = boxTop + 10;
 
-  doc.font("Helvetica-Bold").fontSize(8).text(RESORT.name, PAGE_LEFT, y, { width: BOX_W, align: "center" });
-  y += 11;
   doc.font("Helvetica-Bold").fontSize(13).text(RESORT.name, PAGE_LEFT, y, { width: BOX_W, align: "center" });
   y += 16;
-  doc.font("Helvetica").fontSize(9).text(RESORT.addressLine1, PAGE_LEFT, y, { width: BOX_W, align: "center" });
-  y += 12;
-  doc.text(RESORT.addressLine2, PAGE_LEFT, y, { width: BOX_W, align: "center" });
+  doc.font("Helvetica").fontSize(9).text(RESORT.addressLine2, PAGE_LEFT, y, { width: BOX_W, align: "center" });
   y += 12;
   doc.text(`Ph: ${RESORT.phone}`, PAGE_LEFT, y, { width: BOX_W, align: "center" });
   y += 12;
@@ -464,11 +469,10 @@ const generateThermalPdf = (escPosBuffer, printer, textContent = "") => {
   const filePath = path.join(THERMAL_PDF_DIR, fileName);
 
   // For thermal printers, we generate a narrow PDF (80mm = ~227pt)
-  const PAGE_WIDTH = 227;
-  const MARGIN = { top: 10, bottom: 10, left: 8, right: 8 };
-  const CONTENT_WIDTH = PAGE_WIDTH - MARGIN.left - MARGIN.right; // 211
-  const FONT_SIZE = 10;
-  const LINE_HEIGHT = FONT_SIZE * 1.25;
+  const PAGE_WIDTH = 260;
+const MARGIN = { top: 8, bottom: 8, left: 5, right: 5 };
+const CONTENT_WIDTH = PAGE_WIDTH - MARGIN.left - MARGIN.right;
+const FONT_SIZE = 11;
 
   // FIX: this used to be a fixed [227, 9999] page. A 9999pt-tall page is
   // ~139 inches — most Windows/inkjet print drivers can't handle that as a
@@ -604,32 +608,21 @@ const extractTextFromEscPos = (buffer) => {
 
 /**
  * Send a PDF file to the Windows printer using pdf-to-printer.
+ *
+ * FIX: previously shelled out to `npx pdf-to-printer ...`. The
+ * "pdf-to-printer" package has no CLI/bin, so npx could never find an
+ * executable to run and every print job failed with
+ * "npm error could not determine executable to run". We now call the
+ * library's print() function directly (no child_process involved).
  */
 const printPdfToPrinter = async (filePath, printerName) => {
   try {
-    // Check if pdf-to-printer is available
-    let ptpCommand = "pdf-to-printer";
-    try {
-      await execAsync(`where ${ptpCommand}`, { shell: "cmd.exe" });
-    } catch {
-      ptpCommand = "npx pdf-to-printer";
-    }
-
-    // Escape the printer name for Windows
-    const safePrinterName = printerName.replace(/"/g, '\\"');
-
-    const cmd = `${ptpCommand} "${filePath}" "${safePrinterName}" --silent`;
-
-    const { stdout, stderr } = await execAsync(cmd, {
-      shell: "cmd.exe",
-      timeout: 30000,
+    await ptpPrint(filePath, {
+      printer: printerName,
+      silent: true,
     });
 
-    if (stderr && !stderr.includes("DeprecationWarning")) {
-      console.warn("[Print] pdf-to-printer stderr:", stderr);
-    }
-
-    return { success: true, output: stdout };
+    return { success: true, output: `Sent to printer: ${printerName}` };
   } catch (err) {
     console.error("[Print] Failed to print:", err.message);
     return { success: false, error: err.message };

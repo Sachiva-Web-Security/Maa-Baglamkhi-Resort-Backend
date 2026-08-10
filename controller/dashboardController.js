@@ -171,8 +171,9 @@ const getTodayRevenue = async () => {
       total += await getTotal(`
         SELECT COALESCE(SUM(
           COALESCE(h.rate_per_hour, 0)
-          * GREATEST(1, CEIL(TIMESTAMPDIFF(MINUTE, b.start_time, b.end_time) / 60)))
-          + COALESCE(b.decoration_fee, 0),
+          * GREATEST(1, CEIL(TIMESTAMPDIFF(MINUTE, b.start_time, b.end_time) / 60))
+          + COALESCE(b.decoration_fee, 0)
+        ),
           0
         ) AS total
         FROM banquet_bookings b
@@ -188,8 +189,9 @@ const getTodayRevenue = async () => {
         total += await getTotal(`
           SELECT COALESCE(SUM(
             COALESCE(h.${rateCol}, 0)
-            * GREATEST(1, COALESCE(b.duration_hours, 1)))
-            + COALESCE(b.decoration_fee, 0),
+            * GREATEST(1, COALESCE(b.duration_hours, 1))
+            + COALESCE(b.decoration_fee, 0)
+          ),
             0
           ) AS total
           FROM banquet_bookings b
@@ -212,8 +214,9 @@ const getTodayRevenue = async () => {
         total += await getTotal(`
           SELECT COALESCE(SUM(
             COALESCE(h.${rateCol}, 0)
-            * GREATEST(1, COALESCE(b.duration_hours, 1)))
-            + COALESCE(b.decoration_fee, 0),
+            * GREATEST(1, COALESCE(b.duration_hours, 1))
+            + COALESCE(b.decoration_fee, 0)
+          ),
             0
           ) AS total
           FROM banquet_bookings b
@@ -458,8 +461,9 @@ const getTotalRevenueGenerated = async () => {
       total += await getTotal(`
         SELECT COALESCE(SUM(
           COALESCE(h.${rateCol}, 0)
-          * GREATEST(1, CEIL(TIMESTAMPDIFF(MINUTE, b.start_time, b.end_time) / 60)))
-          + COALESCE(b.decoration_fee, 0),
+          * GREATEST(1, CEIL(TIMESTAMPDIFF(MINUTE, b.start_time, b.end_time) / 60))
+          + COALESCE(b.decoration_fee, 0)
+        ),
           0
         ) AS total
         FROM banquet_bookings b
