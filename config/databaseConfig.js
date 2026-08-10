@@ -1,7 +1,7 @@
 require("dotenv").config({ quiet: process.env.NODE_ENV === "test" });
 
 const DEFAULT_DB_HOST = "127.0.0.1";
-const DEFAULT_DB_PORT = 3306;
+const DEFAULT_DB_PORT = 3301;
 const DEFAULT_DB_USER = "root";
 
 function parseDbPort(value) {

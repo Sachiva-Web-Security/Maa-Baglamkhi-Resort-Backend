@@ -202,25 +202,20 @@ const printKOT = async (data, printerKey = "KITCHEN_PRINTER") => {
   const receiptText = buildKOTReceipt(data);
 
   try {
-    // KITCHEN_PRINTER (HP inkjet): generate A5-size PDF that HP drivers understand.
-    // THERMAL_PRINTER: generate narrow 80mm thermal PDF.
+    // FIX: this used to branch on printer.type ("inkjet"/"a4"/"a5"/"laser")
+    // and, for page-based types, generate an A5-size PDF via
+    // generateInkjetKOTPdf(). In this deployment the physical kitchen
+    // printer is a narrow thermal roll printer, not an A5 sheet printer —
+    // sending it an A5 page meant every KOT got clipped on the right/bottom
+    // edge (only "KITCHEN OF..." and the first item line were visible,
+    // exactly matching the cut-off receipts reported in production).
     //
-    // FIX: this comparison used to be case-sensitive and only matched the
-    // exact strings "inkjet"/"a4". If printer.type came through as
-    // "Inkjet", "A5", or was missing/undefined, it silently fell through
-    // to the narrow 80mm thermal-PDF branch below — which is exactly what
-    // produces a tiny block of text on a full A5/A4 sheet from an inkjet
-    // printer (the driver has nothing to scale it up to). Normalizing the
-    // type here makes routing reliable regardless of casing.
-    const printerType = String(printer?.type || "").trim().toLowerCase();
-    const isPageBasedPrinter = ["inkjet", "a4", "a5", "laser"].includes(printerType);
-
-    let pdfResult;
-    if (isPageBasedPrinter) {
-      pdfResult = await generateInkjetKOTPdf(data, printer.paperSize || "A5");
-    } else {
-      pdfResult = await generateThermalPdfFromText(receiptText);
-    }
+    // KOT tickets are always narrow receipts in this app (see buildKOTHtml
+    // on the frontend, which already renders correctly at 80mm), so we now
+    // always generate the narrow thermal-width PDF for KOT prints instead
+    // of branching on printer.type. generateInkjetKOTPdf is left in place
+    // (unused here) in case a genuine A5/A4 KOT printer is needed later.
+    const pdfResult = await generateThermalPdfFromText(receiptText);
 
     // Send to printer
     const printResult = await printPdfToPrinter(pdfResult.filePath, printer.name);

@@ -50,6 +50,12 @@ const THEME = {
   white: "#FFFFFF",
 };
 
+// ─── Fixed resort details ──────────────────────────────────────────────────
+const RESORT = {
+  addressLine: "Maa Baglamukhi mandir road Nalkheda, District: Agar Malwa 465445",
+  gstin: "23AVDPR2928J1ZG",
+};
+
 const INR = "₹";
 
 const formatINR = (value) => {
@@ -246,15 +252,15 @@ const generateRestaurantInvoicePdf = async (bill) => {
     doc.font("Helvetica")
       .fontSize(10)
       .fillColor(THEME.inkSoft)
-      .text(`📞  ${phone}`, CONTENT.x + 12, cursorY + 46);
+      .text(`Phone: ${phone}`, CONTENT.x + 12, cursorY + 46);
     doc.font("Helvetica")
       .fontSize(10)
       .fillColor(THEME.inkSoft)
-      .text(`👤  Waiter: ${waiter}`, CONTENT.x + 12, cursorY + 62);
+      .text(`Waiter: ${waiter}`, CONTENT.x + 12, cursorY + 62);
     doc.font("Helvetica")
       .fontSize(10)
       .fillColor(THEME.inkSoft)
-      .text(`🪑  ${entityLabel} ${tableOrRoom}`, CONTENT.x + 12, cursorY + 78);
+      .text(`${entityLabel}: ${tableOrRoom}`, CONTENT.x + 12, cursorY + 78);
 
     // Service details card
     const card2X = CONTENT.x + halfW + 12;
@@ -432,7 +438,7 @@ const generateRestaurantInvoicePdf = async (bill) => {
 
     // ── FOOTER ─────────────────────────────────────────────────────────────
     // Thank-you band
-    const footerY = PAGE.height - 60;
+    const footerY = PAGE.height - 72;
     doc.save().strokeColor(THEME.line).lineWidth(1)
       .moveTo(CONTENT.x, footerY - 12).lineTo(CONTENT.x + CONTENT.w, footerY - 12).stroke().restore();
 
@@ -441,11 +447,11 @@ const generateRestaurantInvoicePdf = async (bill) => {
       .fillColor(THEME.primary)
       .text("Thank you for dining with us!", CONTENT.x, footerY, { width: CONTENT.w, align: "center" });
 
-    doc.font("Helvetica-Bold")
+    doc.font("Helvetica")
       .fontSize(8)
       .fillColor(THEME.muted)
       .text(
-        "Maa Baglamukhi Resort · Restaurant & POS Billing · Computer-generated invoice, no signature required.",
+        `${RESORT.addressLine}  ·  GSTIN: ${RESORT.gstin}`,
         CONTENT.x,
         footerY + 16,
         { width: CONTENT.w, align: "center" },

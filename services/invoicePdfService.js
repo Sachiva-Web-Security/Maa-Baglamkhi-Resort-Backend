@@ -71,12 +71,12 @@ const formatINR = (value) => {
 // as simple constants — swap them here if the resort's details ever change.
 const RESORT = {
   name: "MAA BAGLAMUKHI RESORT",
-  addressLine1: "Maa Baglamukhi Mandir Raod, Nalkheda",
-  addressLine2: "Agar Malwa, 465445",
+  addressLine1: "Maa Baglamukhi Mandir Road, Nalkheda",
+  addressLine2: "Maa Baglamukhi mandir road Nalkheda, District: Agar Malwa 465445",
   phone: "9522238777, 9522239777",
   email: "maabaglamukhiresort@gmail.com",
   website: "www.maabaglamukhiresort.com",
-  gstin: "23AVDPR2828J1ZG",
+  gstin: "23AVDPR2928J1ZG",
 };
 
 /**
@@ -207,13 +207,13 @@ const drawTaxInvoice = (doc, booking) => {
   // Column layout
   const col = {
     date: PAGE_LEFT,
-    particulars: PAGE_LEFT + 62,
-    tariff: PAGE_LEFT + 242,
-    disc: PAGE_LEFT + 298,
-    taxable: PAGE_LEFT + 343,
-    sgst: PAGE_LEFT + 398,
-    cgst: PAGE_LEFT + 453,
-    total: PAGE_LEFT + 508,
+    particulars: PAGE_LEFT + 55,
+    tariff: PAGE_LEFT + 195,
+    disc: PAGE_LEFT + 250,
+    taxable: PAGE_LEFT + 295,
+    sgst: PAGE_LEFT + 350,
+    cgst: PAGE_LEFT + 405,
+    total: PAGE_LEFT + 460,
   };
   const colEnds = [
     col.date, col.particulars, col.tariff, col.disc, col.taxable, col.sgst, col.cgst, col.total, PAGE_RIGHT,
@@ -242,6 +242,8 @@ const drawTaxInvoice = (doc, booking) => {
   doc.font("Helvetica-Bold").fontSize(11).text(RESORT.name, PAGE_LEFT, resortY, { width: BOX_W, align: "center" });
   y += 14;
   doc.font("Helvetica").fontSize(8).text("Your Stay, Our Blessing", PAGE_LEFT, y, { width: BOX_W, align: "center" });
+  y += 11;
+  doc.font("Helvetica").fontSize(8).text(RESORT.addressLine2, PAGE_LEFT, y, { width: BOX_W, align: "center" });
   y += 11;
   doc.font("Helvetica").fontSize(8).text(`Contact: ${RESORT.phone} | Email: ${RESORT.email}`, PAGE_LEFT, y, { width: BOX_W, align: "center" });
   y += 11;
