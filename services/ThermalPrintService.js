@@ -17,7 +17,19 @@
  */
 
 const PrintConfig = require("../PrintConfig");
-const { printPdfToPrinter, generateThermalPdf } = require("./PrintUtils");
+const { printPdfToPrinter, generateThermalPdf, THERMAL_CHARS_PER_LINE } = require("./PrintUtils");
+
+// FIX (blank space on printed KOT/receipts): the kitchen/thermal printer's
+// Windows driver has 3 registered paper forms — two fixed-length sheets
+// (210mm, 297mm) and one continuous-roll form (3276mm), confirmed via
+// `getPrinters()` from pdf-to-printer. Setting the roll form as default
+// through Windows' "Printing Preferences" GUI only changes the
+// *interactive* default; our silent/headless print jobs don't pick that
+// up and fall back to a fixed-length sheet form that's longer than our
+// content, so the driver pads the leftover length with blank paper before
+// the content prints. Passing this exact form name to printPdfToPrinter on
+// every job forces the roll form regardless of the GUI setting.
+const THERMAL_PAPER_SIZE = "Printer 80(72.1) x 3276 mm";
 
 // ─── ESC/POS Command Constants ────────────────────────────────────────────────
 
@@ -59,13 +71,19 @@ const formatTime = (date) => {
   return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
 };
 
-const centerText = (text, maxChars = 48) => {
+// FIX (hotel name off-center): these used to default to a hardcoded 48
+// chars, but generateThermalPdf in PrintUtils actually wraps at ~34 chars
+// per line on this printer's real content width — the mismatch is why
+// "centered" text was landing shifted toward the right edge. Both now
+// default to THERMAL_CHARS_PER_LINE, imported from PrintUtils, so padding
+// is calculated against the printer's real line width.
+const centerText = (text, maxChars = THERMAL_CHARS_PER_LINE) => {
   const textLen = String(text).length;
   const padding = Math.max(0, Math.floor((maxChars - textLen) / 2));
   return " ".repeat(padding) + text;
 };
 
-const divider = (char = "-", maxChars = 48) => char.repeat(maxChars);
+const divider = (char = "-", maxChars = THERMAL_CHARS_PER_LINE) => char.repeat(maxChars);
 
 // ─── Receipt Builders ────────────────────────────────────────────────────────
 
@@ -89,8 +107,8 @@ const buildKOTReceipt = (data) => {
   const lines = [];
 
   // Header
-  lines.push(centerText(hotelName, 48));
-  lines.push(centerText("******** KITCHEN COPY ********", 48));
+  lines.push(centerText(hotelName));
+  lines.push(centerText("******** KITCHEN COPY ********"));
   lines.push(divider());
 
   // Order info
@@ -163,8 +181,8 @@ const buildPaymentReceipt = (data) => {
 
   const lines = [];
 
-  lines.push(centerText(hotelName, 48));
-  lines.push(centerText(paymentType.toUpperCase() + " RECEIPT", 48));
+  lines.push(centerText(hotelName));
+  lines.push(centerText(paymentType.toUpperCase() + " RECEIPT"));
   lines.push(divider());
 
   if (receiptNo) lines.push(`No   : ${receiptNo}`);
@@ -177,15 +195,15 @@ const buildPaymentReceipt = (data) => {
   if (roomNo) lines.push(`Room  : ${roomNo}`);
 
   lines.push(divider());
-  lines.push(centerText(paymentType.toUpperCase(), 48));
-  lines.push(centerText(`Rs. ${formatCurrency(amount)}`, 48));
+  lines.push(centerText(paymentType.toUpperCase()));
+  lines.push(centerText(`Rs. ${formatCurrency(amount)}`));
   lines.push(divider());
 
   lines.push(`Method : ${method}`);
   if (notes) lines.push(`Note   : ${notes}`);
 
   lines.push(divider());
-  lines.push(centerText("Thank You!", 48));
+  lines.push(centerText("Thank You!"));
   lines.push("");
 
   return lines.join("\n");
@@ -217,8 +235,10 @@ const printKOT = async (data, printerKey = "KITCHEN_PRINTER") => {
     // (unused here) in case a genuine A5/A4 KOT printer is needed later.
     const pdfResult = await generateThermalPdfFromText(receiptText);
 
-    // Send to printer
-    const printResult = await printPdfToPrinter(pdfResult.filePath, printer.name);
+    // FIX (blank space): force the printer's continuous-roll paper form
+    // (see THERMAL_PAPER_SIZE comment above) so the driver doesn't pad our
+    // exact-size PDF onto a longer fixed-length sheet form.
+    const printResult = await printPdfToPrinter(pdfResult.filePath, printer.name, THERMAL_PAPER_SIZE);
 
     return {
       success: printResult.success,
@@ -248,7 +268,8 @@ const printReceipt = async (printType, data, printerKey = "THERMAL_PRINTER") => 
 
   try {
     const pdfResult = await generateThermalPdfFromText(receiptText);
-    const printResult = await printPdfToPrinter(pdfResult.filePath, printer.name);
+    // FIX (blank space): same fix as printKOT — force the roll paper form.
+    const printResult = await printPdfToPrinter(pdfResult.filePath, printer.name, THERMAL_PAPER_SIZE);
 
     return {
       success: printResult.success,
@@ -408,7 +429,8 @@ const generateInkjetKOTPdf = async (data, paperSize = "A5") => {
 const sendToPrinter = async (escPosBuffer, printer) => {
   try {
     const pdfResult = await generateThermalPdf(escPosBuffer, printer);
-    const printResult = await printPdfToPrinter(pdfResult.filePath, printer.name);
+    // FIX (blank space): same fix as printKOT — force the roll paper form.
+    const printResult = await printPdfToPrinter(pdfResult.filePath, printer.name, THERMAL_PAPER_SIZE);
 
     return {
       success: printResult.success,

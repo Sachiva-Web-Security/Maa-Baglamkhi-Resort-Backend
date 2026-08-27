@@ -21,6 +21,18 @@
  * executable to run"), and every KOT/print job failed and retried until it
  * hit the retry limit. printPdfToPrinter now calls the library's own
  * print() function directly instead of shelling out.
+ *
+ * FIX (thermal page sizing): generateThermalPdf previously estimated the
+ * page height using a rough "chars per line" guess based on the default
+ * FONT_SIZE, and it wrapped lines only implicitly by letting pdfkit's
+ * `.text()` auto-wrap. That estimate didn't match Courier-Bold's real glyph
+ * width, so the computed page height was often taller than the actual
+ * wrapped content — the printer then received a page with extra blank
+ * space at the bottom. generateThermalPdf now manually wraps every line to
+ * an exact CHARS_PER_LINE (based on Courier's real ~6pt-per-char width),
+ * computes the page height directly from the number of wrapped lines, and
+ * draws each line at a fixed y with lineBreak disabled — so the page is
+ * sized to exactly the content, no more, no less.
  */
 
 const path = require("path");
@@ -458,55 +470,137 @@ const generateA4InvoicePdf = (invoiceData) => {
 
 /**
  * Generate a thermal receipt PDF (mimics 80mm thermal paper).
+ *
  * @param {Buffer|null} escPosBuffer - raw ESC/POS buffer (unused, kept for compat)
  * @param {object|null} printer - printer config object (unused, kept for compat)
  * @param {string} textContent - plain text content to render
+ *
+ * FIX (blank space bug): the old version guessed the page height from a
+ * rough "chars per line" estimate and let pdfkit auto-wrap text inside
+ * `.text()`. That estimate never matched Courier-Bold's real character
+ * width, so the page pdfkit created was consistently taller than the text
+ * actually rendered — the printer then had to fill the extra vertical
+ * space with blank paper. This version:
+ *   1. Manually wraps every line to an exact CHARS_PER_LINE, computed from
+ *      Courier's real ~6pt-per-glyph width at FONT_SIZE.
+ *   2. Sizes the PDF page height directly from the number of wrapped lines
+ *      (wrappedLines.length * LINE_HEIGHT + margins) — no guessing.
+ *   3. Draws each wrapped line at a fixed y position with lineBreak
+ *      disabled, so pdfkit can't re-wrap (and therefore can't silently
+ *      grow) the content underneath us.
+ * Net effect: the PDF page is exactly as tall as the content, so the
+ * printer prints only the content — no leftover blank paper.
  */
+// ─── Thermal layout constants (module scope so they can be exported and
+// reused by callers, e.g. ThermalPrintService, which needs the same
+// CHARS_PER_LINE to correctly center text before it's handed to
+// generateThermalPdf below) ────────────────────────────────────────────────
+
+// 80mm thermal paper = 226.77 points
+// Printer printable width ≈ 72.1mm = 204.38 points
+const THERMAL_PAGE_WIDTH = 226.77;
+const THERMAL_MARGIN = {
+  top: 6,
+  bottom: 6,
+  left: 10,
+  right: 10,
+};
+const THERMAL_CONTENT_WIDTH = THERMAL_PAGE_WIDTH - THERMAL_MARGIN.left - THERMAL_MARGIN.right;
+const THERMAL_FONT_SIZE = 10;
+const THERMAL_LINE_HEIGHT = 13;
+
+// Courier is a fixed-width font — at 10pt each glyph is ~6pt wide. Using
+// the real glyph width (instead of a generic ratio) is what keeps
+// THERMAL_CHARS_PER_LINE accurate.
+const THERMAL_CHAR_WIDTH = 6;
+
+// FIX (hotel name printing off-center): buildKOTReceipt/buildPaymentReceipt
+// in ThermalPrintService were centering text assuming a 48-character-wide
+// line, but generateThermalPdf actually only fits ~34 characters per line
+// on this printer's real content width. That mismatch meant centerText()
+// added padding sized for a 48-char line, which is too much for the
+// printer's real 34-char line, so the "centered" text landed shifted
+// toward the right edge (and sometimes got wrapped/cut) instead of
+// centered. Exporting THERMAL_CHARS_PER_LINE lets ThermalPrintService pad
+// against the printer's actual line width instead of a guessed constant.
+const THERMAL_CHARS_PER_LINE = Math.max(20, Math.floor(THERMAL_CONTENT_WIDTH / THERMAL_CHAR_WIDTH));
+
 const generateThermalPdf = (escPosBuffer, printer, textContent = "") => {
   ensureDir(THERMAL_PDF_DIR);
 
   const fileName = `thermal_${Date.now()}.pdf`;
   const filePath = path.join(THERMAL_PDF_DIR, fileName);
 
-  // For thermal printers, we generate a narrow PDF (80mm = ~227pt)
-  const PAGE_WIDTH = 260;
-const MARGIN = { top: 8, bottom: 8, left: 5, right: 5 };
-const CONTENT_WIDTH = PAGE_WIDTH - MARGIN.left - MARGIN.right;
-const FONT_SIZE = 11;
+  const PAGE_WIDTH = THERMAL_PAGE_WIDTH;
+  const MARGIN = THERMAL_MARGIN;
+  const CONTENT_WIDTH = THERMAL_CONTENT_WIDTH;
+  const FONT_SIZE = THERMAL_FONT_SIZE;
+  const LINE_HEIGHT = THERMAL_LINE_HEIGHT;
 
-  // FIX: this used to be a fixed [227, 9999] page. A 9999pt-tall page is
-  // ~139 inches — most Windows/inkjet print drivers can't handle that as a
-  // real page, so they "shrink to fit" it onto your actual A4/A5 paper,
-  // which is exactly why the print came out as one tiny block of text.
-  // Instead we now measure the real content and size the page to match it,
-  // so the printer receives a page it can print at normal (1:1) size.
-  const CHARS_PER_LINE = Math.max(20, Math.floor(CONTENT_WIDTH / (FONT_SIZE * 0.6)));
-  const rawLines = String(textContent || "").split("\n");
-  let wrappedLineCount = 0;
+  const content = String(textContent || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+
+  const CHAR_WIDTH = THERMAL_CHAR_WIDTH;
+  const CHARS_PER_LINE = THERMAL_CHARS_PER_LINE;
+
+  // Wrap every line ourselves so we know the EXACT final line count before
+  // we ever create the PDFDocument — pdfkit's own auto-wrap can't be
+  // trusted to match this, since it wraps by measured glyph width, not by
+  // our CHARS_PER_LINE estimate, and the two can disagree.
+  const rawLines = content.split("\n");
+  const wrappedLines = [];
   for (const line of rawLines) {
-    wrappedLineCount += line.length === 0 ? 1 : Math.ceil(line.length / CHARS_PER_LINE);
+    if (!line) {
+      wrappedLines.push("");
+      continue;
+    }
+    let remaining = line;
+    while (remaining.length > CHARS_PER_LINE) {
+      wrappedLines.push(remaining.substring(0, CHARS_PER_LINE));
+      remaining = remaining.substring(CHARS_PER_LINE);
+    }
+    wrappedLines.push(remaining);
   }
-  const pageHeight = Math.max(
-    150,
-    MARGIN.top + MARGIN.bottom + wrappedLineCount * LINE_HEIGHT + 20, // +20 buffer
-  );
+
+  // Calculate EXACT page height from content — no 9999pt page, no fixed
+  // 297mm height, just margins + (line count * line height).
+  const contentHeight = wrappedLines.length * LINE_HEIGHT;
+  const pageHeight = Math.max(60, MARGIN.top + contentHeight + MARGIN.bottom + 4);
+
+  console.log(`[Thermal PDF] lines=${wrappedLines.length}, height=${pageHeight}pt`);
 
   const doc = new PDFDocument({
     size: [PAGE_WIDTH, pageHeight],
-    margin: MARGIN,
+    margins: MARGIN,
+    autoFirstPage: true,
   });
 
   const stream = fs.createWriteStream(filePath);
 
   return new Promise((resolve, reject) => {
-    stream.on("finish", () => resolve({ filePath, fileName }));
+    stream.on("finish", () => {
+      resolve({
+        filePath,
+        fileName,
+        pageWidth: PAGE_WIDTH,
+        pageHeight,
+        lines: wrappedLines.length,
+      });
+    });
     stream.on("error", reject);
     doc.pipe(stream);
 
-    doc.fillColor("#000000").fontSize(FONT_SIZE).font("Courier-Bold");
-    const lines = textContent.split("\n");
-    for (const line of lines) {
-      doc.text(line, { width: CONTENT_WIDTH });
+    doc.fillColor("#000000").font("Courier").fontSize(FONT_SIZE);
+
+    let y = MARGIN.top;
+    for (const line of wrappedLines) {
+      doc.text(line, MARGIN.left, y, {
+        width: CONTENT_WIDTH,
+        height: LINE_HEIGHT,
+        lineBreak: false,
+      });
+      y += LINE_HEIGHT;
     }
 
     doc.end();
@@ -615,12 +709,45 @@ const extractTextFromEscPos = (buffer) => {
  * "npm error could not determine executable to run". We now call the
  * library's print() function directly (no child_process involved).
  */
-const printPdfToPrinter = async (filePath, printerName) => {
+const printPdfToPrinter = async (filePath, printerName, paperSize = null) => {
   try {
-    await ptpPrint(filePath, {
+    // FIX (blank space at print time): the generated PDF's page is already
+    // sized exactly to the content (see generateThermalPdf). But by
+    // default, the Windows print driver (via SumatraPDF, which
+    // pdf-to-printer uses under the hood) will "fit"/scale our small page
+    // onto whatever paper size is configured as default for the printer —
+    // if that default is longer than our content (e.g. a fixed roll
+    // length or A4), the driver stretches/pads our page to fill it, which
+    // is what shows up as blank space above/below the printed content even
+    // though the PDF file itself is correct. scale: "noscale" tells the
+    // driver to print the PDF at its own exact size instead of
+    // fitting/padding it onto the printer's configured default page.
+    //
+    // FIX (root cause of the blank-space issue on the kitchen printer):
+    // its driver has 3 registered paper forms — two fixed-length sheets
+    // (210mm, 297mm) and one continuous-roll form (3276mm). Setting the
+    // 3276mm form as default via the GUI ("Printing Preferences") only
+    // changes the *interactive* default — headless/silent print jobs sent
+    // through SumatraPDF don't pick that up and fall back to the driver's
+    // original fixed-length form, which is longer than our content, so the
+    // driver pads the leftover length with blank paper.
+    //
+    // We can't hardcode that roll-form name here because this function
+    // also prints A4 invoices to other printers that don't have it — so
+    // paperSize is an optional 3rd argument: callers that know they're
+    // printing to a roll-paper printer (e.g. ThermalPrintService) pass the
+    // exact form name from getPrinters(), and everything else (A4
+    // invoices) is unaffected and keeps using the printer's own default.
+    const options = {
       printer: printerName,
       silent: true,
-    });
+      scale: "noscale",
+    };
+    if (paperSize) {
+      options.paperSize = paperSize;
+    }
+
+    await ptpPrint(filePath, options);
 
     return { success: true, output: `Sent to printer: ${printerName}` };
   } catch (err) {
@@ -681,4 +808,5 @@ module.exports = {
   hexToRgb,
   gradientFill,
   drawRoundedRect,
+  THERMAL_CHARS_PER_LINE,
 };
