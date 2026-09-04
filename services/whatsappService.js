@@ -516,10 +516,93 @@ const sendInvoiceNotifications = async (invoice, attachment, options = {}) => {
   };
 };
 
+const buildBookingDetailsBlock = (booking) => {
+  const lines = [];
+
+  // Booking info
+  if (booking.bookingNo) lines.push(`Booking No: ${booking.bookingNo}`);
+  if (booking.bookingType) lines.push(`Booking Type: ${booking.bookingType}`);
+
+  // Stay dates
+  if (booking.checkIn) lines.push(`Check-In: ${formatDateShort(booking.checkIn)}`);
+  if (booking.checkOut) lines.push(`Check-Out: ${formatDateShort(booking.checkOut)}`);
+  if (booking.expectedArrivalTime) lines.push(`Expected Arrival: ${booking.expectedArrivalTime}`);
+  if (booking.expectedDepartureTime) lines.push(`Expected Departure: ${booking.expectedDepartureTime}`);
+
+  // Room details - ONLY room type/category, explicitly NO room number
+  if (booking.roomCategory || booking.roomType) {
+    lines.push(`Room Type: ${booking.roomCategory || booking.roomType}`);
+  }
+  if (booking.noOfRooms) lines.push(`No. of Rooms: ${booking.noOfRooms}`);
+  if (booking.guestCapacity) lines.push(`Guest Capacity: ${booking.guestCapacity}`);
+
+  // Payment details - show all financial info clearly
+  const totalAmount = Number(booking.totalAmount || booking.total || 0);
+  const paidAmount = booking.paidAmount != null ? Number(booking.paidAmount) : Number(booking.advanceAmount || 0);
+  const remainingAmount = booking.remainingAmount != null
+    ? Number(booking.remainingAmount)
+    : Math.max(totalAmount - paidAmount, 0);
+
+  if (totalAmount > 0) lines.push(`Total Amount: ₹${totalAmount.toFixed(2)}`);
+  if (paidAmount > 0) lines.push(`Advance Paid: ₹${paidAmount.toFixed(2)}`);
+  if (remainingAmount > 0) lines.push(`Balance Due: ₹${remainingAmount.toFixed(2)}`);
+  if (booking.paymentMode) lines.push(`Payment Mode: ${booking.paymentMode}`);
+  if (booking.paymentStatus) lines.push(`Payment Status: ${booking.paymentStatus}`);
+
+  // Additional details
+  if (booking.gstNumber) lines.push(`GST Number: ${booking.gstNumber}`);
+  if (booking.reference) lines.push(`Reference: ${booking.reference}`);
+
+  return lines.join("\n");
+};
+
+const sendBookingConfirmation = async (booking, options = {}) => {
+  const customerNumber = options.customerNumber || booking.phone || booking.mobileNumber || "";
+  const adminNumber = options.adminNumber || "";
+  const guestName = booking.guestName || "Valued Guest";
+
+  const detailsBlock = buildBookingDetailsBlock(booking);
+
+  const customerMessage =
+    options.customerMessage ||
+    `Dear ${guestName},\n\nThank you for choosing Maa Baglamukhi Resort!\n\nYour booking has been confirmed. Here are your booking details:\n\n${detailsBlock}\n\nWe look forward to welcoming you!\n\nFor any queries, please contact us.\n\nRegards,\nMaa Baglamukhi Resort`;
+
+  const adminMessage =
+    options.adminMessage ||
+    `New booking confirmed!\nGuest: ${guestName}\nPhone: ${formatPhoneDisplay(customerNumber)}\n${detailsBlock}`;
+
+  let customerWa = { skipped: true, reason: "No customer phone number" };
+  if (customerNumber) {
+    customerWa = await sendWhatsAppMessage({ number: customerNumber, message: customerMessage });
+  }
+
+  let customerSms = { skipped: true, reason: "No customer phone number" };
+  if (customerNumber) {
+    customerSms = await sendSmsMessage({ number: customerNumber, message: customerMessage });
+  }
+
+  let adminWa = { skipped: true, reason: "Admin number not configured" };
+  if (adminNumber) {
+    adminWa = await sendWhatsAppMessage({ number: adminNumber, message: adminMessage });
+  }
+
+  let adminSms = { skipped: true, reason: "Admin number not configured" };
+  if (adminNumber) {
+    adminSms = await sendSmsMessage({ number: adminNumber, message: adminMessage });
+  }
+
+  return {
+    customer: { whatsapp: customerWa, sms: customerSms },
+    admin: { whatsapp: adminWa, sms: adminSms },
+  };
+};
+
 module.exports = {
   normalizePhoneNumber,
   formatPhoneDisplay,
   sendWhatsAppMessage,
+  sendSNotification,
   sendSmsMessage,
   sendInvoiceNotifications,
+  sendBookingConfirmation,
 };
