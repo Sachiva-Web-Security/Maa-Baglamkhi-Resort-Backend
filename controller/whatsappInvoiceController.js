@@ -45,6 +45,7 @@ const round2 = (value) => Number((Number(value || 0)).toFixed(2));
  *     "customerMessage": "Your custom message",
  *     "adminNumber": "9876543210",
  *     "adminMessage": "Your custom admin message",
+ *     "sendConfirmation": true,       // <-- sends booking confirmation instead of invoice PDF
  *     "deviceToken": "...",
  *     // When provided, these fields override the DB-generated invoice so the
  *     // PDF and WhatsApp message use the SAME data the frontend is showing.
@@ -69,7 +70,134 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
       return res.status(400).json({ error: "Valid booking ID is required" });
     }
 
-    // 1. Fetch or generate the invoice — reuse existing if available
+    const sendConfirmation = req.body?.sendConfirmation === true;
+
+    if (sendConfirmation) {
+      // ─── Booking Confirmation Mode (text message, no PDF) ───
+      const bookingRow = await new Promise((resolve, reject) => {
+        db.query(
+          "SELECT * FROM bookings WHERE id = ?",
+          [bookingId],
+          (err, rows) => (err ? reject(err) : resolve(rows?.[0] || null)),
+        );
+      });
+
+      if (!bookingRow) {
+        return res.status(404).json({ error: "Booking not found" });
+      }
+
+      // Fetch advance payment info
+      let advanceAmount = 0;
+      try {
+        const advanceRows = await new Promise((resolve, reject) => {
+          db.query(
+            "SELECT amount FROM advance_payment WHERE booking_id = ? LIMIT 1",
+            [bookingId],
+            (err, rows) => (err ? reject(err) : resolve(rows)),
+          );
+        });
+        if (advanceRows.length) {
+          advanceAmount = Number(advanceRows[0].amount || 0);
+        }
+      } catch {
+        // advance_payment table may not exist; continue
+      }
+
+      // Map DB columns to the booking object shape expected by buildBookingDetailsBlock
+      const booking = {
+        ...bookingRow,
+        roomCategory: bookingRow.room_category || bookingRow.roomType || "",
+        noOfRooms: bookingRow.no_of_rooms || 1,
+        guestCapacity: bookingRow.guest_capacity || "",
+        advanceAmount,
+        paidAmount: advanceAmount,
+        totalAmount: Number(bookingRow.total_amount || bookingRow.total || 0),
+      };
+
+      // Override with frontend-provided data if available
+      if (req.body?.invoiceData && typeof req.body.invoiceData === "object") {
+        const fd = req.body.invoiceData;
+        if (fd.customerName) booking.guestName = fd.customerName;
+        if (fd.totalAmount !== undefined) booking.totalAmount = Number(fd.totalAmount);
+        if (fd.roomCategory) booking.roomCategory = fd.roomCategory;
+        if (fd.paymentStatus) booking.paymentStatus = fd.paymentStatus;
+        if (fd.paymentMode) booking.paymentMode = fd.paymentMode;
+      }
+
+      // Build a friendly confirmation message
+      const guestName = booking.guestName || "Valued Guest";
+      const bookingNo = booking.bookingNo || `#${bookingId}`;
+      const checkIn = booking.checkIn ? formatDateShort(booking.checkIn) : "";
+      const checkOut = booking.checkOut ? formatDateShort(booking.checkOut) : "";
+      const roomType = booking.roomCategory || booking.roomType || "";
+      const total = Number(booking.totalAmount || 0);
+      const advance = Number(booking.advanceAmount || booking.paidAmount || 0);
+      const balance = Math.max(total - advance, 0);
+      const bookingType = booking.bookingType || "";
+
+      let message = `✅ *Booking Confirmed!*\n\n`;
+      message += `Dear ${guestName},\n\n`;
+      message += `Your booking at *Maa Baglamukhi Resort* has been confirmed. Here are your booking details:\n\n`;
+
+      message += `📋 *Booking Details*\n`;
+      message += `Booking No: ${bookingNo}\n`;
+      if (bookingType) message += `Booking Type: ${bookingType}\n`;
+      if (checkIn) message += `Check-In: ${checkIn}\n`;
+      if (checkOut) message += `Check-Out: ${checkOut}\n`;
+      if (roomType) message += `Room Type: ${roomType}\n`;
+
+      message += `\n💰 *Payment Details*\n`;
+      if (total > 0) message += `Total Amount: ₹${total.toFixed(2)}\n`;
+      if (advance > 0) message += `Advance Paid: ₹${advance.toFixed(2)}\n`;
+      if (balance > 0) message += `Balance Due: ₹${balance.toFixed(2)}\n`;
+
+      message += `\nWe look forward to welcoming you!\n\n`;
+      message += `For any queries, please contact us.\n\n`;
+      message += `Regards,\nMaa Baglamukhi Resort`;
+
+      // Resolve customer number
+      let customerNumber = req.body?.customerNumber || booking.phone || booking.mobileNumber || "";
+      // Resolve admin number
+      let adminNumber = req.body?.adminNumber || "";
+      if (!adminNumber) {
+        try {
+          const adminRow = await new Promise((resolve, reject) => {
+            UserModel.findAdminWithPhone((err, row) => (err ? reject(err) : resolve(row)));
+          });
+          adminNumber = adminRow?.phone || "";
+        } catch { /* ignore */ }
+      }
+      if (!adminNumber && process.env.ADMIN_WHATSAPP_NUMBER) {
+        adminNumber = process.env.ADMIN_WHATSAPP_NUMBER;
+      }
+
+      const result = await WhatsAppService.sendBookingConfirmation(
+        { ...booking, guestName, bookingNo },
+        {
+          customerNumber,
+          adminNumber,
+          customerMessage: req.body?.customerMessage || message,
+        },
+      );
+
+      const customerWaOk = result?.customer?.whatsapp?.ok || result?.customer?.whatsapp?.skipped;
+      const customerSmsOk = result?.customer?.sms?.ok || result?.customer?.sms?.skipped;
+      const adminWaOk = !result?.admin?.whatsapp || result.admin.whatsapp.ok || result.admin.whatsapp.skipped;
+      const adminSmsOk = !result?.admin?.sms || result.admin.sms.ok || result.admin.sms.skipped;
+      const allOk = customerWaOk && customerSmsOk && adminWaOk && adminSmsOk;
+
+      return res.status(allOk ? 200 : 207).json({
+        message: allOk
+          ? "Booking confirmation sent to customer and admin via WhatsApp + SMS"
+          : "Booking confirmation sent with some failures",
+        bookingId,
+        bookingNo,
+        customer: { number: customerNumber, whatsapp: result?.customer?.whatsapp, sms: result?.customer?.sms },
+        admin: { number: adminNumber || "", whatsapp: result?.admin?.whatsapp, sms: result?.admin?.sms },
+      });
+    }
+
+    // ─── Default: Invoice PDF Mode (existing behavior) ───
     let invoice;
     try {
       const existing = await Invoice.getInvoiceByBookingId(bookingId);
