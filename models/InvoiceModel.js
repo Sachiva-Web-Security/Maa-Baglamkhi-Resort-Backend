@@ -178,10 +178,13 @@ const getBookingInvoiceBase = async (customerId) => {
         g.booking_status AS bookingStatus,
         COALESCE(a.amount, 0) AS paidAmount,
         COALESCE(a.discount_amount, 0) AS advanceDiscount,
-        GROUP_CONCAT(DISTINCT CAST(rt.room_number AS CHAR) ORDER BY rt.room_number SEPARATOR ', ') AS roomNumbers
+        GROUP_CONCAT(DISTINCT CAST(rt.room_number AS CHAR) ORDER BY rt.room_number SEPARATOR ', ') AS roomNumbers,
+        c.company_name AS companyName,
+        c.gstin AS companyGst
       FROM guests g
       LEFT JOIN advance_payment a ON a.booking_id = g.id
       LEFT JOIN room_tariff rt ON rt.booking_id = g.id
+      LEFT JOIN companies c ON c.booking_id = g.id
       WHERE g.id = ?
       GROUP BY
         g.id,
@@ -191,7 +194,9 @@ const getBookingInvoiceBase = async (customerId) => {
         g.check_out,
         g.booking_status,
         a.amount,
-        a.discount_amount
+        a.discount_amount,
+        c.company_name,
+        c.gstin
       LIMIT 1
     `,
     [customerId],
@@ -487,6 +492,9 @@ const buildInvoicePayload = async (customerId) => {
     customerName: booking.customerName || "Walk-in Guest",
     phone: booking.phone || "",
     roomNumber: roomNumbers.join(", "),
+    roomNumbers: roomNumbers.join(", "),
+    companyName: booking.companyName || "",
+    companyGstin: booking.companyGst || "",
     items,
     subtotal,
     tax,
