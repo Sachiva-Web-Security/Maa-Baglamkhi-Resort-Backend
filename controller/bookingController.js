@@ -360,34 +360,83 @@ exports.createGuest = (req, res) => {
     }
 
     const bookingId = result.insertId;
-    const wantsAutoInvoice =
-      String(req.body?.sendInvoice || "").toLowerCase() === "true" ||
-      req.body?.sendInvoice === true ||
-      req.body?.sendInvoice === 1;
 
-    // Auto-send WhatsApp invoice to customer + admin if requested.
-    // Runs in the background; does NOT block the response.
-    if (bookingId && wantsAutoInvoice) {
+    // Auto-send booking confirmation WhatsApp to customer + admin
+    if (bookingId) {
       setImmediate(async () => {
         try {
           const Invoice = require("../models/InvoiceModel");
-          const InvoicePdf = require("../services/invoicePdfService");
-          const WhatsApp = require("../services/whatsappService");
           const UserModel = require("../models/UserModel");
-
           const invoice = await Invoice.generateCustomerInvoice(bookingId);
           if (!invoice) return;
 
-          const pdf = await InvoicePdf.generateInvoicePdf(invoice);
-          const publicBase =
-            (process.env.PUBLIC_BASE_URL ||
-              process.env.PUBLIC_URL ||
-              process.env.CLIENT_URL ||
-              `http://localhost:${process.env.PORT || 5002}`
-            ).replace(/\/+$/, "");
-          const fileUrl = `${publicBase}/uploads/invoices/${pdf.fileName}`;
+          const guestName = invoice.customerName || "Valued Guest";
+          const bookingNo = invoice.bookingCode || `#${bookingId}`;
+          const fmtDate = (d) => {
+            if (!d) return "—";
+            const s = String(d);
+            if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
+            const dt = new Date(s);
+            if (isNaN(dt)) return s;
+            return `${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}/${dt.getFullYear()}`;
+          };
+          const checkIn = fmtDate(invoice.checkIn);
+          const checkOut = fmtDate(invoice.checkOut);
+          const roomType = invoice.roomCategory || invoice.roomType || "—";
+          const total = Number(invoice.totalAmount || 0);
 
-          // Resolve admin's WhatsApp number from their profile (register.phone)
+          let advanceAmount = 0;
+          try {
+            const advanceRows = await new Promise((resolve, reject) => {
+              db.query(
+                "SELECT amount FROM advance_payment WHERE booking_id = ? LIMIT 1",
+                [bookingId],
+                (err, rows) => (err ? reject(err) : resolve(rows)),
+              );
+            });
+            if (advanceRows.length) advanceAmount = Number(advanceRows[0].amount || 0);
+          } catch { /* ignore */ }
+
+          const balance = Math.max(total - advanceAmount, 0);
+          const formattedAdvance = advanceAmount > 0 ? `₹ ${advanceAmount.toFixed(0)}` : "—";
+          const formattedBalance = balance > 0 ? `₹ ${balance.toFixed(0)}` : "0";
+          const priceDisplay = total > 0 ? `₹ ${total.toFixed(0)} Par Day` : "—";
+
+          const customerMessage =
+            `*Hotel Name & City:* MAA BAGLAMUKHI RESORT, Nalkheda\n\n` +
+            `*Booking Details:*\n\n` +
+            `*Booking Id* ${bookingNo}\n` +
+            `*Guest Name:* ${guestName}\n` +
+            `*Guest Mobile No:* ${invoice.phone || "—"}\n` +
+            `*Booking Date:* ${checkIn}\n` +
+            `*Check-In Date:* ${checkIn}\n` +
+            `*Check-Out Date:* ${checkOut}\n` +
+            `Check in time 12:00am\n` +
+            `*Check Out Time* 11:00am\n` +
+            `*BOOKING CONFIRMATION*\n\n` +
+            `*Room Name:* ${roomType}\n` +
+            `*Rate Plan:* ${invoice.bookingType || "—"}\n` +
+            `*No of Rooms:* ${String(invoice.noOfRooms || 1).padStart(2, "0")}\n` +
+            `*Payment Mode:* ${invoice.paymentMode || "—"}\n` +
+            `*Price:* ${priceDisplay}\n` +
+            `*Advance payment:*\n ${formattedAdvance}\n` +
+            `Payment due ${formattedBalance}\n\n` +
+            `*Thank you for Booking Maa Baglamukhi Resort*`;
+
+          const adminMessage =
+            `✅ *New Booking Confirmed*\n\n` +
+            `Booking: ${bookingNo}\n` +
+            `Guest: ${guestName}\n` +
+            `Phone: ${invoice.phone || "—"}\n` +
+            `Room: ${roomType}\n` +
+            `Check-in: ${checkIn}\n` +
+            `Check-out: ${checkOut}\n` +
+            `Total: ₹ ${total.toFixed(2)}\n` +
+            `Advance: ${formattedAdvance}\n` +
+            `Balance: ${formattedBalance}\n` +
+            `Mode: ${invoice.paymentMode || "—"}`;
+
+          const customerNumber = invoice.phone || invoice.mobileNumber || "";
           let adminNumber = "";
           try {
             const adminRows = await new Promise((resolve, reject) => {
@@ -396,26 +445,17 @@ exports.createGuest = (req, res) => {
               );
             });
             adminNumber = adminRows?.[0]?.phone || "";
-          } catch (e) {
-            // ignore — service will return a "no admin number" reason
-          }
+          } catch { /* ignore */ }
 
-          await WhatsApp.sendInvoiceNotifications(
-            invoice,
-            { fileUrl, fileName: pdf.fileName, filePath: pdf.filePath },
-            { adminNumber },
-          );
-          if (process.env.NODE_ENV !== "test") {
-            console.log(
-              `[auto-whatsapp] invoice ${invoice.invoiceNo || bookingId} delivered`,
-            );
+          if (customerNumber) {
+            await WhatsAppService.sendWhatsAppMessage({ number: customerNumber, message: customerMessage });
           }
+          if (adminNumber) {
+            await WhatsAppService.sendWhatsAppMessage({ number: adminNumber, message: adminMessage });
+          }
+          console.log(`[auto-confirm] booking ${bookingId} confirmation sent`);
         } catch (autoErr) {
-          console.error(
-            "[auto-whatsapp] auto-send failed for booking",
-            bookingId,
-            autoErr.message || autoErr,
-          );
+          console.error("[auto-confirm] failed for booking", bookingId, autoErr.message || autoErr);
         }
       });
     }
@@ -1143,63 +1183,17 @@ exports.updateAdvance = (req, res) => {
         });
       }
 
-      // Respond immediately — invoice + WhatsApp run in the background so a
-      // slow PDF generator or WhatsApp API never blocks the booking save.
+      // Respond immediately — invoice PDF generation runs in background
       res.json({ message: "Payment Added + History Saved" });
 
+      // Generate invoice PDF in background (no WhatsApp auto-send to avoid duplicates)
       setImmediate(async () => {
         try {
           const invoice = await InvoiceModel.generateCustomerInvoice(Number(req.params.id));
           if (!invoice) return;
-          const pdf = await InvoicePdfService.generateInvoicePdf(invoice);
-          const publicBase =
-            (process.env.PUBLIC_BASE_URL ||
-              process.env.CLIENT_URL ||
-              `http://localhost:${process.env.PORT || 5002}`
-            ).replace(/\/+$/, "");
-          const fileUrl = `${publicBase}/uploads/invoices/${pdf.fileName}`;
-          const filePath = pdf.filePath;
-          const guestName = invoice.customerName || "Valued Guest";
-          const message = `Dear ${guestName},\n\nThank you for staying at Maa Baglamukhi Resort.\n\nYour invoice ${invoice.invoiceNo || ""} is attached.\nTotal: ₹${invoice.totalAmount?.toFixed(2) || "0.00"}\n\nRegards,\nMaa Baglamukhi Resort`;
-          const customer = WhatsAppService.normalizePhoneNumber(invoice.phone);
-          if (customer) {
-            await WhatsAppService.sendWhatsAppMessage({
-              number: customer,
-              message,
-              fileUrl,
-              filePath,
-              fileName: pdf.fileName,
-            });
-          }
-          // Resolve admin phone from register table (not from env/ADMIN_WHATSAPP_NUMBER)
-          let adminNumber = "";
-          try {
-            const adminRows = await new Promise((resolve, reject) => {
-              UserModel.findAdminUser((err, rows) =>
-                err ? reject(err) : resolve(rows),
-              );
-            });
-            adminNumber = adminRows?.[0]?.phone || "";
-          } catch (e) {
-            // ignore — service will return a "no admin number" reason
-          }
-
-          await WhatsAppService.sendInvoiceNotifications(
-            invoice,
-            { fileUrl, fileName: pdf.fileName, filePath: pdf.filePath },
-            { adminNumber },
-          );
-          if (process.env.NODE_ENV !== "test") {
-            console.log(
-              `[auto-whatsapp] invoice ${invoice.invoiceNo || req.params.id} delivered`,
-            );
-          }
-        } catch (autoErr) {
-          console.error(
-            "[auto-whatsapp] fire-after-payment error for booking",
-            req.params.id,
-            autoErr.message || autoErr,
-          );
+          await InvoicePdfService.generateInvoicePdf(invoice);
+        } catch (pdfErr) {
+          console.error("[auto-pdf] invoice generation failed:", pdfErr.message);
         }
       });
 
