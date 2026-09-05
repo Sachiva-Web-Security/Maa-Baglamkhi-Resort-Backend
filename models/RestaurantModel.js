@@ -262,6 +262,9 @@ const ensureSchema = async () => {
         WHERE o.waiter_name IS NULL OR o.waiter_name = ''
       `);
 
+      // ── Add serviceCharge column to bills if missing ─────────────────────
+      await ensureColumn("bills", "serviceCharge", "DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER subtotal");
+
       schemaReady = true;
       console.log("[RestaurantModel] Schema bootstrap complete.");
     } finally {
@@ -291,6 +294,7 @@ const bootstrapLegacyBills = async () => {
         rb.customerName = b.customerName,
         rb.phone = b.phone,
         rb.subtotal = b.subtotal,
+        rb.serviceCharge = COALESCE(b.serviceCharge, 0),
         rb.gst = b.gst,
         rb.discount = COALESCE(b.discountAmount, 0),
         rb.total = b.total,
@@ -590,6 +594,7 @@ exports.getBills = (callback) => {
         b.customerName,
         b.phone,
         b.subtotal,
+        b.serviceCharge,
         b.gst,
         b.total,
         b.discountAmount,
@@ -634,6 +639,7 @@ exports.getBillById = (billId, callback) => {
         b.customerName,
         b.phone,
         b.subtotal,
+        b.serviceCharge,
         b.gst,
         b.total,
         b.discountAmount,
@@ -1065,8 +1071,8 @@ const createBillRecord = async (conn, data, options = {}) => {
 
   const sql = `
     INSERT INTO bills
-    (tableNumber, token_id, entityType, waiter_name, customerName, phone, subtotal, gst, total, discountAmount, paymentMethod, invoiceStatus, split_no, split_count)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    (tableNumber, token_id, entityType, waiter_name, customerName, phone, subtotal, serviceCharge, gst, total, discountAmount, paymentMethod, invoiceStatus, split_no, split_count)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `;
 
   const [result] = await conn.query(sql, [
@@ -1077,6 +1083,7 @@ const createBillRecord = async (conn, data, options = {}) => {
     data.customerName || null,
     data.phone || null,
     Number(data.subtotal || 0),
+    Number(data.serviceCharge || 0),
     Number(data.gst || 0),
     Number(data.total || 0),
     Number(data.discountAmount || 0),
@@ -1163,6 +1170,7 @@ const processBillPayment = async (data) => {
           SET customerName=?,
               phone=?,
               subtotal=?,
+              serviceCharge=?,
               gst=?,
               total=?,
               discountAmount=?,
@@ -1173,6 +1181,7 @@ const processBillPayment = async (data) => {
           data.customerName || billRow.customerName || null,
           data.phone || billRow.phone || null,
           Number(data.subtotal ?? billRow.subtotal ?? 0),
+          Number(data.serviceCharge ?? billRow.serviceCharge ?? 0),
           Number(data.gst ?? billRow.gst ?? 0),
           Number(data.total ?? billRow.total ?? 0),
           Number(data.discountAmount ?? billRow.discountAmount ?? 0),

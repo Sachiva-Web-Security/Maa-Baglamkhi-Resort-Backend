@@ -90,6 +90,7 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
       customerName: bill.customerName || "Walk-in Customer",
       phone: bill.phone || "",
       subtotal: round2(bill.subtotal || 0),
+      serviceCharge: round2(bill.serviceCharge || 0),
       gst: round2(bill.gst || 0),
       discountAmount: round2(bill.discountAmount || 0),
       total: round2(bill.total || 0),
@@ -140,6 +141,7 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
       ? new Date(invoiceForPdf.created_at).toISOString().slice(0, 10)
       : "N/A";
     const subtotalFormatted = formatINR(invoiceForPdf.subtotal);
+    const serviceChargeFormatted = formatINR(invoiceForPdf.serviceCharge || 0);
     const gstFormatted = formatINR(invoiceForPdf.gst);
     const discountFormatted = formatINR(invoiceForPdf.discountAmount);
     const totalFormatted = formatINR(invoiceForPdf.total);
@@ -162,6 +164,7 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
       `Items Ordered: ${itemCount}\n` +
       `Food Total: ₹ ${subtotalFormatted}\n` +
       `GST: ₹ ${gstFormatted}\n` +
+      `${invoiceForPdf.serviceCharge > 0 ? `Service Charge: ₹ ${serviceChargeFormatted}\n` : ""}` +
       `${invoiceForPdf.discountAmount > 0 ? `Discount: - ₹ ${discountFormatted}\n` : ""}` +
       `─────────────────────────────\n` +
       `Grand Total: ₹ ${totalFormatted}\n` +
@@ -185,6 +188,7 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
       `Items: ${itemCount}\n` +
       `Food Total: ₹ ${subtotalFormatted}\n` +
       `GST: ₹ ${gstFormatted}\n` +
+      `${invoiceForPdf.serviceCharge > 0 ? `Service Charge: ₹ ${serviceChargeFormatted}\n` : ""}` +
       `${invoiceForPdf.discountAmount > 0 ? `Discount: - ₹ ${discountFormatted}\n` : ""}` +
       `─────────────────────────────\n` +
       `Grand Total: ₹ ${totalFormatted}\n` +
