@@ -601,7 +601,6 @@ module.exports = {
   normalizePhoneNumber,
   formatPhoneDisplay,
   sendWhatsAppMessage,
-  sendSNotification,
   sendSmsMessage,
   sendInvoiceNotifications,
   sendBookingConfirmation,

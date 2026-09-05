@@ -177,8 +177,6 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
         `Balance: ${formattedBalance}\n` +
         `Mode: ${booking.paymentMode || "—"}`;
 
-      // Resolve customer number
-      let customerNumber = req.body?.customerNumber || booking.phone || booking.mobileNumber || "";
       // Resolve admin number
       let adminNumber = req.body?.adminNumber || "";
       if (!adminNumber) {
