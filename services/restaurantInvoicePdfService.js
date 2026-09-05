@@ -142,7 +142,8 @@ const generateRestaurantInvoicePdf = async (bill) => {
   const cgst = round2(gst / 2);
   const gstPercent = subtotal > 0 ? round2((gst / subtotal) * 100) : 2.5;
   const discount = round2(bill.discountAmount || bill.discount || 0);
-  const grandTotal = round2(subtotal + gst - discount);
+  const serviceCharge = round2(bill.serviceCharge || 0);
+  const grandTotal = round2(subtotal + gst + serviceCharge - discount);
   const items = Array.isArray(bill.items) ? bill.items : [];
   const isPaid = String(paymentStatus).toLowerCase() === "paid";
   const isPosted = String(paymentStatus).toLowerCase() === "posted to room";
@@ -395,11 +396,13 @@ const generateRestaurantInvoicePdf = async (bill) => {
       { label: "Subtotal", value: subtotal, bold: false },
       { label: `SGST (${gstPercent / 2}%)`, value: sgst, bold: false },
       { label: `CGST (${gstPercent / 2}%)`, value: cgst, bold: false },
+      { label: "Service Charge", value: serviceCharge, bold: false, hidden: serviceCharge === 0 },
       { label: "Discount", value: -discount, bold: false, muted: discount > 0 },
     ];
 
     let tY = totalsStartY + 4;
     totalsRows.forEach((row) => {
+      if (row.hidden) return;
       doc.font(row.bold ? "Helvetica-Bold" : "Helvetica-Bold")
         .fontSize(10)
         .fillColor(row.muted ? "#B91C1C" : THEME.inkSoft)

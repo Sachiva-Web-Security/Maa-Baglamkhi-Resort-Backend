@@ -542,6 +542,7 @@ exports.createBill = async (req, res) => {
         gst: Number(req.body.gst || 0),
         total: Number(req.body.total || 0),
         discountAmount: Number(req.body.discountAmount || req.body.discount || 0),
+        serviceCharge: Number(req.body.serviceCharge || 0),
         paymentMethod: req.body.paymentMethod || null,
         invoiceStatus: req.body.invoiceStatus || (req.body.paymentMethod ? "Paid" : "Generated"),
         splitNo: req.body.splitNo || null,
