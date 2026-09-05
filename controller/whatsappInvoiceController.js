@@ -144,25 +144,23 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
       const formattedBalance = balance > 0 ? `₹ ${balance.toFixed(0)}` : "0";
 
       const message =
-        `*Hotel Name & City:* MAA BAGLAMUKHI RESORT, Nalkheda\n\n` +
+        `✅ *Booking Confirmed!*\n\n` +
+        `*Resort:* MAA BAGLAMUKHI RESORT, Nalkheda\n\n` +
         `*Booking Details:*\n\n` +
-        `*Booking Id* ${bookingNo}\n` +
+        `*Booking ID:* ${bookingNo}\n` +
         `*Guest Name:* ${guestName}\n` +
-        `*Guest Mobile No:* ${customerNumber || "—"}\n` +
-        `*Booking Date:* ${checkIn || "—"}\n` +
-        `*Check-In Date:* ${checkIn || "—"}\n` +
-        `*Check-Out Date:* ${checkOut || "—"}\n` +
-        `Check in time 12:00am\n` +
-        `*Check Out Time* 11:00am\n` +
-        `*BOOKING CONFIRMATION*\n\n` +
-        `*Room Name:* ${roomType || "—"}\n` +
-        `*Rate Plan:* ${bookingType}\n` +
-        `*No of Rooms:* ${numRooms}\n` +
-        `*Payment Mode:* ${booking.paymentMode || "—"}\n` +
-        `*Price:* ${priceDisplay}\n` +
-        `*Advance payment:*\n ${formattedAdvance}\n` +
-        `Payment due ${formattedBalance}\n\n` +
-        `*Thank you for Booking Maa Baglamukhi Resort*`;
+        `*Mobile:* ${customerNumber || "—"}\n\n` +
+        `*Stay Details:*\n` +
+        `*Check-In:* ${checkIn || "—"} (from 12:00 AM)\n` +
+        `*Check-Out:* ${checkOut || "—"} (by 11:00 AM)\n` +
+        `*Room Type:* ${roomType || "—"}\n` +
+        `*Room No:* ${String(booking.roomNumber || "—")}\n\n` +
+        `*Payment Details:*\n` +
+        `*Total Amount:* ₹ ${total.toFixed(2)}\n` +
+        `*Advance Paid:* ${formattedAdvance}\n` +
+        `*Balance Due:* ${formattedBalance}\n` +
+        `*Payment Mode:* ${booking.paymentMode || "—"}\n\n` +
+        `Thank you for choosing Maa Baglamukhi Resort! 🙏`;
 
       const adminMessage =
         `✅ *New Booking Confirmed*\n\n` +

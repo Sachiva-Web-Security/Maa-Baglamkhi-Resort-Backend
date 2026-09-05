@@ -382,7 +382,32 @@ exports.createGuest = (req, res) => {
           };
           const checkIn = fmtDate(invoice.checkIn);
           const checkOut = fmtDate(invoice.checkOut);
-          const roomType = invoice.roomCategory || invoice.roomType || "—";
+
+          // Pull room type names from the tariff/inventory tables — the invoice
+          // model doesn't carry roomCategory / roomType, so we join directly.
+          const roomTypeRows = await new Promise((resolve, reject) => {
+            db.query(
+              `
+                SELECT DISTINCT hrc.name AS roomTypeName
+                FROM room_tariff rt
+                LEFT JOIN hotel_room_inventory hri
+                  ON CAST(hri.room_number AS CHAR) = CAST(rt.room_number AS CHAR)
+                LEFT JOIN hotel_room_categories hrc
+                  ON hrc.id = hri.category_id
+                WHERE rt.booking_id = ?
+                  AND hrc.name IS NOT NULL
+                ORDER BY rt.id ASC
+              `,
+              [bookingId],
+              (err, rows) => (err ? reject(err) : resolve(rows)),
+            );
+          });
+          const roomTypeList = roomTypeRows.map((r) => r.roomTypeName);
+          const roomType =
+            roomTypeList.length > 0
+              ? roomTypeList.join(", ")
+              : "—";
+          const roomNumbers = String(invoice.roomNumber || "").trim();
           const total = Number(invoice.totalAmount || 0);
 
           let advanceAmount = 0;
@@ -403,25 +428,23 @@ exports.createGuest = (req, res) => {
           const priceDisplay = total > 0 ? `₹ ${total.toFixed(0)} Par Day` : "—";
 
           const customerMessage =
-            `*Hotel Name & City:* MAA BAGLAMUKHI RESORT, Nalkheda\n\n` +
+            `✅ *Booking Confirmed!*\n\n` +
+            `*Resort:* MAA BAGLAMUKHI RESORT, Nalkheda\n\n` +
             `*Booking Details:*\n\n` +
-            `*Booking Id* ${bookingNo}\n` +
+            `*Booking ID:* ${bookingNo}\n` +
             `*Guest Name:* ${guestName}\n` +
-            `*Guest Mobile No:* ${invoice.phone || "—"}\n` +
-            `*Booking Date:* ${checkIn}\n` +
-            `*Check-In Date:* ${checkIn}\n` +
-            `*Check-Out Date:* ${checkOut}\n` +
-            `Check in time 12:00am\n` +
-            `*Check Out Time* 11:00am\n` +
-            `*BOOKING CONFIRMATION*\n\n` +
-            `*Room Name:* ${roomType}\n` +
-            `*Rate Plan:* ${invoice.bookingType || "—"}\n` +
-            `*No of Rooms:* ${String(invoice.noOfRooms || 1).padStart(2, "0")}\n` +
-            `*Payment Mode:* ${invoice.paymentMode || "—"}\n` +
-            `*Price:* ${priceDisplay}\n` +
-            `*Advance payment:*\n ${formattedAdvance}\n` +
-            `Payment due ${formattedBalance}\n\n` +
-            `*Thank you for Booking Maa Baglamukhi Resort*`;
+            `*Mobile:* ${invoice.phone || "—"}\n\n` +
+            `*Stay Details:*\n` +
+            `*Check-In:* ${checkIn} (from 12:00 AM)\n` +
+            `*Check-Out:* ${checkOut} (by 11:00 AM)\n` +
+            `*Room Type:* ${roomType}\n` +
+            `*Room No:* ${roomNumbers || "—"}\n\n` +
+            `*Payment Details:*\n` +
+            `*Total Amount:* ₹ ${total.toFixed(2)}\n` +
+            `*Advance Paid:* ${formattedAdvance}\n` +
+            `*Balance Due:* ${formattedBalance}\n` +
+            `*Payment Mode:* ${invoice.paymentMode || "—"}\n\n` +
+            `Thank you for choosing Maa Baglamukhi Resort! 🙏`;
 
           const adminMessage =
             `✅ *New Booking Confirmed*\n\n` +
@@ -429,6 +452,7 @@ exports.createGuest = (req, res) => {
             `Guest: ${guestName}\n` +
             `Phone: ${invoice.phone || "—"}\n` +
             `Room: ${roomType}\n` +
+            `Room No: ${roomNumbers || "—"}\n` +
             `Check-in: ${checkIn}\n` +
             `Check-out: ${checkOut}\n` +
             `Total: ₹ ${total.toFixed(2)}\n` +
