@@ -46,6 +46,7 @@ const ensureSchema = async () => {
   await ensureColumn("departure", "VARCHAR(20) DEFAULT NULL AFTER arrival");
   await ensureColumn("booking_status", "VARCHAR(50) DEFAULT 'Confirmed' AFTER departure");
   await ensureColumn("cancel_reason", "TEXT DEFAULT NULL AFTER booking_status");
+  await ensureColumn("booked_by", "VARCHAR(255) DEFAULT '' AFTER cancel_reason");
 
   const missingCodes = await runQuery(
     "SELECT id FROM guests WHERE booking_code IS NULL OR booking_code = '' ORDER BY id",
