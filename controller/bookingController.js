@@ -347,6 +347,11 @@ const updateRoomsForBooking = async (booking, nextStatus) => {
 };
 
 exports.createGuest = (req, res) => {
+  const bookedBy =
+    (req.user && (req.user.name || req.user.email)) ||
+    (req.body && (req.body.bookedBy || req.body.booked_by)) ||
+    "";
+
   GuestModel.createGuest(req.body, (err, result) => {
     if (err) {
       console.error("[createGuest] DB error:", err);
@@ -360,6 +365,16 @@ exports.createGuest = (req, res) => {
     }
 
     const bookingId = result.insertId;
+
+    // Record who created this booking (logged-in admin or walk-in fallback)
+    if (bookedBy && bookingId) {
+      setImmediate(() => {
+        db.query(
+          "UPDATE guests SET booked_by = ? WHERE id = ?",
+          [bookedBy, bookingId],
+        );
+      });
+    }
 
     // Auto-send booking confirmation WhatsApp to customer + admin
     if (bookingId) {
@@ -433,13 +448,12 @@ exports.createGuest = (req, res) => {
             `*Booking Details:*\n\n` +
             `*Booking ID:* ${bookingNo}\n` +
             `*Guest Name:* ${guestName}\n` +
+            `*Booked By:* ${bookedBy}\n` +
             `*Mobile:* ${invoice.phone || "—"}\n\n` +
             `*Stay Details:*\n` +
             `*Check-In:* ${checkIn} (from 12:00 AM)\n` +
             `*Check-Out:* ${checkOut} (by 11:00 AM)\n` +
-            `*Room Type:* ${roomType}\n` +
-            `*Room No:* ${roomNumbers || "—"}\n\n` +
-            `*Payment Details:*\n` +
+            `*Room Type:* ${roomType}\n\n*Payment Details:*\n` +
             `*Total Amount:* ₹ ${total.toFixed(2)}\n` +
             `*Advance Paid:* ${formattedAdvance}\n` +
             `*Balance Due:* ${formattedBalance}\n` +
