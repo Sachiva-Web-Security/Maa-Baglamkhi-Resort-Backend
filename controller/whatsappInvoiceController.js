@@ -124,7 +124,10 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
         if (fd.paymentMode) booking.paymentMode = fd.paymentMode;
       }
 
-      // Build a friendly confirmation message
+      // Resolve customer number
+      let customerNumber = req.body?.customerNumber || booking.phone || booking.mobileNumber || "";
+
+      // Build booking confirmation message
       const guestName = booking.guestName || "Valued Guest";
       const bookingNo = booking.bookingNo || `#${bookingId}`;
       const checkIn = booking.checkIn ? formatDateShort(booking.checkIn) : "";
@@ -134,26 +137,45 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
       const advance = Number(booking.advanceAmount || booking.paidAmount || 0);
       const balance = Math.max(total - advance, 0);
       const bookingType = booking.bookingType || "";
+      const numRooms = String(booking.noOfRooms || 1).padStart(2, "0");
 
-      let message = `✅ *Booking Confirmed!*\n\n`;
-      message += `Dear ${guestName},\n\n`;
-      message += `Your booking at *Maa Baglamukhi Resort* has been confirmed. Here are your booking details:\n\n`;
+      const priceDisplay = total > 0 ? `₹ ${total.toFixed(0)} Par Day` : "—";
+      const formattedAdvance = advance > 0 ? `₹ ${advance.toFixed(0)}` : "—";
+      const formattedBalance = balance > 0 ? `₹ ${balance.toFixed(0)}` : "0";
 
-      message += `📋 *Booking Details*\n`;
-      message += `Booking No: ${bookingNo}\n`;
-      if (bookingType) message += `Booking Type: ${bookingType}\n`;
-      if (checkIn) message += `Check-In: ${checkIn}\n`;
-      if (checkOut) message += `Check-Out: ${checkOut}\n`;
-      if (roomType) message += `Room Type: ${roomType}\n`;
+      const message =
+        `*Hotel Name & City:* MAA BAGLAMUKHI RESORT, Nalkheda\n\n` +
+        `*Booking Details:*\n\n` +
+        `*Booking Id* ${bookingNo}\n` +
+        `*Guest Name:* ${guestName}\n` +
+        `*Guest Mobile No:* ${customerNumber || "—"}\n` +
+        `*Booking Date:* ${checkIn || "—"}\n` +
+        `*Check-In Date:* ${checkIn || "—"}\n` +
+        `*Check-Out Date:* ${checkOut || "—"}\n` +
+        `Check in time 12:00am\n` +
+        `*Check Out Time* 11:00am\n` +
+        `*BOOKING CONFIRMATION*\n\n` +
+        `*Room Name:* ${roomType || "—"}\n` +
+        `*Rate Plan:* ${bookingType}\n` +
+        `*No of Rooms:* ${numRooms}\n` +
+        `*Payment Mode:* ${booking.paymentMode || "—"}\n` +
+        `*Price:* ${priceDisplay}\n` +
+        `*Advance payment:*\n ${formattedAdvance}\n` +
+        `Payment due ${formattedBalance}\n\n` +
+        `*Thank you for Booking Maa Baglamukhi Resort*`;
 
-      message += `\n💰 *Payment Details*\n`;
-      if (total > 0) message += `Total Amount: ₹${total.toFixed(2)}\n`;
-      if (advance > 0) message += `Advance Paid: ₹${advance.toFixed(2)}\n`;
-      if (balance > 0) message += `Balance Due: ₹${balance.toFixed(2)}\n`;
-
-      message += `\nWe look forward to welcoming you!\n\n`;
-      message += `For any queries, please contact us.\n\n`;
-      message += `Regards,\nMaa Baglamukhi Resort`;
+      const adminMessage =
+        `✅ *New Booking Confirmed*\n\n` +
+        `Booking: ${bookingNo}\n` +
+        `Guest: ${guestName}\n` +
+        `Phone: ${customerNumber}\n` +
+        `Room: ${roomType}\n` +
+        `Check-in: ${checkIn || "—"}\n` +
+        `Check-out: ${checkOut || "—"}\n` +
+        `Total: ₹ ${total.toFixed(2)}\n` +
+        `Advance: ${formattedAdvance}\n` +
+        `Balance: ${formattedBalance}\n` +
+        `Mode: ${booking.paymentMode || "—"}`;
 
       // Resolve customer number
       let customerNumber = req.body?.customerNumber || booking.phone || booking.mobileNumber || "";
@@ -177,6 +199,7 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
           customerNumber,
           adminNumber,
           customerMessage: req.body?.customerMessage || message,
+          adminMessage: adminMessage,
         },
       );
 
