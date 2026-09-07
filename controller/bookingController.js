@@ -468,10 +468,7 @@ exports.createGuest = (req, res) => {
             `• Balance Due: *${formattedBalance}*
 
 ` +
-
-` +
             `📌 *Important Notes:*
-` +
 ` +
             `• Your room number will be assigned at check-in.
 ` +
@@ -1475,3 +1472,4 @@ exports.getPaymentHistory = async (req, res) => {
     res.status(500).json(error);
   }
 };
+
