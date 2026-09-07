@@ -470,21 +470,18 @@ const sendInvoiceNotifications = async (invoice, attachment, options = {}) => {
 
   const customerMessage =
     options.customerMessage ||
-    `Dear ${guestName},\n\nThank you for staying at Maa Baglamukhi Resort.\n\nHere is your invoice ${invoiceNo}.\n${detailsBlock}\n\nPlease find the invoice attached.\n\nRegards,\nMaa Baglamukhi Resort`;
+    `Dear ${guestName},\n\nThank you for staying at Maa Baglamukhi Resort.\n\nHere is your invoice ${invoiceNo}.\n${detailsBlock}\n\nRegards,\nMaa Baglamukhi Resort`;
 
   const adminMessage =
     options.adminMessage ||
     `New invoice generated for booking ${invoiceNo}.\nGuest: ${guestName}\nPhone: ${formatPhoneDisplay(customerNumber)}\n${detailsBlock}`;
 
-  let customerWa = { skipped: true, reason: "No customer phone number" };
+  let customerWa = { skipped: true, reason: "PDF delivery disabled" };
   if (customerNumber) {
     customerWa = await sendWhatsAppMessage({
       number: customerNumber,
       message: customerMessage,
-      filePath: attachment?.filePath,
-      fileName: attachment?.fileName,
-      fileUrl: attachment?.fileUrl,
-      type: "document",
+      type: "text",
     });
   }
 
@@ -493,15 +490,12 @@ const sendInvoiceNotifications = async (invoice, attachment, options = {}) => {
     customerSms = await sendSmsMessage({ number: customerNumber, message: customerMessage });
   }
 
-  let adminWa = { skipped: true, reason: "Admin number not configured" };
+  let adminWa = { skipped: true, reason: "PDF delivery disabled" };
   if (adminNumber) {
     adminWa = await sendWhatsAppMessage({
       number: adminNumber,
       message: adminMessage,
-      filePath: attachment?.filePath,
-      fileName: attachment?.fileName,
-      fileUrl: attachment?.fileUrl,
-      type: "document",
+      type: "text",
     });
   }
 
