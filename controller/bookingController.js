@@ -1340,6 +1340,39 @@ exports.cancelBooking = async (req, res) => {
       ["Cancelled", cancelReason, req.params.id],
     );
 
+    const bookingAdvance = await new Promise((resolve) => {
+      query("SELECT amount, payment_mode FROM advance_payment WHERE booking_id = ? LIMIT 1", [req.params.id])
+        .then((rows) => resolve(rows[0] || null))
+        .catch(() => resolve(null));
+    });
+
+    const advanceAmount = Number(bookingAdvance?.amount || 0);
+    if (advanceAmount > 0) {
+      await query(
+        `UPDATE advance_payment
+         SET refund_amount = ?,
+             updated_at = NOW()
+         WHERE booking_id = ?`,
+        [advanceAmount, req.params.id],
+      );
+
+      const today = new Date().toISOString().slice(0, 10);
+      await query(
+        `INSERT INTO accounts_transactions
+           (date, type, department, source_module, description, amount, payment_mode)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          today,
+          "Expense",
+          "Room",
+          "hotel-cancellation",
+          `Booking cancellation refund - Booking #${booking.booking_code || booking.bookingId} - ${booking.guest_name || "Guest"}`,
+          advanceAmount,
+          bookingAdvance.payment_mode || "Cash",
+        ],
+      );
+    }
+
     const roomNumbers = String(booking?.rooms || "")
       .split(",")
       .map((item) => item.trim())
