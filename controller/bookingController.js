@@ -411,7 +411,6 @@ exports.createGuest = (req, res) => {
                   ON hrc.id = hri.category_id
                 WHERE rt.booking_id = ?
                   AND hrc.name IS NOT NULL
-                ORDER BY rt.id ASC
               `,
               [bookingId],
               (err, rows) => (err ? reject(err) : resolve(rows)),
