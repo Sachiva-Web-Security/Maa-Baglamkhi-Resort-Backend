@@ -468,9 +468,13 @@ exports.createGuest = (req, res) => {
             `• Balance Due: *${formattedBalance}*
 
 ` +
+
+` +
             `📌 *Important Notes:*
 ` +
+` +
             `• Your room number will be assigned at check-in.
+` +
 ` +
             `• Please carry a valid ID proof at the time of check-in.\n` +
             `• Balance (if any) to be paid at check-in.\n\n` +
@@ -488,11 +492,10 @@ exports.createGuest = (req, res) => {
             `Rooms: ${invoice.noOfRooms || 1}\n` +
             `Confirmed By: ${confirmedByName}\n` +
             `Check-in: ${checkIn} at ${invoice.arrival || "12:00"}\n` +
-            `Check-out: ${checkOut} at ${invoice.departure || "11:00"}\n` +
+            `Check-out: ${checkOut} at ${invoice.departure || "12:00"}\n` +
             `Total: ${formattedTotal}\n` +
             `Advance: ${formattedAdvance}\n` +
-            `Balance: ${formattedBalance}\n` +
-            `Mode: ${invoice.paymentMode || "—"}`;
+            `Balance: ${formattedBalance}`;
 
           const customerNumber = invoice.phone || invoice.mobileNumber || "";
           let adminNumber = "";
