@@ -255,6 +255,8 @@ const drawTaxInvoice = (doc, invoiceData) => {
     ["Departure", String(invoiceData.checkOut || "N/A")],
     ["Pax", String(invoiceData.pax || "N/A")],
     ["No. of Nights", String(nights)],
+    ["Guest GSTIN", String(invoiceData.guestGstin || invoiceData.companyGstin || "—")],
+    ["Guest Company", String(invoiceData.guestCompany || invoiceData.companyName || "—")],
   ];
 
   const metaRowH = 13;

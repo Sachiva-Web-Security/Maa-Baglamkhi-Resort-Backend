@@ -438,38 +438,56 @@ exports.createGuest = (req, res) => {
           } catch { /* ignore */ }
 
           const balance = Math.max(total - advanceAmount, 0);
-          const formattedAdvance = advanceAmount > 0 ? `₹ ${advanceAmount.toFixed(0)}` : "—";
-          const formattedBalance = balance > 0 ? `₹ ${balance.toFixed(0)}` : "0";
-          const priceDisplay = total > 0 ? `₹ ${total.toFixed(0)} Par Day` : "—";
+          const formattedAdvance = advanceAmount > 0 ? `₹ ${advanceAmount.toFixed(0)}` : "₹ 0";
+          const formattedBalance = balance > 0 ? `₹ ${balance.toFixed(0)}` : "₹ 0";
+          const formattedTotal = total > 0 ? `₹ ${total.toFixed(0)}` : "—";
+          const confirmedByName = bookedBy || "";
+          const bookingTypeStr = invoice.bookingType || "";
 
           const customerMessage =
-            `✅ *Booking Confirmed!*\n\n` +
-            `*Resort:* MAA BAGLAMUKHI RESORT, Nalkheda\n\n` +
-            `*Booking Details:*\n\n` +
-            `*Booking ID:* ${bookingNo}\n` +
-            `*Guest Name:* ${guestName}\n` +
-            `*Booked By:* ${bookedBy}\n` +
-            `*Mobile:* ${invoice.phone || "—"}\n\n` +
-            `*Stay Details:*\n` +
-            `*Check-In:* ${checkIn} (from 12:00 AM)\n` +
-            `*Check-Out:* ${checkOut} (by 11:00 AM)\n` +
-            `*Room Type:* ${roomType}\n\n*Payment Details:*\n` +
-            `*Total Amount:* ₹ ${total.toFixed(2)}\n` +
-            `*Advance Paid:* ${formattedAdvance}\n` +
-            `*Balance Due:* ${formattedBalance}\n` +
-            `*Payment Mode:* ${invoice.paymentMode || "—"}\n\n` +
-            `Thank you for choosing Maa Baglamukhi Resort! 🙏`;
+            `🏨 *MAA BAGLAMUKHI RESORT*\n` +
+            `📍 Nalkheda\n\n` +
+            `✅ *BOOKING CONFIRMED*\n\n` +
+            `Dear *${guestName}*,\n` +
+            `Thank you for choosing Maa Baglamukhi Resort. Your booking has been confirmed.\n\n` +
+            `📋 *Booking Details:*\n` +
+            `• Booking No: *${bookingNo}*\n` +
+            `• Guest Name: ${guestName}\n` +
+            `• Mobile: ${invoice.phone || "—"}\n` +
+            `• Booking Confirmed By: *${confirmedByName}*\n\n` +
+            `🏠 *Room Details:*\n` +
+            `• Room Type: *${roomType}*\n` +
+            `• Booking Type: ${bookingTypeStr || "Walk-in"}\n\n` +
+            `📅 *Stay Details:*\n` +
+            `• Check-In Date: *${checkIn}*\n` +
+            `• Check-In Time: ${invoice.arrival || "12:00"}\n` +
+            `• Check-Out Date: *${checkOut}*\n` +
+            `• Check-Out Time: ${invoice.departure || "11:00"}\n\n` +
+            `💰 *Payment Summary:*\n` +
+            `• Total Amount: *${formattedTotal}*\n` +
+            `• Advance Paid: *${formattedAdvance}*\n` +
+            `• Balance Due: *${formattedBalance}*\n` +
+            `• Payment Mode: ${invoice.paymentMode || "—"}\n\n` +
+            `📌 *Important Notes:*\n` +
+            `• Your room number will be assigned at check-in.\n` +
+            `• Please carry a valid ID proof at the time of check-in.\n` +
+            `• Balance (if any) to be paid at check-in.\n\n` +
+            `For any queries, please contact us.\n\n` +
+            `Warm regards,\n` +
+            `*Maa Baglamukhi Resort*\n` +
+            `📞 Nalkheda`;
 
           const adminMessage =
             `✅ *New Booking Confirmed*\n\n` +
-            `Booking: ${bookingNo}\n` +
+            `Booking No: ${bookingNo}\n` +
             `Guest: ${guestName}\n` +
             `Phone: ${invoice.phone || "—"}\n` +
             `Room: ${roomType}\n` +
-            `Room No: ${roomNumbers || "—"}\n` +
-            `Check-in: ${checkIn}\n` +
-            `Check-out: ${checkOut}\n` +
-            `Total: ₹ ${total.toFixed(2)}\n` +
+            `Rooms: ${invoice.noOfRooms || 1}\n` +
+            `Confirmed By: ${confirmedByName}\n` +
+            `Check-in: ${checkIn} at ${invoice.arrival || "12:00"}\n` +
+            `Check-out: ${checkOut} at ${invoice.departure || "11:00"}\n` +
+            `Total: ${formattedTotal}\n` +
             `Advance: ${formattedAdvance}\n` +
             `Balance: ${formattedBalance}\n` +
             `Mode: ${invoice.paymentMode || "—"}`;

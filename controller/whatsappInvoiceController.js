@@ -112,6 +112,7 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
         advanceAmount,
         paidAmount: advanceAmount,
         totalAmount: Number(bookingRow.total_amount || bookingRow.total || 0),
+        confirmedBy: "",
       };
 
       // Override with frontend-provided data if available
@@ -122,6 +123,15 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
         if (fd.roomCategory) booking.roomCategory = fd.roomCategory;
         if (fd.paymentStatus) booking.paymentStatus = fd.paymentStatus;
         if (fd.paymentMode) booking.paymentMode = fd.paymentMode;
+        if (fd.advancePaid !== undefined) booking.advanceAmount = Number(fd.advancePaid);
+        if (fd.balanceLeft !== undefined) booking.balanceLeft = Number(fd.balanceLeft);
+        if (fd.checkIn) booking.checkIn = fd.checkIn;
+        if (fd.checkOut) booking.checkOut = fd.checkOut;
+        if (fd.arrival) booking.arrival = fd.arrival;
+        if (fd.departure) booking.departure = fd.departure;
+        if (fd.numRooms !== undefined) booking.noOfRooms = Number(fd.numRooms);
+        if (fd.bookingType) booking.bookingType = fd.bookingType;
+        if (fd.confirmedBy) booking.confirmedBy = fd.confirmedBy;
       }
 
       // Resolve customer number
@@ -129,48 +139,76 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
 
       // Build booking confirmation message
       const guestName = booking.guestName || "Valued Guest";
-      const bookingNo = booking.bookingNo || `#${bookingId}`;
+      const bookingNo = booking.bookingNo || booking.booking_code || `#${bookingId}`;
       const checkIn = booking.checkIn ? formatDateShort(booking.checkIn) : "";
       const checkOut = booking.checkOut ? formatDateShort(booking.checkOut) : "";
       const roomType = booking.roomCategory || booking.roomType || "";
       const total = Number(booking.totalAmount || 0);
       const advance = Number(booking.advanceAmount || booking.paidAmount || 0);
-      const balance = Math.max(total - advance, 0);
+      const balance = Math.max(Number(booking.balanceLeft !== undefined ? booking.balanceLeft : total - advance), 0);
       const bookingType = booking.bookingType || "";
-      const numRooms = String(booking.noOfRooms || 1).padStart(2, "0");
+      const numRooms = Number(booking.noOfRooms || 1);
+      const arrival = booking.arrival || "12:00";
+      const departure = booking.departure || "11:00";
+      const stayNights = (() => {
+        if (!booking.checkIn || !booking.checkOut) return 1;
+        const a = new Date(booking.checkIn);
+        const b = new Date(booking.checkOut);
+        const diff = Math.round((b - a) / (1000 * 60 * 60 * 24));
+        return diff > 0 ? diff : 1;
+      })();
 
-      const priceDisplay = total > 0 ? `₹ ${total.toFixed(0)} Par Day` : "—";
-      const formattedAdvance = advance > 0 ? `₹ ${advance.toFixed(0)}` : "—";
-      const formattedBalance = balance > 0 ? `₹ ${balance.toFixed(0)}` : "0";
+      const formattedAdvance = advance > 0 ? `₹ ${advance.toFixed(0)}` : "₹ 0";
+      const formattedBalance = balance > 0 ? `₹ ${balance.toFixed(0)}` : "₹ 0";
+      const formattedTotal = total > 0 ? `₹ ${total.toFixed(0)}` : "—";
+      const confirmedByName = booking.confirmedBy || "";
 
       const message =
-        `✅ *Booking Confirmed!*\n\n` +
-        `*Resort:* MAA BAGLAMUKHI RESORT, Nalkheda\n\n` +
-        `*Booking Details:*\n\n` +
-        `*Booking ID:* ${bookingNo}\n` +
-        `*Guest Name:* ${guestName}\n` +
-        `*Mobile:* ${customerNumber || "—"}\n\n` +
-        `*Stay Details:*\n` +
-        `*Check-In:* ${checkIn || "—"} (from 12:00 AM)\n` +
-        `*Check-Out:* ${checkOut || "—"} (by 11:00 AM)\n` +
-        `*Room Type:* ${roomType || "—"}\n` +
-        `*Room No:* ${String(booking.roomNumber || "—")}\n\n` +
-        `*Payment Details:*\n` +
-        `*Total Amount:* ₹ ${total.toFixed(2)}\n` +
-        `*Advance Paid:* ${formattedAdvance}\n` +
-        `*Balance Due:* ${formattedBalance}\n` +
-        `*Payment Mode:* ${booking.paymentMode || "—"}\n\n` +
-        `Thank you for choosing Maa Baglamukhi Resort! 🙏`;
+        `🏨 *MAA BAGLAMUKHI RESORT*\n` +
+        `📍 Nalkheda\n\n` +
+        `✅ *BOOKING CONFIRMED*\n\n` +
+        `Dear *${guestName}*,\n` +
+        `Thank you for choosing Maa Baglamukhi Resort. Your booking has been confirmed.\n\n` +
+        `📋 *Booking Details:*\n` +
+        `• Booking No: *${bookingNo}*\n` +
+        `• Guest Name: ${guestName}\n` +
+        `• Mobile: ${customerNumber || "—"}\n` +
+        `• Booking Confirmed By: *${confirmedByName}*\n\n` +
+        `🏠 *Room Details:*\n` +
+        `• Room Type: *${roomType || "—"}*\n` +
+        `• Number of Rooms: ${numRooms}\n` +
+        `• Booking Type: ${bookingType || "Walk-in"}\n\n` +
+        `📅 *Stay Details:*\n` +
+        `• Check-In Date: *${checkIn || "—"}*\n` +
+        `• Check-In Time: ${arrival}\n` +
+        `• Check-Out Date: *${checkOut || "—"}*\n` +
+        `• Check-Out Time: ${departure}\n` +
+        `• Total Nights: ${stayNights}\n\n` +
+        `💰 *Payment Summary:*\n` +
+        `• Total Amount: *${formattedTotal}*\n` +
+        `• Advance Paid: *${formattedAdvance}*\n` +
+        `• Balance Due: *${formattedBalance}*\n` +
+        `• Payment Mode: ${booking.paymentMode || "—"}\n\n` +
+        `📌 *Important Notes:*\n` +
+        `• Your room number will be assigned at check-in.\n` +
+        `• Please carry a valid ID proof at the time of check-in.\n` +
+        `• Balance (if any) to be paid at check-in.\n\n` +
+        `For any queries, please contact us.\n\n` +
+        `Warm regards,\n` +
+        `*Maa Baglamukhi Resort*\n` +
+        `📞 Nalkheda`;
 
       const adminMessage =
         `✅ *New Booking Confirmed*\n\n` +
-        `Booking: ${bookingNo}\n` +
+        `Booking No: ${bookingNo}\n` +
         `Guest: ${guestName}\n` +
         `Phone: ${customerNumber}\n` +
-        `Room: ${roomType}\n` +
-        `Check-in: ${checkIn || "—"}\n` +
-        `Check-out: ${checkOut || "—"}\n` +
-        `Total: ₹ ${total.toFixed(2)}\n` +
+        `Room: ${roomType || "—"}\n` +
+        `Rooms: ${numRooms}\n` +
+        `Confirmed By: ${confirmedByName}\n` +
+        `Check-in: ${checkIn || "—"} at ${arrival}\n` +
+        `Check-out: ${checkOut || "—"} at ${departure}\n` +
+        `Total: ${formattedTotal}\n` +
         `Advance: ${formattedAdvance}\n` +
         `Balance: ${formattedBalance}\n` +
         `Mode: ${booking.paymentMode || "—"}`;
