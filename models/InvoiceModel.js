@@ -485,6 +485,8 @@ const buildInvoicePayload = async (customerId) => {
     tax,
     discount,
     totalAmount,
+    companyName: booking.companyName || "",
+    companyGstin: booking.companyGst || "",
     paymentMode: Number(booking.paidAmount || 0) > 0 ? "Mixed / Recorded" : "Pending",
     paymentStatus: totalAmount > Number(booking.paidAmount || 0) ? "Pending" : "Paid",
     items,
