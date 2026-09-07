@@ -159,6 +159,8 @@ const ensureSchema = async () => {
   await ensureColumn("invoices", "booking_id", "INT DEFAULT NULL AFTER notes");
   await ensureColumn("invoices", "customer_id", "INT DEFAULT NULL AFTER booking_id");
   await ensureColumn("invoices", "total_amount", "DECIMAL(12,2) DEFAULT 0 AFTER final_total");
+  await ensureColumn("invoices", "company_name", "VARCHAR(255) DEFAULT NULL AFTER total_amount");
+  await ensureColumn("invoices", "company_gstin", "VARCHAR(30) DEFAULT NULL AFTER company_name");
   await ensureColumn(
     "invoices",
     "updated_at",
@@ -353,6 +355,8 @@ const saveGeneratedInvoice = async (payload) => {
     payload.discount,
     payload.totalAmount,
     payload.totalAmount,
+    payload.companyName || null,
+    payload.companyGstin || null,
     paymentMode,
     paymentStatus,
     paymentStatus,
@@ -381,6 +385,8 @@ const saveGeneratedInvoice = async (payload) => {
           discount = ?,
           final_total = ?,
           total_amount = ?,
+          company_name = ?,
+          company_gstin = ?,
           payment_mode = ?,
           payment_status = ?,
           status = ?,
@@ -406,10 +412,11 @@ const saveGeneratedInvoice = async (payload) => {
       (
         invoice_no, date, customer_name, phone, room_no, check_in, check_out,
         price_per_day, food_charge, extra_charge, subtotal, gst, discount,
-        final_total, total_amount, payment_mode, payment_status, status,
+        final_total, total_amount, company_name, company_gstin,
+        payment_mode, payment_status, status,
         notes, items_json, booking_id, customer_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     values,
   );
@@ -541,8 +548,10 @@ const parseInvoiceRow = (row) => ({
   checkIn: row.checkIn || row.check_in || "",
   checkOut: row.checkOut || row.check_out || "",
   paymentMode: row.paymentMode || row.payment_mode || "",
-  paymentStatus: row.payment_status || row.status || "Pending",
-  totalAmount: Number(row.total_amount ?? row.final_total ?? 0),
+  paymentStatus: row.paymentStatus || row.payment_status || row.status || "Pending",
+  companyName: row.companyName || row.company_name || null,
+  companyGstin: row.companyGstin || row.company_gstin || null,
+  totalAmount: Number(row.totalAmount ?? row.total_amount ?? row.final_total ?? 0),
   subtotal: Number(row.subtotal || 0),
   tax: Number(row.gst || 0),
   discount: Number(row.discount || 0),
