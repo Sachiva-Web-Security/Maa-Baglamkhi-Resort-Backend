@@ -465,10 +465,13 @@ exports.createGuest = (req, res) => {
             `💰 *Payment Summary:*\n` +
             `• Total Amount: *${formattedTotal}*\n` +
             `• Advance Paid: *${formattedAdvance}*\n` +
-            `• Balance Due: *${formattedBalance}*\n` +
-            `• Payment Mode: ${invoice.paymentMode || "—"}\n\n` +
-            `📌 *Important Notes:*\n` +
-            `• Your room number will be assigned at check-in.\n` +
+            `• Balance Due: *${formattedBalance}*
+
+` +
+            `📌 *Important Notes:*
+` +
+            `• Your room number will be assigned at check-in.
+` +
             `• Please carry a valid ID proof at the time of check-in.\n` +
             `• Balance (if any) to be paid at check-in.\n\n` +
             `For any queries, please contact us.\n\n` +
