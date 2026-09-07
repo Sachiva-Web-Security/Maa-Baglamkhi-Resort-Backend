@@ -85,7 +85,124 @@ const centerText = (text, maxChars = THERMAL_CHARS_PER_LINE) => {
 
 const divider = (char = "-", maxChars = THERMAL_CHARS_PER_LINE) => char.repeat(maxChars);
 
+const padRight = (text, width) => String(text || "").slice(0, width).padEnd(width);
+const round2 = (value) => Number((Number(value || 0)).toFixed(2));
+
 // ─── Receipt Builders ────────────────────────────────────────────────────────
+
+/**
+ * Build a restaurant bill receipt (itemized with SGST/CGST split) or
+ * a simple payment receipt (fallback when no items provided).
+ */
+const buildPaymentReceipt = (data) => {
+  const hotelName = data.hotelName || "Maa Baglamukhi Resort";
+  const receiptNo = data.receiptNo || data.printNo || data.invoiceNo || "";
+  const guestName = data.guestName || data.customerName || "";
+  const phone = data.phone || "";
+  const roomNo = data.roomNumber || data.room || "";
+  const tableNo = data.tableNumber || data.table || data.notes?.match(/Table:\s*(\S+)/)?.[1] || "";
+  const paymentType = data.paymentType || "Restaurant Bill";
+  const amount = data.amount || data.total || data.grandTotal || 0;
+  const method = data.method || data.paymentMethod || "Cash";
+  const date = formatDate(data.date || new Date());
+  const time = formatTime(data.date || new Date());
+  const waiter = data.waiter || data.waiterName || "";
+
+  const items = Array.isArray(data.items) ? data.items : [];
+  const subtotal = Number(data.subtotal || 0);
+  const gst = Number(data.gst || 0);
+  const sgst = round2(gst / 2);
+  const cgst = round2(gst / 2);
+  const serviceCharge = Number(data.serviceCharge || 0);
+  const discount = Number(data.discount || data.discountAmount || 0);
+  const grandTotal = round2(subtotal + gst + serviceCharge - discount);
+  const hasItems = items.length > 0;
+
+  const lines = [];
+
+  if (hasItems) {
+    // ── ITEMIZED RESTAURANT BILL ──────────────────────────────────────────
+    lines.push(centerText(hotelName));
+    lines.push(centerText("RESTAURANT BILL"));
+    lines.push(divider());
+
+    if (receiptNo) lines.push(`Bill No : ${receiptNo}`);
+    if (tableNo) lines.push(`Table   : ${tableNo}`);
+    if (waiter) lines.push(`Captain : ${waiter}`);
+    lines.push(`Date    : ${date} ${time}`);
+    if (guestName) lines.push(`Guest   : ${guestName}`);
+    if (phone) lines.push(`Phone   : ${phone}`);
+
+    lines.push(divider());
+
+    // Column headers
+    lines.push(
+      padRight("Item", 22) +
+      padRight("Qty", 5) +
+      padRight("Rate", 10) +
+      padRight("Amt", 10)
+    );
+    lines.push(divider());
+
+    // Items
+    items.forEach((item) => {
+      const name = String(item.name || item.itemName || "Item").slice(0, 22);
+      const qty = String(Number(item.qty || item.quantity || 1));
+      const rate = formatINR(Number(item.rate || item.price || 0));
+      const lineTotal = formatINR(Number(item.qty || item.quantity || 1) * Number(item.rate || item.price || 0));
+      lines.push(padRight(name, 22) + padRight(qty, 5) + padRight(rate, 10) + padRight(lineTotal, 10));
+    });
+
+    lines.push(divider());
+
+    // Totals
+    lines.push(padRight("Subtotal", 32) + formatINR(subtotal).padStart(14));
+    if (gst > 0) {
+      lines.push(padRight("SGST (2.5%)", 32) + formatINR(sgst).padStart(14));
+      lines.push(padRight("CGST (2.5%)", 32) + formatINR(cgst).padStart(14));
+    }
+    if (serviceCharge > 0) {
+      lines.push(padRight("SCR", 32) + formatINR(serviceCharge).padStart(14));
+    }
+    if (discount > 0) {
+      lines.push(padRight("Discount", 32) + ("-" + formatINR(discount)).padStart(14));
+    }
+    lines.push(divider());
+    lines.push(centerText("TOTAL: Rs. " + formatINR(grandTotal)));
+    lines.push(divider());
+    lines.push(`Method : ${method}`);
+    lines.push(divider());
+    lines.push(centerText("Thank You! Visit Again!"));
+
+  } else {
+    // ── SIMPLE PAYMENT RECEIPT (fallback) ─────────────────────────────────
+    lines.push(centerText(hotelName));
+    lines.push(centerText(paymentType.toUpperCase() + " RECEIPT"));
+    lines.push(divider());
+
+    if (receiptNo) lines.push(`No   : ${receiptNo}`);
+    lines.push(`Date : ${date}`);
+    lines.push(`Time : ${time}`);
+
+    lines.push(divider());
+
+    if (guestName) lines.push(`Guest : ${guestName}`);
+    if (roomNo) lines.push(`Room  : ${roomNo}`);
+    if (tableNo) lines.push(`Table : ${tableNo}`);
+
+    lines.push(divider());
+    lines.push(centerText(paymentType.toUpperCase()));
+    lines.push(centerText(`Rs. ${formatCurrency(amount)}`));
+    lines.push(divider());
+
+    lines.push(`Method : ${method}`);
+    lines.push(divider());
+    lines.push(centerText("Thank You!"));
+  }
+
+  lines.push("");
+  return lines.join("\n");
+};
 
 /**
  * Build a KOT (Kitchen Order Ticket) receipt as text lines.
@@ -145,7 +262,7 @@ const buildKOTReceipt = (data) => {
       allInstructions.push(`• ${item.specialInstructions || item.note}`);
     }
   }
-  if (specialInstructions.length) {
+  if (specialInstructions.length > 0) {
     allInstructions.push(...specialInstructions.map((s) => `• ${s}`));
   }
 
@@ -159,51 +276,6 @@ const buildKOTReceipt = (data) => {
 
   lines.push(`Print Time: ${time}`);
   lines.push(divider());
-  lines.push("");
-
-  return lines.join("\n");
-};
-
-/**
- * Build a payment receipt (cash/advance/refund) as text lines.
- */
-const buildPaymentReceipt = (data) => {
-  const hotelName = data.hotelName || "Maa Baglamukhi Resort";
-  const receiptNo = data.receiptNo || data.printNo || "";
-  const guestName = data.guestName || "";
-  const roomNo = data.roomNumber || "";
-  const paymentType = data.paymentType || "Payment";
-  const amount = data.amount || 0;
-  const method = data.method || data.paymentMethod || "Cash";
-  const date = formatDate(data.date || new Date());
-  const time = formatTime(data.date || new Date());
-  const notes = data.notes || "";
-
-  const lines = [];
-
-  lines.push(centerText(hotelName));
-  lines.push(centerText(paymentType.toUpperCase() + " RECEIPT"));
-  lines.push(divider());
-
-  if (receiptNo) lines.push(`No   : ${receiptNo}`);
-  lines.push(`Date : ${date}`);
-  lines.push(`Time : ${time}`);
-
-  lines.push(divider());
-
-  if (guestName) lines.push(`Guest : ${guestName}`);
-  if (roomNo) lines.push(`Room  : ${roomNo}`);
-
-  lines.push(divider());
-  lines.push(centerText(paymentType.toUpperCase()));
-  lines.push(centerText(`Rs. ${formatCurrency(amount)}`));
-  lines.push(divider());
-
-  lines.push(`Method : ${method}`);
-  if (notes) lines.push(`Note   : ${notes}`);
-
-  lines.push(divider());
-  lines.push(centerText("Thank You!"));
   lines.push("");
 
   return lines.join("\n");

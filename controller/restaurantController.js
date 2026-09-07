@@ -636,24 +636,59 @@ exports.payBill = async (req, res) => {
         const { RestaurantPrintService } = require("../services/RestaurantPrintService");
         const { InvoicePrintService } = require("../services/InvoicePrintService");
 
-        // Print thermal POS receipt
-        await RestaurantPrintService.immediatePrintRestaurantBill({
+        // Fetch full bill data (items, subtotal, gst, serviceCharge) so the
+        // thermal receipt can show an itemized bill with SGST/CGST split.
+        const [billForPrint, tokenItemsRows] = result.billId
+          ? await Promise.all([
+              new Promise((resolve, reject) => {
+                RestaurantModel.getBillById(result.billId, (err, bill) => {
+                  if (err) return reject(err);
+                  resolve(bill);
+                });
+              }),
+              new Promise((resolve, reject) => {
+                db.query("SELECT item_name, qty, rate FROM token_items WHERE token_id = (SELECT token_id FROM bills WHERE id = ?)", [result.billId], (err, rows) => {
+                  if (err) return reject(err);
+                  resolve(rows || []);
+                });
+              }),
+            ])
+          : [null, []];
+
+        const billItems = tokenItemsRows.length > 0
+          ? tokenItemsRows.map((r) => ({ name: r.item_name, qty: Number(r.qty || 1), rate: Number(r.rate || 0) }))
+          : (req.body.items || []);
+
+        const printPayload = {
           ...result,
-          customerName: req.body.customerName || req.body.customer_name || "Walk-in Customer",
-          tableNumber: req.body.tableNumber || req.body.table || "",
+          invoiceNo: String(result.billId || ""),
+          items: billItems,
+          subtotal: Number(billForPrint?.subtotal || req.body.subtotal || 0),
+          gst: Number(billForPrint?.gst || req.body.gst || 0),
+          serviceCharge: Number(billForPrint?.serviceCharge || req.body.serviceCharge || 0),
+          discount: Number(billForPrint?.discountAmount || billForPrint?.discount || req.body.discountAmount || 0),
+          discountAmount: Number(billForPrint?.discountAmount || billForPrint?.discount || req.body.discountAmount || 0),
+          customerName: req.body.customerName || req.body.customer_name || billForPrint?.customerName || "Walk-in Customer",
+          phone: req.body.phone || req.body.customer_phone || billForPrint?.phone || "",
+          tableNumber: req.body.tableNumber || req.body.table || billForPrint?.tableNumber || "",
           roomNumber: req.body.roomNumber || req.body.room || "",
-          paymentMethod: req.body.paymentMethod || req.body.payment_method || "Cash",
+          paymentMethod: req.body.paymentMethod || req.body.payment_method || billForPrint?.paymentMethod || "Cash",
           printedBy: actor.name || actor.email || "System",
-        });
+          waiter: billForPrint?.waiter_name || req.body.waiterName || "",
+        };
+
+        // Print thermal POS receipt (itemized with SGST/CGST)
+        await RestaurantPrintService.immediatePrintRestaurantBill(printPayload);
 
         // Also print A4 copy
         await InvoicePrintService.immediatePrintInvoice("restaurant_bill_a4", {
           ...result,
-          customerName: req.body.customerName || req.body.customer_name || "Walk-in Customer",
-          tableNumber: req.body.tableNumber || req.body.table || "",
-          roomNumber: req.body.roomNumber || req.body.room || "",
-          paymentMode: req.body.paymentMethod || "Cash",
-          printedBy: actor.name || actor.email || "System",
+          ...printPayload,
+          customerName: printPayload.customerName,
+          tableNumber: printPayload.tableNumber,
+          roomNumber: printPayload.roomNumber,
+          paymentMode: printPayload.paymentMethod,
+          printedBy: printPayload.printedBy,
         });
       } catch (err) {
         console.error("[auto-print] restaurant bill print failed:", err.message);

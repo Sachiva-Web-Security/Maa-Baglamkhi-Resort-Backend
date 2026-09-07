@@ -397,6 +397,7 @@ exports.createGuest = (req, res) => {
           };
           const checkIn = fmtDate(invoice.checkIn);
           const checkOut = fmtDate(invoice.checkOut);
+          const bookingDate = fmtDate(new Date());
 
           // Pull room type names from the tariff/inventory tables — the invoice
           // model doesn't carry roomCategory / roomType, so we join directly.
@@ -451,6 +452,7 @@ exports.createGuest = (req, res) => {
             `Thank you for choosing Maa Baglamukhi Resort. Your booking has been confirmed.\n\n` +
             `📋 *Booking Details:*\n` +
             `• Booking No: *${bookingNo}*\n` +
+            `• Booking Date: *${bookingDate}*\n` +
             `• Guest Name: ${guestName}\n` +
             `• Mobile: ${invoice.phone || "—"}\n` +
             `• Booking Confirmed By: *${confirmedByName}*\n\n` +
@@ -465,14 +467,9 @@ exports.createGuest = (req, res) => {
             `💰 *Payment Summary:*\n` +
             `• Total Amount: *${formattedTotal}*\n` +
             `• Advance Paid: *${formattedAdvance}*\n` +
-            `• Balance Due: *${formattedBalance}*
-
-` +
-            `📌 *Important Notes:*
-` +
-            `• Your room number will be assigned at check-in.
-` +
-` +
+            `• Balance Due: *${formattedBalance}*\n\n` +
+            `📌 *Important Notes:*\n` +
+            `• Your room number will be assigned at check-in.\n` +
             `• Please carry a valid ID proof at the time of check-in.\n` +
             `• Balance (if any) to be paid at check-in.\n\n` +
             `For any queries, please contact us.\n\n` +
@@ -483,6 +480,7 @@ exports.createGuest = (req, res) => {
           const adminMessage =
             `✅ *New Booking Confirmed*\n\n` +
             `Booking No: ${bookingNo}\n` +
+            `Booking Date: ${bookingDate}\n` +
             `Guest: ${guestName}\n` +
             `Phone: ${invoice.phone || "—"}\n` +
             `Room: ${roomType}\n` +
