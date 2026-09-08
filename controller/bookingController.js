@@ -1358,8 +1358,7 @@ exports.cancelBooking = async (req, res) => {
     if (advanceAmount > 0) {
       await query(
         `UPDATE advance_payment
-         SET refund_amount = ?,
-             updated_at = NOW()
+         SET refund_amount = ?
          WHERE booking_id = ?`,
         [advanceAmount, req.params.id],
       );
