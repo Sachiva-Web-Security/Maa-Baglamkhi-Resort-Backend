@@ -274,6 +274,7 @@ const getTransactions = async (callback) => {
           ph.id AS sortId
         FROM payment_history ph
         LEFT JOIN guests g ON g.id = ph.booking_id
+          AND LOWER(IFNULL(g.booking_status, '')) != 'cancelled'
         ${invoiceJoinSql}
         ${invoiceJoinFilter}
       `
@@ -353,6 +354,7 @@ const getTransactionById = async (id) => {
           NULL AS updated_by
         FROM payment_history ph
         LEFT JOIN guests g ON g.id = ph.booking_id
+          AND LOWER(IFNULL(g.booking_status, '')) != 'cancelled'
         WHERE ph.id = ?`,
         [phId],
       );
