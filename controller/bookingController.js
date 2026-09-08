@@ -437,10 +437,38 @@ exports.createGuest = (req, res) => {
             if (advanceRows.length) advanceAmount = Number(advanceRows[0].amount || 0);
           } catch { /* ignore */ }
 
-          const balance = Math.max(total - advanceAmount, 0);
+          // Fallback: if invoice total is 0/missing, compute from room_tariff directly
+          let computedTotal = total;
+          if (computedTotal <= 0) {
+            try {
+              const tariffRows = await new Promise((resolve, reject) => {
+                db.query(
+                  "SELECT tariff, gst, quantity FROM room_tariff WHERE booking_id = ?",
+                  [bookingId],
+                  (err, rows) => (err ? reject(err) : resolve(rows)),
+                );
+              });
+              if (tariffRows.length) {
+                let subtotal = 0;
+                let totalGst = 0;
+                tariffRows.forEach((r) => {
+                  const qty = Number(r.quantity || 1);
+                  const price = Number(r.tariff || 0);
+                  const gst = Number(r.gst || 0);
+                  const base = price * qty;
+                  subtotal += base;
+                  totalGst += (base * gst) / 100;
+                });
+                computedTotal = Math.round(subtotal + totalGst);
+              }
+            } catch { /* ignore */ }
+          }
+
+          const effectiveTotal = computedTotal > 0 ? computedTotal : advanceAmount;
+          const balance = Math.max(effectiveTotal - advanceAmount, 0);
           const formattedAdvance = advanceAmount > 0 ? `₹ ${advanceAmount.toFixed(0)}` : "₹ 0";
           const formattedBalance = balance > 0 ? `₹ ${balance.toFixed(0)}` : "₹ 0";
-          const formattedTotal = total > 0 ? `₹ ${total.toFixed(0)}` : "—";
+          const formattedTotal = effectiveTotal > 0 ? `₹ ${effectiveTotal.toFixed(0)}` : "—";
           const confirmedByName = bookedBy || "";
           const rawBookingType = req.body?.bookingType || invoice.bookingType || "";
           const bookingTypeMap = { "walk-in": "Walk-in", via: "Via", online: "Online" };
