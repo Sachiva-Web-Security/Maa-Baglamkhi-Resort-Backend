@@ -78,9 +78,6 @@ router.get("/guest-profile",           guestProfileController.search);
 router.get("/guest-documents/:bookingId", guestDocumentController.listByBooking);
 router.post("/guest-documents/:bookingId", upload.single("document"), guestDocumentController.uploadByBooking);
 
-// WhatsApp invoice send
-router.post("/invoice/send-whatsapp/:bookingId", whatsappInvoiceController.sendInvoiceWhatsApp);
-
 // Admin-only guest phone update
 const guestAdminRouter = express.Router();
 guestAdminRouter.use(authMiddleware);
