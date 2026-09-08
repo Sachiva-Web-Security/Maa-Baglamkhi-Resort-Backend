@@ -591,6 +591,70 @@ const sendBookingConfirmation = async (booking, options = {}) => {
   };
 };
 
+const sendBookingCancellation = async (booking, options = {}) => {
+  const customerNumber = options.customerNumber || booking.phone || booking.mobileNumber || "";
+  const adminNumber = options.adminNumber || "";
+  const guestName = booking.guestName || "Valued Guest";
+  const bookingNo = booking.bookingCode || `#${booking.bookingId}`;
+  const cancelReason = booking.cancelReason || options.cancelReason || "";
+  const refundAmount = Number(booking.refundAmount || booking.advanceAmount || 0);
+
+  const detailsBlock = buildBookingDetailsBlock(booking);
+
+  const reasonLine = cancelReason ? `\n• Reason: ${cancelReason}` : "";
+  const refundLine = refundAmount > 0
+    ? `\n• Refund Amount: ₹${refundAmount.toFixed(2)}`
+    : "";
+
+  const customerMessage =
+    options.customerMessage ||
+    `🏨 *MAA BAGLAMUKHI RESORT*\n📍 Nalkheda\n\n` +
+    `❌ *BOOKING CANCELLED*\n\n` +
+    `Dear *${guestName}*,\n\n` +
+    `We regret to inform you that your booking has been cancelled.\n\n` +
+    `📋 *Booking Details:*\n` +
+    `• Booking No: *${bookingNo}*\n` +
+    `• Guest Name: ${guestName}\n` +
+    `${reasonLine}\n` +
+    `${refundLine}\n\n` +
+    `For any queries regarding the cancellation or refund, please contact us.\n\n` +
+    `Regards,\n*Maa Baglamukhi Resort*\n📞 Nalkheda`;
+
+  const adminMessage =
+    options.adminMessage ||
+    `❌ *Booking Cancelled*\n\n` +
+    `Booking No: ${bookingNo}\n` +
+    `Guest: ${guestName}\n` +
+    `Phone: ${formatPhoneDisplay(customerNumber)}\n` +
+    `${detailsBlock}\n` +
+    `${reasonLine}`;
+
+  let customerWa = { skipped: true, reason: "No customer phone number" };
+  if (customerNumber) {
+    customerWa = await sendWhatsAppMessage({ number: customerNumber, message: customerMessage });
+  }
+
+  let customerSms = { skipped: true, reason: "No customer phone number" };
+  if (customerNumber) {
+    customerSms = await sendSmsMessage({ number: customerNumber, message: customerMessage });
+  }
+
+  let adminWa = { skipped: true, reason: "Admin number not configured" };
+  if (adminNumber) {
+    adminWa = await sendWhatsAppMessage({ number: adminNumber, message: adminMessage });
+  }
+
+  let adminSms = { skipped: true, reason: "Admin number not configured" };
+  if (adminNumber) {
+    adminSms = await sendSmsMessage({ number: adminNumber, message: adminMessage });
+  }
+
+  return {
+    customer: { whatsapp: customerWa, sms: customerSms },
+    admin: { whatsapp: adminWa, sms: adminSms },
+  };
+};
+
 module.exports = {
   normalizePhoneNumber,
   formatPhoneDisplay,
@@ -598,4 +662,5 @@ module.exports = {
   sendSmsMessage,
   sendInvoiceNotifications,
   sendBookingConfirmation,
+  sendBookingCancellation,
 };

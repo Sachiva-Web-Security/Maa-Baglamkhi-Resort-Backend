@@ -1402,6 +1402,44 @@ exports.cancelBooking = async (req, res) => {
       }),
     );
 
+    // Send cancellation notification to customer + admin
+    if (WhatsAppService) {
+      setImmediate(async () => {
+        try {
+          const customerNumber = booking.mobile || booking.guest_phone || "";
+          let adminNumber = "";
+          try {
+            if (!UserModel) UserModel = require("../models/UserModel");
+            const adminRows = await new Promise((resolve, reject) => {
+              db.query("SELECT phone FROM users WHERE role = 'admin' LIMIT 1", (err, rows) =>
+                err ? reject(err) : resolve(rows),
+              );
+            });
+            adminNumber = adminRows?.[0]?.phone || "";
+          } catch { /* ignore */ }
+
+          const result = await WhatsAppService.sendBookingCancellation(
+            {
+              bookingId: booking.bookingId,
+              bookingCode: booking.booking_code,
+              guestName: booking.guest_name,
+              phone: booking.mobile || booking.phone,
+              cancelReason,
+              refundAmount: advanceAmount,
+              advanceAmount,
+            },
+            {
+              customerNumber,
+              adminNumber,
+            },
+          );
+          console.log(`[cancel] booking ${req.params.id} cancellation sent`, result);
+        } catch (cancelErr) {
+          console.error("[cancel] notification failed for booking", req.params.id, cancelErr.message || cancelErr);
+        }
+      });
+    }
+
     res.json({ message: "Booking cancelled successfully" });
   } catch (error) {
     if (process.env.NODE_ENV !== "test") {
