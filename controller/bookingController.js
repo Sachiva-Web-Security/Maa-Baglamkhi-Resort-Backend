@@ -1072,12 +1072,18 @@ exports.updateFullBooking = async (req, res) => {
     if (otherExisting.length) {
       await query(
         `UPDATE other_booking
-           SET booking_type    = COALESCE(?, booking_type),
-               booking_source  = COALESCE(?, booking_source),
-               booking_reference = COALESCE(?, booking_reference),
-               address         = COALESCE(?, address)
+           SET booking_type      = ?,
+               booking_source    = ?,
+               booking_reference = ?,
+               address           = ?
          WHERE guest_id = ?`,
-        [bookingType ?? null, bookingSource ?? null, bookingReference ?? null, address ?? null, id],
+        [
+          bookingType ?? null,
+          bookingSource ?? null,
+          bookingReference ?? null,
+          address ?? null,
+          id,
+        ],
       );
     } else if (bookingType || bookingSource || address) {
       await query(
