@@ -641,7 +641,7 @@ exports.payBill = async (req, res) => {
         const [billForPrint, tokenItemsRows] = result.billId
           ? await Promise.all([
               new Promise((resolve, reject) => {
-                RestaurantModel.getBillById(result.billId, (err, bill) => {
+                Restaurant.getBillById(result.billId, (err, bill) => {
                   if (err) return reject(err);
                   resolve(bill);
                 });
