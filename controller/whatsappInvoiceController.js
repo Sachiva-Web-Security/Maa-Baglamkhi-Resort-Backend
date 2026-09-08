@@ -146,7 +146,7 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
       const total = Number(booking.totalAmount || 0);
       const advance = Number(booking.advanceAmount || booking.paidAmount || 0);
       const balance = Math.max(Number(booking.balanceLeft !== undefined ? booking.balanceLeft : total - advance), 0);
-      const bookingType = booking.bookingType || "";
+      const bookingTypeStr = booking.bookingType || "Walk-in";
       const numRooms = Number(booking.noOfRooms || 1);
       const arrival = booking.arrival || "12:00";
       const departure = booking.departure || "11:00";
@@ -162,6 +162,9 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
       const formattedBalance = balance > 0 ? `₹ ${balance.toFixed(0)}` : "₹ 0";
       const formattedTotal = total > 0 ? `₹ ${total.toFixed(0)}` : "—";
       const confirmedByName = booking.confirmedBy || "";
+      const rawBookingType = booking.bookingType || "";
+      const bookingTypeMap = { "walk-in": "Walk-in", via: "Via", online: "Online" };
+      const bookingTypeStr = bookingTypeMap[rawBookingType.trim().toLowerCase()] || rawBookingType || "Walk-in";
 
       const message =
         `🏨 *MAA BAGLAMUKHI RESORT*\n` +
@@ -177,7 +180,7 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
         `🏠 *Room Details:*\n` +
         `• Room Type: *${roomType || "—"}*\n` +
         `• Number of Rooms: ${numRooms}\n` +
-        `• Booking Type: ${bookingType || "Walk-in"}\n\n` +
+        `• Booking Type: ${bookingTypeStr}\n\n` +
         `📅 *Stay Details:*\n` +
         `• Check-In Date: *${checkIn || "—"}*\n` +
         `• Check-In Time: ${arrival}\n` +

@@ -442,7 +442,7 @@ exports.createGuest = (req, res) => {
           const formattedBalance = balance > 0 ? `₹ ${balance.toFixed(0)}` : "₹ 0";
           const formattedTotal = total > 0 ? `₹ ${total.toFixed(0)}` : "—";
           const confirmedByName = bookedBy || "";
-          const rawBookingType = invoice.bookingType || "";
+          const rawBookingType = req.body?.bookingType || invoice.bookingType || "";
           const bookingTypeMap = { "walk-in": "Walk-in", via: "Via", online: "Online" };
           const bookingTypeStr = bookingTypeMap[rawBookingType.trim().toLowerCase()] || rawBookingType || "Walk-in";
 

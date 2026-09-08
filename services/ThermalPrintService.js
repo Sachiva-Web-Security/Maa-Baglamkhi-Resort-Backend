@@ -109,13 +109,15 @@ const buildPaymentReceipt = (data) => {
   const waiter = data.waiter || data.waiterName || "";
 
   const items = Array.isArray(data.items) ? data.items : [];
-  const subtotal = Number(data.subtotal || 0);
-  const gst = Number(data.gst || 0);
+  const computedSubtotal = Number(data.subtotal || 0) > 0
+    ? Number(data.subtotal)
+    : items.reduce((s, it) => s + Number(it.qty || it.quantity || 0) * Number(it.rate || it.price || 0), 0);
+  const gst = Number(data.gst || 0) > 0 ? Number(data.gst) : computedSubtotal * 0.05;
   const sgst = round2(gst / 2);
   const cgst = round2(gst / 2);
   const serviceCharge = Number(data.serviceCharge || 0);
   const discount = Number(data.discount || data.discountAmount || 0);
-  const grandTotal = round2(subtotal + gst + serviceCharge - discount);
+  const grandTotal = round2(computedSubtotal + gst + serviceCharge - discount);
   const hasItems = items.length > 0;
 
   const lines = [];
@@ -156,13 +158,13 @@ const buildPaymentReceipt = (data) => {
     lines.push(divider());
 
     // Totals
-    lines.push(padRight("Subtotal", 32) + formatINR(subtotal).padStart(14));
+    lines.push(padRight("Subtotal", 32) + formatINR(computedSubtotal).padStart(14));
     if (gst > 0) {
       lines.push(padRight("SGST (2.5%)", 32) + formatINR(sgst).padStart(14));
       lines.push(padRight("CGST (2.5%)", 32) + formatINR(cgst).padStart(14));
     }
     if (serviceCharge > 0) {
-      lines.push(padRight("SCR", 32) + formatINR(serviceCharge).padStart(14));
+      lines.push(padRight("SCR @ 5%", 32) + formatINR(serviceCharge).padStart(14));
     }
     if (discount > 0) {
       lines.push(padRight("Discount", 32) + ("-" + formatINR(discount)).padStart(14));

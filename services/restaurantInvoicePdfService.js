@@ -396,7 +396,7 @@ const generateRestaurantInvoicePdf = async (bill) => {
       { label: "Subtotal", value: subtotal, bold: false },
       { label: `SGST (${gstPercent / 2}%)`, value: sgst, bold: false },
       { label: `CGST (${gstPercent / 2}%)`, value: cgst, bold: false },
-      { label: "SCR", value: serviceCharge, bold: false, hidden: serviceCharge === 0 },
+      { label: "SCR @ 5%", value: serviceCharge, bold: false, hidden: serviceCharge === 0 },
       { label: "Discount", value: -discount, bold: false, muted: discount > 0 },
     ];
 
