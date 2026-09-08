@@ -72,39 +72,6 @@ const createGuest = async (data, callback) => {
       ? data.bookingStatus
       : "Confirmed";
 
-    const bookingKey = [
-      String(data.mobile || "").trim(),
-      String(data.guestName || "").trim().toLowerCase(),
-      String(data.checkIn || "").trim(),
-      String(data.checkOut || "").trim(),
-    ].join("|");
-
-    const existingRows = await runQuery(
-      `
-        SELECT id, booking_code, booking_status
-        FROM guests
-        WHERE CONCAT(
-          TRIM(IFNULL(mobile, '')), '|',
-          LOWER(TRIM(IFNULL(guest_name, ''))), '|',
-          TRIM(IFNULL(check_in, '')), '|',
-          TRIM(IFNULL(check_out, ''))
-        ) = ?
-        AND LOWER(IFNULL(booking_status, '')) != 'cancelled'
-        ORDER BY id DESC
-        LIMIT 1
-      `,
-      [bookingKey],
-    );
-
-    if (existingRows.length) {
-      callback(null, {
-        insertId: existingRows[0].id,
-        bookingCode: existingRows[0].booking_code,
-        reused: true,
-      });
-      return;
-    }
-
     let attempt = 0;
     while (attempt < 5) {
       const bookingCode = generateBookingCode();
