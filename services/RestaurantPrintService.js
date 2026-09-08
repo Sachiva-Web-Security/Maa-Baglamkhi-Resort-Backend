@@ -48,14 +48,24 @@ const immediatePrintRestaurantBill = async (billData) => {
   const receiptData = {
     hotelName: "Maa Baglamukhi Resort",
     receiptNo: billData.invoiceNo || billData.billNumber || `REST-${Date.now()}`,
-    guestName: billData.customerName || "",
+    guestName: billData.customerName || billData.guestName || "",
+    phone: billData.phone || "",
     roomNumber: billData.roomNumber || "",
+    tableNumber: billData.tableNumber || billData.table || "",
     paymentType: "Restaurant Bill",
     amount: billData.total || billData.grandTotal || 0,
     method: billData.paymentMethod || "Cash",
     date: billData.date || new Date(),
     notes: `Table: ${billData.tableNumber || billData.table || ""} | Items: ${Array.isArray(billData.items) ? billData.items.length : 0}`,
     printedBy: billData.printedBy || "System",
+    waiter: billData.waiter || billData.waiterName || "",
+    // Pass through itemization data for the thermal receipt
+    items: Array.isArray(billData.items) ? billData.items : [],
+    subtotal: Number(billData.subtotal || 0),
+    gst: Number(billData.gst || 0),
+    serviceCharge: Number(billData.serviceCharge || 0),
+    discount: Number(billData.discount || billData.discountAmount || 0),
+    discountAmount: Number(billData.discountAmount || billData.discount || 0),
   };
 
   try {
