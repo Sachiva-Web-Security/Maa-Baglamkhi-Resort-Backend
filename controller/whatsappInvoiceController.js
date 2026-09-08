@@ -146,7 +146,6 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
       const total = Number(booking.totalAmount || 0);
       const advance = Number(booking.advanceAmount || booking.paidAmount || 0);
       const balance = Math.max(Number(booking.balanceLeft !== undefined ? booking.balanceLeft : total - advance), 0);
-      const bookingTypeStr = booking.bookingType || "Walk-in";
       const numRooms = Number(booking.noOfRooms || 1);
       const arrival = booking.arrival || "12:00";
       const departure = booking.departure || "11:00";
