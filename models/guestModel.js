@@ -81,7 +81,7 @@ const createGuest = async (data, callback) => {
 
     const existingRows = await runQuery(
       `
-        SELECT id, booking_code
+        SELECT id, booking_code, booking_status
         FROM guests
         WHERE CONCAT(
           TRIM(IFNULL(mobile, '')), '|',
@@ -89,6 +89,7 @@ const createGuest = async (data, callback) => {
           TRIM(IFNULL(check_in, '')), '|',
           TRIM(IFNULL(check_out, ''))
         ) = ?
+        AND LOWER(IFNULL(booking_status, '')) != 'cancelled'
         ORDER BY id DESC
         LIMIT 1
       `,
