@@ -100,5 +100,6 @@ router.get("/payment-settings", getPaymentGatewaySettings);
 router.post("/payment-settings", paymentQrUpload, addPaymentGatewaySetting);
 router.put("/payment-settings/:id", paymentQrUpload, updatePaymentGatewaySetting);
 router.delete("/payment-settings/:id", deletePaymentGatewaySetting);
+router.get("/payment-history", getAllPaymentHistory);
 
 module.exports = router;

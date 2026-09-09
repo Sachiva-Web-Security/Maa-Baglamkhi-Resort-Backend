@@ -937,3 +937,13 @@ exports.settlePendingBill = async (req, res) => {
     res.status(500).json({ message: "Error settling pending bill" });
   }
 };
+
+exports.getAllPaymentHistory = (req, res) => {
+  AccountsModel.getAllPaymentHistory((err, rows) => {
+    if (err) {
+      console.error("Error fetching payment history:", err);
+      return res.status(500).json({ message: "Error fetching payment history" });
+    }
+    res.json(rows || []);
+  });
+};

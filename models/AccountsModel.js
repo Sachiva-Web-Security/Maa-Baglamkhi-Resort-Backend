@@ -284,8 +284,8 @@ const getTransactions = async (callback) => {
             END
           ) AS description,
           NULL AS narration,
-          NULL AS customerName,
-          NULL AS customerMobile,
+          COALESCE(g.name, '') AS customerName,
+          COALESCE(g.mobile, '') AS customerMobile,
           COALESCE(ph.amount, 0) AS amount,
           COALESCE(NULLIF(ph.payment_mode, ''), 'Cash') AS paymentMode,
           DATE(ph.created_at) AS sortDate,
@@ -323,7 +323,22 @@ const getTransactions = async (callback) => {
     `;
 
     const rows = await runQuery(sql);
-    callback(null, rows);
+
+    // Deduplicate: prefer payment_history entries over accounts_transactions
+    // entries that were auto-created from the same payment
+    const seen = new Map();
+    const deduped = [];
+    for (const row of rows) {
+      const dedupKey = `${row.description || ''}|${row.amount || 0}|${row.date || ''}`;
+      if (seen.has(dedupKey)) {
+        // Skip if we already have this entry (from payment_history, which comes first in UNION)
+        continue;
+      }
+      seen.set(dedupKey, true);
+      deduped.push(row);
+    }
+
+    callback(null, deduped);
   } catch (error) {
     callback(error);
   }
@@ -792,6 +807,32 @@ const getRestaurantBillingRecords = async (callback) => {
   }
 };
 
+const getAllPaymentHistory = (callback) => {
+  const sql = `
+    SELECT
+      ph.id,
+      ph.booking_id,
+      CONCAT('Payment #', ph.id) AS reference,
+      g.guest_name,
+      g.mobile,
+      ph.amount,
+      IFNULL(ph.discount_amount, 0) AS discount_amount,
+      ph.payment_mode,
+      ph.created_at,
+      ph.updated_at,
+      CASE
+        WHEN LOWER(IFNULL(g.booking_status, '')) = 'cancelled' THEN 'Cancelled'
+        ELSE 'Completed'
+      END AS status
+    FROM payment_history ph
+    LEFT JOIN guests g ON ph.booking_id = g.id
+    WHERE ph.is_deleted = 0
+    ORDER BY ph.created_at DESC, ph.id DESC
+  `;
+
+  runQuery(sql, callback);
+};
+
 module.exports = {
   ensureSchema,
   getTransactions,
@@ -803,4 +844,5 @@ module.exports = {
   getDepartmentSummary,
   getHotelBillingRecords,
   getRestaurantBillingRecords,
+  getAllPaymentHistory,
 };
