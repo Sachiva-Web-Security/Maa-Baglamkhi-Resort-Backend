@@ -463,7 +463,6 @@ exports.createGuest = (req, res) => {
             }
           } catch { /* keep invoice total as fallback */ }
 
-          const effectiveTotal = swTotal > 0 ? swTotal : total;
           try {
             const advanceRows = await new Promise((resolve, reject) => {
               db.query(

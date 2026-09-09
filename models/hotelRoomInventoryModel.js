@@ -76,16 +76,15 @@ const ensureSchema = async () => {
     }
   }
 
-  // Keep the default room categories present across repeated test resets.
+  // Keep the default room categories present across repeated starts.
   for (const category of DEFAULT_CATEGORIES) {
     await runQuery(
-      `INSERT INTO hotel_room_categories (id, name, default_price, unit_label)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO hotel_room_categories (name, default_price, unit_label)
+       VALUES (?, ?, ?)
        ON DUPLICATE KEY UPDATE
-         name = VALUES(name),
          default_price = VALUES(default_price),
          unit_label = VALUES(unit_label)`,
-      [category.id, category.name, category.defaultPrice, category.unitLabel],
+      [category.name, category.defaultPrice, category.unitLabel],
     );
   }
 };

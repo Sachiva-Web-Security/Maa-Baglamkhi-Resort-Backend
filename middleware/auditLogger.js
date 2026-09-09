@@ -104,42 +104,42 @@ function auditLogger(req, res, next) {
     return originalSend(body);
   };
 
-  res.on("finish", async () => {
-    const writePromise = (async () => {
-      await AuditLogModel.createLog({
-        userId:
-          req.auditContext?.userId ??
-          req.user?.id ??
-          null,
-        action: req.auditContext?.action || inferAction(req),
-        endpoint: req.originalUrl.split("?")[0],
-        httpMethod: req.method,
-        requestData: maskSensitive({
-          params: req.params || {},
-          query: req.query || {},
-          body: req.body || {},
-          clientAction: req.headers["x-audit-action"] || null,
-          clientSource: req.headers["x-audit-source"] || null,
-          clientUserEmail: req.headers["x-audit-user-email"] || null,
-        }),
-        responseStatus: res.statusCode,
-        ipAddress: getClientIp(req),
-        oldValue: maskSensitive(req.auditContext?.oldValue),
-        newValue: maskSensitive(req.auditContext?.newValue),
-        responseBody: maskSensitive(responseBody),
+  res.on("finish", () => {
+    const entry = {
+      userId:
+        req.auditContext?.userId ??
+        req.user?.id ??
+        null,
+      action: req.auditContext?.action || inferAction(req),
+      endpoint: req.originalUrl.split("?")[0],
+      httpMethod: req.method,
+      requestData: maskSensitive({
+        params: req.params || {},
+        query: req.query || {},
+        body: req.body || {},
+        clientAction: req.headers["x-audit-action"] || null,
+        clientSource: req.headers["x-audit-source"] || null,
+        clientUserEmail: req.headers["x-audit-user-email"] || null,
+      }),
+      responseStatus: res.statusCode,
+      ipAddress: getClientIp(req),
+      oldValue: maskSensitive(req.auditContext?.oldValue),
+      newValue: maskSensitive(req.auditContext?.newValue),
+      responseBody: maskSensitive(responseBody),
+    };
+
+    const writePromise = AuditLogModel
+      .createLog(entry)
+      .catch((error) => {
+        console.error("Audit log write failed:", error.message || error);
       });
-    })();
 
     const pending = getPendingAuditLogSet();
     pending.add(writePromise);
 
-    try {
-      await writePromise;
-    } catch (error) {
-      console.error("Audit log write failed:", error.message || error);
-    } finally {
+    writePromise.finally(() => {
       pending.delete(writePromise);
-    }
+    });
   });
 
   next();
