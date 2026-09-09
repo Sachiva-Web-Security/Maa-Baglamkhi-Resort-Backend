@@ -49,6 +49,7 @@ const {
   updatePaymentGatewaySetting,
   deletePaymentGatewaySetting,
   settlePendingBill,
+  getAllPaymentHistory,
 } = require("../controller/accountsController");
 
 router.get("/transactions", getTransactions);
