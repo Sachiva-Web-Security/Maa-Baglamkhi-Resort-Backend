@@ -425,7 +425,45 @@ exports.createGuest = (req, res) => {
           const roomNumbers = String(invoice.roomNumber || "").trim();
           const total = Number(invoice.totalAmount || 0);
 
-          let advanceAmount = 0;
+          // Compute total same way the frontend does (getFullBooking):
+          // tariff * qty * nights + GST per night * nights
+          // This keeps the WhatsApp total in sync with what's shown in the app.
+          let swTotal = total;
+          try {
+            const guestRow = await new Promise((resolve, reject) => {
+              db.query(
+                "SELECT check_in, check_out FROM guests WHERE id = ? LIMIT 1",
+                [bookingId],
+                (err, rows) => (err ? reject(err) : resolve(rows)),
+              );
+            });
+            const nights =
+              guestRow[0]?.check_in && guestRow[0]?.check_out
+                ? Math.max(
+                    Math.round(
+                      (new Date(guestRow[0].check_out) - new Date(guestRow[0].check_in)) /
+                        (1000 * 60 * 60 * 24),
+                    ),
+                    1,
+                  )
+                : 1;
+            const tariffRows = await new Promise((resolve, reject) => {
+              db.query(
+                "SELECT tariff, gst, quantity FROM room_tariff WHERE booking_id = ?",
+                [bookingId],
+                (err, rows) => (err ? reject(err) : resolve(rows)),
+              );
+            });
+            if (tariffRows.length) {
+              swTotal = tariffRows.reduce((sum, r) => {
+                const base = Number(r.tariff || 0) * Number(r.quantity || 1);
+                const gstAmt = (base * Number(r.gst || 0)) / 100;
+                return sum + (base + gstAmt) * nights;
+              }, 0);
+            }
+          } catch { /* keep invoice total as fallback */ }
+
+          const effectiveTotal = swTotal > 0 ? swTotal : total;
           try {
             const advanceRows = await new Promise((resolve, reject) => {
               db.query(
@@ -437,38 +475,13 @@ exports.createGuest = (req, res) => {
             if (advanceRows.length) advanceAmount = Number(advanceRows[0].amount || 0);
           } catch { /* ignore */ }
 
-          // Fallback: if invoice total is 0/missing, compute from room_tariff directly
-          let computedTotal = total;
-          if (computedTotal <= 0) {
-            try {
-              const tariffRows = await new Promise((resolve, reject) => {
-                db.query(
-                  "SELECT tariff, gst, quantity FROM room_tariff WHERE booking_id = ?",
-                  [bookingId],
-                  (err, rows) => (err ? reject(err) : resolve(rows)),
-                );
-              });
-              if (tariffRows.length) {
-                let subtotal = 0;
-                let totalGst = 0;
-                tariffRows.forEach((r) => {
-                  const qty = Number(r.quantity || 1);
-                  const price = Number(r.tariff || 0);
-                  const gst = Number(r.gst || 0);
-                  const base = price * qty;
-                  subtotal += base;
-                  totalGst += (base * gst) / 100;
-                });
-                computedTotal = Math.round(subtotal + totalGst);
-              }
-            } catch { /* ignore */ }
-          }
-
-          const effectiveTotal = computedTotal > 0 ? computedTotal : advanceAmount;
+          // Fallback: if invoice total is 0/missing, use advance amount as minimum
+          const effectiveTotal = swTotal > 0 ? swTotal : Math.max(total, advanceAmount || 0);
           const balance = Math.max(effectiveTotal - advanceAmount, 0);
           const formattedAdvance = advanceAmount > 0 ? `₹ ${advanceAmount.toFixed(0)}` : "₹ 0";
           const formattedBalance = balance > 0 ? `₹ ${balance.toFixed(0)}` : "₹ 0";
           const formattedTotal = effectiveTotal > 0 ? `₹ ${effectiveTotal.toFixed(0)}` : "—";
+          const priceDisplay = effectiveTotal > 0 ? `₹ ${effectiveTotal.toFixed(0)} Par Day` : "—";
           const confirmedByName = bookedBy || "";
           const rawBookingType = req.body?.bookingType || invoice.bookingType || "";
           const bookingTypeMap = { "walk-in": "Walk-in", via: "Via", online: "Online" };

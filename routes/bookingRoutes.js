@@ -75,6 +75,7 @@ router.use("/room-block", roomBlockRouter);
 
 // Guest Profile / History
 router.get("/guest-profile",           guestProfileController.search);
+router.get("/guests/search",           guestProfileController.searchList);
 router.get("/guest-documents/:bookingId", guestDocumentController.listByBooking);
 router.post("/guest-documents/:bookingId", upload.single("document"), guestDocumentController.uploadByBooking);
 

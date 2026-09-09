@@ -144,3 +144,26 @@ exports.search = async (req, res) => {
     res.status(500).json({ error: "Failed to search guest profile" });
   }
 };
+
+exports.searchList = async (req, res) => {
+  const query = String(req.query.q || "").trim();
+  try {
+    if (!query) {
+      return res.json([]);
+    }
+
+    const rows = await runQuery(
+      `SELECT id, guest_name, mobile, guest_email, booking_status, check_in, check_out
+       FROM guests
+       WHERE mobile LIKE ? OR LOWER(guest_name) LIKE LOWER(?)
+       ORDER BY id DESC
+       LIMIT 20`,
+      [`%${query}%`, `%${query}%`],
+    );
+
+    res.json(rows || []);
+  } catch (err) {
+    console.error("[guestProfile] searchList error:", err);
+    res.status(500).json({ error: "Failed to search guests" });
+  }
+};
