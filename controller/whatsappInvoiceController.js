@@ -65,7 +65,8 @@ const round2 = (value) => Number((Number(value || 0)).toFixed(2));
  */
 exports.sendInvoiceWhatsApp = async (req, res) => {
   try {
-    const bookingId = Number(req.params.bookingId);
+    const bookingId =
+      Number(req.params.bookingId) || Number(req.body?.bookingId);
     if (!bookingId) {
       return res.status(400).json({ error: "Valid booking ID is required" });
     }

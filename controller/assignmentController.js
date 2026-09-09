@@ -1,8 +1,4 @@
-const db = require("../config/db");
-const {
-  getRequestActor,
-  namesMatch,
-} = require("../utils/requestActor");
+const AssignmentModel = require("../models/AssignmentModel");
 
 const query = (sql, params = []) =>
   new Promise((resolve, reject) =>
@@ -17,7 +13,6 @@ const isManagerRole = (role) => MANAGER_ROLES.has(String(role || "").toLowerCase
 
 const getVisibilityContext = (req) => {
   const actor = getRequestActor(req);
-
   return {
     actor,
     restrictToOwnAssignments: isAssigneeRole(actor.role) && actor.normalizedName,
@@ -31,28 +26,8 @@ const ensureColumn = async (tableName, columnName, definition) => {
   }
 };
 
-const ensureSchema = async () => {
-  await query(`
-    CREATE TABLE IF NOT EXISTS assignments (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      staff_name VARCHAR(191) NOT NULL,
-      room_number VARCHAR(50) DEFAULT NULL,
-      task VARCHAR(255) NOT NULL,
-      priority VARCHAR(50) DEFAULT 'Normal',
-      assigned_by VARCHAR(191) DEFAULT NULL,
-      due_time DATETIME DEFAULT NULL,
-      notes TEXT DEFAULT NULL,
-      status VARCHAR(50) DEFAULT 'Pending',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  await ensureColumn(
-    "assignments",
-    "updated_at",
-    "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
-  );
-};
+// Delegate schema creation to the model
+const ensureSchema = AssignmentModel.ensureSchema.bind(AssignmentModel);
 
 exports.bootstrap = async (_req, _res, next) => {
   try {

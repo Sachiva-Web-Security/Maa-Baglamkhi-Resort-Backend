@@ -83,6 +83,19 @@ const {
 const {
   ensureSchema: ensureMenuRecipeSchema,
 } = require("./models/MenuRecipeModel");
+const {
+  ensureSchema: ensureAssignmentSchema,
+} = require("./models/AssignmentModel");
+const {
+  ensureSchema: ensureGroupBookingSchema,
+} = require("./models/GroupBookingModel");
+const {
+  ensureSchema: ensureNotificationSchema,
+} = require("./models/NotificationModel");
+const {
+  ensureSchema: ensureRegisterSchema,
+  seedDefaults: seedDefaultStaffLogins,
+} = require("./models/UserModel");
 const auditLogger = require("./middleware/auditLogger");
 const { getCorsOptions } = require("./config/security");
 
@@ -124,6 +137,7 @@ app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/hotel", require("./routes/bookingRoutes"));
 app.use("/api/restaurant", require("./routes/restaurantRoutes"));
+app.use("/api/web/dining", require("./routes/diningRoutes"));
 app.use("/api/room-service", require("./routes/roomServiceRoutes"));
 app.use("/api/waiter", require("./routes/waiterRoutes"));
 app.use("/api/accounts", require("./routes/accountsRoutes"));
@@ -188,63 +202,8 @@ async function bootstrapSchema(label, task) {
 }
 
 async function ensureDefaultStaffLogins() {
-  // ── Ensure register table has a `phone` column (for WhatsApp invoice sending) ──
-  try {
-    await db.promise().query(
-      "ALTER TABLE register ADD COLUMN IF NOT EXISTS phone VARCHAR(20) DEFAULT NULL AFTER email"
-    );
-  } catch (e) {
-    // MySQL < 8.0 doesn't support ADD COLUMN IF NOT EXISTS; try the legacy form
-    try {
-      const [[{ COUNT }]] = await db.promise().query(
-        "SELECT COUNT(*) AS COUNT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'register' AND COLUMN_NAME = 'phone'"
-      );
-      if (!COUNT) {
-        await db.promise().query("ALTER TABLE register ADD COLUMN phone VARCHAR(20) DEFAULT NULL AFTER email");
-      }
-    } catch (alterErr) {
-      console.warn("Could not add `phone` column to register table:", alterErr.message);
-    }
-  }
-
-  await db.promise().query(`
-    CREATE TABLE IF NOT EXISTS register (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      name VARCHAR(191) NOT NULL,
-      email VARCHAR(191) NOT NULL UNIQUE,
-      phone VARCHAR(20) DEFAULT NULL,
-      password VARCHAR(255) NOT NULL,
-      role VARCHAR(50) NOT NULL DEFAULT 'staff',
-      avatar_url VARCHAR(255) DEFAULT NULL
-    )
-  `);
-
-  const hashedPassword = await bcrypt.hash("password", 10);
-  const defaultUsers = [
-    ["Admin User", "admin@resort.com", "admin"],
-    ["Rajesh Manager", "manager@resort.com", "manager"],
-    ["Priya Reception", "reception@resort.com", "receptionist"],
-    ["CA Accounts", "accounts@resort.com", "accountant"],
-    ["Tarun HK", "tarun@resort.com", "housekeeping"],
-    ["Ramu Waiter", "waiter@resort.com", "waiter"],
-    ["Chef Kumar", "kitchen@resort.com", "kitchen"],
-  ];
-
-  for (const [name, email, role] of defaultUsers) {
-    const [existingRows] = await db.promise().query(
-      "SELECT id FROM register WHERE LOWER(email) = LOWER(?) LIMIT 1",
-      [email],
-    );
-
-    if (existingRows.length > 0) {
-      continue;
-    }
-
-    await db.promise().query(
-      "INSERT INTO register (name, email, password, role) VALUES (?, ?, ?, ?)",
-      [name, email, hashedPassword, role],
-    );
-  }
+  await ensureRegisterSchema();
+  await seedDefaultStaffLogins();
 }
 
 async function initializeDatabase(options = {}) {
@@ -291,6 +250,9 @@ async function initializeDatabase(options = {}) {
     await bootstrapSchema("Accounts expansion schema init", ensureAccountsExpansionSchema);
     await bootstrapSchema("Inventory masters schema init", ensureInventoryMastersSchema);
     await bootstrapSchema("Menu recipe schema init", ensureMenuRecipeSchema);
+    await bootstrapSchema("Assignment schema init", ensureAssignmentSchema);
+    await bootstrapSchema("Group booking schema init", ensureGroupBookingSchema);
+    await bootstrapSchema("Notification schema init", ensureNotificationSchema);
     await bootstrapSchema("Print log schema init", async () => {
       const printLogModel = require("./models/PrintLogModel");
       await printLogModel.ensureSchema();

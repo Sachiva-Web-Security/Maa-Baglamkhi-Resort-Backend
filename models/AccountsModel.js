@@ -199,6 +199,21 @@ const ensureSchema = async () => {
     "is_deleted",
     "TINYINT(1) NOT NULL DEFAULT 0 AFTER updated_by",
   );
+  await ensureColumn(
+    "accounts_transactions",
+    "narration",
+    "TEXT NULL AFTER description",
+  );
+  await ensureColumn(
+    "accounts_transactions",
+    "customer_name",
+    "VARCHAR(200) NULL AFTER narration",
+  );
+  await ensureColumn(
+    "accounts_transactions",
+    "customer_mobile",
+    "VARCHAR(15) NULL AFTER customer_name",
+  );
 
   // Add indexes for faster filtering and reporting
   try {
@@ -268,6 +283,9 @@ const getTransactions = async (callback) => {
               ELSE CONCAT(' - ', g.guest_name)
             END
           ) AS description,
+          NULL AS narration,
+          NULL AS customerName,
+          NULL AS customerMobile,
           COALESCE(ph.amount, 0) AS amount,
           COALESCE(NULLIF(ph.payment_mode, ''), 'Cash') AS paymentMode,
           DATE(ph.created_at) AS sortDate,
@@ -281,7 +299,7 @@ const getTransactions = async (callback) => {
       : "";
 
     const sql = `
-      SELECT id, date, type, department, sourceModule, description, amount, paymentMode
+      SELECT id, date, type, department, sourceModule, description, narration, customerName, customerMobile, amount, paymentMode
       FROM (
         SELECT
           CAST(at.id AS CHAR) AS id,
@@ -290,6 +308,9 @@ const getTransactions = async (callback) => {
           at.department AS department,
           at.source_module AS sourceModule,
           at.description AS description,
+          at.narration AS narration,
+          at.customer_name AS customerName,
+          at.customer_mobile AS customerMobile,
           at.amount AS amount,
           at.payment_mode AS paymentMode,
           at.date AS sortDate,
@@ -310,7 +331,7 @@ const getTransactions = async (callback) => {
 
 const createTransaction = (data, callback) => {
   const sql =
-    "INSERT INTO accounts_transactions (date, type, department, source_module, description, amount, payment_mode) VALUES (?, ?, ?, ?, ?, ?, ?)";
+    "INSERT INTO accounts_transactions (date, type, department, source_module, description, narration, customer_name, customer_mobile, amount, payment_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
   const department = inferDepartment(data.description, data.department);
   db.query(
     sql,
@@ -320,6 +341,9 @@ const createTransaction = (data, callback) => {
       department,
       data.sourceModule || null,
       data.description,
+      data.narration || null,
+      data.customerName || null,
+      data.customerMobile || null,
       data.amount,
       data.paymentMode,
     ],
@@ -383,7 +407,7 @@ const updateTransaction = async (id, data) => {
 
   const result = await runQuery(
     `UPDATE accounts_transactions
-     SET date = ?, type = ?, department = ?, source_module = ?, description = ?, amount = ?, payment_mode = ?, updated_at = NOW(), updated_by = ?
+     SET date = ?, type = ?, department = ?, source_module = ?, description = ?, narration = ?, customer_name = ?, customer_mobile = ?, amount = ?, payment_mode = ?, updated_at = NOW(), updated_by = ?
      WHERE id = ? AND is_deleted = 0`,
     [
       data.date,
@@ -391,6 +415,9 @@ const updateTransaction = async (id, data) => {
       data.department || "Other",
       data.source_module || null,
       data.description,
+      data.narration || null,
+      data.customerName || null,
+      data.customerMobile || null,
       data.amount,
       data.payment_mode,
       data.updatedBy || null,

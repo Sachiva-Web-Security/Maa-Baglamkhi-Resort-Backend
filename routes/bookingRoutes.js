@@ -86,6 +86,9 @@ guestAdminRouter.use(roleMiddleware(["admin"]));
 guestAdminRouter.put("/phone/:bookingId", guestController.updateGuestPhone);
 router.use("/guest", guestAdminRouter);
 
+// Hotel Invoice PDF → WhatsApp
+router.post("/invoice/pdf", whatsappInvoiceController.sendInvoiceWhatsApp);
+
 // Group Booking
 router.post("/group-booking",          groupBookingController.create);
 

@@ -151,6 +151,7 @@ const updateBanquetPricingConfig = async (req, res) => {
 
 module.exports = {
   DEFAULT_BANQUET_PRICING_CONFIG,
+  getBanquetPricingConfig,
   getBanquetPricingConfigHandler,
   updateBanquetPricingConfig,
 };

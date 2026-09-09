@@ -29,13 +29,13 @@ exports.getTransactions = (req, res) => {
 };
 
 exports.addIncome = (req, res) => {
-  const { date, description, amount, paymentMode, department, sourceModule } = req.body;
+  const { date, description, narration, customerName, customerMobile, amount, paymentMode, department, sourceModule } = req.body;
   if (!date || !description || amount == null || !paymentMode) {
     return res.status(400).json({ message: "Missing fields" });
   }
 
   AccountsModel.createTransaction(
-    { date, type: "Income", description, amount, paymentMode, department, sourceModule },
+    { date, type: "Income", description, narration, customerName, customerMobile, amount, paymentMode, department, sourceModule },
     (err, result) => {
       if (err) {
         console.error("Error adding income:", err);
@@ -47,13 +47,13 @@ exports.addIncome = (req, res) => {
 };
 
 exports.addExpense = (req, res) => {
-  const { date, description, amount, paymentMode, department, sourceModule } = req.body;
+  const { date, description, narration, customerName, customerMobile, amount, paymentMode, department, sourceModule } = req.body;
   if (!date || !description || amount == null || !paymentMode) {
     return res.status(400).json({ message: "Missing fields" });
   }
 
   AccountsModel.createTransaction(
-    { date, type: "Expense", description, amount, paymentMode, department, sourceModule },
+    { date, type: "Expense", description, narration, customerName, customerMobile, amount, paymentMode, department, sourceModule },
     (err, result) => {
       if (err) {
         console.error("Error adding expense:", err);
@@ -70,6 +70,9 @@ const mapTransactionBody = (body) => ({
   department: body.department || "Other",
   source_module: body.sourceModule || null,
   description: body.description,
+  narration: body.narration || null,
+  customer_name: body.customerName || null,
+  customer_mobile: body.customerMobile || null,
   amount: Number(body.amount || 0),
   payment_mode: body.paymentMode,
 });

@@ -25,6 +25,8 @@
 const crypto = require("crypto");
 const db = require("../config/db");
 
+const GroupBookingModel = require("../models/GroupBookingModel");
+
 const runQuery = (sql, params = []) =>
   new Promise((resolve, reject) => {
     db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
@@ -36,36 +38,8 @@ const generateBookingCode = () => {
   return `GRP-${date}-${rand}`;
 };
 
-// ─── Ensure group_booking tables exist ───────────────────────────────────────
-const ensureSchema = async () => {
-  await runQuery(`
-    CREATE TABLE IF NOT EXISTS hotel_group_bookings (
-      id           INT AUTO_INCREMENT PRIMARY KEY,
-      booking_id   INT NOT NULL UNIQUE,
-      group_label  VARCHAR(200) DEFAULT NULL,
-      total_rooms  INT NOT NULL DEFAULT 1,
-      grand_total  DECIMAL(10,2) NOT NULL DEFAULT 0,
-      paid_amount  DECIMAL(10,2) NOT NULL DEFAULT 0,
-      created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (booking_id) REFERENCES guests(id) ON DELETE CASCADE
-    )
-  `);
-
-  // Ensure guests table has group columns
-  const cols = await runQuery("SHOW COLUMNS FROM guests LIKE 'is_group_booking'");
-  if (!cols.length) {
-    await runQuery(
-      "ALTER TABLE guests ADD COLUMN is_group_booking TINYINT(1) NOT NULL DEFAULT 0",
-    );
-  }
-
-  const labelCols = await runQuery("SHOW COLUMNS FROM guests LIKE 'group_label'");
-  if (!labelCols.length) {
-    await runQuery(
-      "ALTER TABLE guests ADD COLUMN group_label VARCHAR(200) DEFAULT NULL",
-    );
-  }
-};
+// Delegate schema creation to the model file
+const ensureSchema = GroupBookingModel.ensureSchema.bind(GroupBookingModel);
 
 // ─── POST /hotel/group-booking ────────────────────────────────────────────────
 exports.create = async (req, res) => {
