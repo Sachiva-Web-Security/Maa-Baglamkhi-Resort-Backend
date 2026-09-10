@@ -1,13 +1,13 @@
 const db = require("../config/db");
 const InventoryModel = require("./InventoryModel");
-const RestaurantModel = require("./RestaurantModel");
 
-const query = (sql, params = [], connection = null) => {
+const query = (sql, params = [], connection) => {
   const executor = connection || db.promise();
   return executor.query(sql, params).then(([rows]) => rows);
 };
 
 const ensureSchema = async () => {
+  const RestaurantModel = require("./RestaurantModel");
   await InventoryModel.ensureSchema();
   await RestaurantModel.ensureSchema();
 
