@@ -833,6 +833,30 @@ const getAllPaymentHistory = (callback) => {
   runQuery(sql, callback);
 };
 
+const savePaymentHistory = (data, callback) => {
+  const sql = `
+    INSERT INTO payment_history
+      (guest_name, mobile, booking_id, amount, payment_mode, status, discount_amount, source, created_by, description, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+  `;
+  db.query(
+    sql,
+    [
+      data.guest_name || null,
+      data.mobile || null,
+      data.booking_id || null,
+      Number(data.amount || 0),
+      data.payment_mode || "Cash",
+      data.status || "Completed",
+      Number(data.discount_amount || 0),
+      data.source || "accounts",
+      data.created_by || null,
+      data.description || null,
+    ],
+    callback,
+  );
+};
+
 module.exports = {
   ensureSchema,
   getTransactions,
@@ -845,4 +869,5 @@ module.exports = {
   getHotelBillingRecords,
   getRestaurantBillingRecords,
   getAllPaymentHistory,
+  savePaymentHistory,
 };

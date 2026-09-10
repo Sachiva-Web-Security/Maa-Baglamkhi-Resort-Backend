@@ -34,6 +34,13 @@ exports.addIncome = (req, res) => {
     return res.status(400).json({ message: "Missing fields" });
   }
 
+  req.setAuditContext?.({
+    action: "accounts.income.create",
+    userId: req.user?.id || null,
+    oldValue: null,
+    newValue: { date, description, customerName, customerMobile, amount, paymentMode, department, sourceModule },
+  });
+
   AccountsModel.createTransaction(
     { date, type: "Income", description, narration, customerName, customerMobile, amount, paymentMode, department, sourceModule },
     (err, result) => {
@@ -41,6 +48,25 @@ exports.addIncome = (req, res) => {
         console.error("Error adding income:", err);
         return res.status(500).json({ message: "Error adding income" });
       }
+
+      // Also save to payment_history for accountability tracking
+      const paymentData = {
+        guest_name: customerName || description,
+        mobile: customerMobile || null,
+        booking_id: null,
+        amount: Number(amount),
+        payment_mode: paymentMode,
+        status: "Completed",
+        discount_amount: 0,
+        source: "accounts_manual",
+        created_by: req.user?.id || null,
+        description: description,
+      };
+
+      AccountsModel.savePaymentHistory(paymentData, (phErr) => {
+        if (phErr) console.error("Error saving to payment_history:", phErr);
+      });
+
       res.json({ message: "Income added", id: result.insertId });
     }
   );
@@ -52,6 +78,13 @@ exports.addExpense = (req, res) => {
     return res.status(400).json({ message: "Missing fields" });
   }
 
+  req.setAuditContext?.({
+    action: "accounts.expense.create",
+    userId: req.user?.id || null,
+    oldValue: null,
+    newValue: { date, description, customerName, customerMobile, amount, paymentMode, department, sourceModule },
+  });
+
   AccountsModel.createTransaction(
     { date, type: "Expense", description, narration, customerName, customerMobile, amount, paymentMode, department, sourceModule },
     (err, result) => {
@@ -59,6 +92,25 @@ exports.addExpense = (req, res) => {
         console.error("Error adding expense:", err);
         return res.status(500).json({ message: "Error adding expense" });
       }
+
+      // Also save to payment_history for accountability tracking
+      const paymentData = {
+        guest_name: customerName || description,
+        mobile: customerMobile || null,
+        booking_id: null,
+        amount: Number(amount),
+        payment_mode: paymentMode,
+        status: "Completed",
+        discount_amount: 0,
+        source: "accounts_expense",
+        created_by: req.user?.id || null,
+        description: description,
+      };
+
+      AccountsModel.savePaymentHistory(paymentData, (phErr) => {
+        if (phErr) console.error("Error saving to payment_history:", phErr);
+      });
+
       res.json({ message: "Expense added", id: result.insertId });
     }
   );
@@ -118,10 +170,28 @@ exports.updateTransaction = async (req, res) => {
       return res.status(404).json({ message: "Transaction not found" });
     }
 
-    const result = await AccountsModel.updateTransaction(req.params.id, {
-      ...mapTransactionBody(body),
-      updatedBy: req.user?.id || null,
+    const updatedBody = { ...mapTransactionBody(body), updatedBy: req.user?.id || null };
+
+    req.setAuditContext?.({
+      action: "accounts.transaction.update",
+      userId: req.user?.id || null,
+      oldValue: {
+        date: existingRow.date,
+        type: existingRow.type,
+        description: existingRow.description,
+        amount: Number(existingRow.amount || 0),
+        paymentMode: existingRow.payment_mode || existingRow.paymentMode,
+      },
+      newValue: {
+        date: updatedBody.date,
+        type: updatedBody.type,
+        description: updatedBody.description,
+        amount: updatedBody.amount,
+        paymentMode: updatedBody.payment_mode,
+      },
     });
+
+    const result = await AccountsModel.updateTransaction(req.params.id, updatedBody);
 
     if (!result?.affectedRows) {
       return res.status(404).json({ message: "Transaction not found" });
@@ -140,6 +210,21 @@ exports.deleteTransaction = async (req, res) => {
     if (!existingRow) {
       return res.status(404).json({ message: "Transaction not found" });
     }
+
+    req.setAuditContext?.({
+      action: "accounts.transaction.delete",
+      userId: req.user?.id || null,
+      oldValue: {
+        date: existingRow.date,
+        type: existingRow.type,
+        description: existingRow.description,
+        amount: Number(existingRow.amount || 0),
+        paymentMode: existingRow.payment_mode || existingRow.paymentMode,
+        customerName: existingRow.customer_name || existingRow.customerName,
+        customerMobile: existingRow.customer_mobile || existingRow.customerMobile,
+      },
+      newValue: null,
+    });
 
     const result = await AccountsModel.deleteTransaction(req.params.id);
     if (!result?.affectedRows) {

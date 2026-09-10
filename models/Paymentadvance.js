@@ -41,6 +41,29 @@ const ensureSchema = async () => {
       ADD COLUMN updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at
     `);
   }
+
+  // Ensure audit tracking columns exist
+  const auditColumns = [
+    ["guest_name", "VARCHAR(255) NULL AFTER booking_id"],
+    ["mobile", "VARCHAR(20) NULL AFTER guest_name"],
+    ["status", "VARCHAR(50) NOT NULL DEFAULT 'Completed' AFTER payment_mode"],
+    ["source", "VARCHAR(100) NOT NULL DEFAULT 'booking' AFTER status"],
+    ["created_by", "BIGINT NULL AFTER source"],
+    ["description", "TEXT NULL AFTER created_at"],
+    ["is_deleted", "TINYINT(1) NOT NULL DEFAULT 0 AFTER status"],
+  ];
+
+  for (const [colName, colDef] of auditColumns) {
+    const hasCol = await runQuery(`SHOW COLUMNS FROM payment_history LIKE '${colName}'`);
+    if (!hasCol.length) {
+      await runQuery(`ALTER TABLE payment_history ADD COLUMN ${colName} ${colDef}`);
+    }
+  }
+
+  const hasSourceIndex = await runQuery("SHOW INDEX FROM payment_history WHERE Key_name = 'idx_source'");
+  if (!hasSourceIndex.length) {
+    await runQuery("ALTER TABLE payment_history ADD INDEX idx_source (source), ADD INDEX idx_created_by (created_by), ADD INDEX idx_is_deleted (is_deleted)");
+  }
 };
 
 const addPayment = async (data, callback) => {
