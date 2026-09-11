@@ -1,0 +1,66 @@
+const pool = require('../config/db')
+
+class HousekeepingAssignments {
+  constructor() {
+    this.pool = pool
+  }
+
+  async ensureSchema() {
+    const conn = await pool.getConnection()
+    try {
+      await conn.beginTransaction()
+
+      await conn.query(`CREATE TABLE IF NOT EXISTS \`housekeeping_assignments\` (
+            \`id\` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  \`room_id\` INT UNSIGNED NOT NULL,
+  \`room_number\` VARCHAR(50) NOT NULL,
+  \`assigned_to\` BIGINT UNSIGNED,
+  \`assigned_to_name\` VARCHAR(191),
+  \`task_type\` ENUM(\'cleaning\',\'deep_clean\',\'inspection\',\'setup\',\'maintenance\',\'other\') DEFAULT \'cleaning\',
+  \`priority\` ENUM(\'urgent\',\'high\',\'normal\',\'low\') DEFAULT \'normal\',
+  \`status\` ENUM(\'pending\',\'in_progress\',\'completed\',\'verified\',\'cancelled\') DEFAULT \'pending\',
+  \`notes\` TEXT,
+  \`started_at\` DATETIME,
+  \`completed_at\` DATETIME,
+  \`verified_by\` BIGINT UNSIGNED,
+  \`verified_at\` DATETIME,
+  \`created_at\` TIMESTAMP,
+  \`updated_at\` TIMESTAMP,
+  PRIMARY KEY (\`id\`),
+  KEY \`idx_room\` (\`room_number\`),
+  KEY \`idx_assignee\` (\`assigned_to\`),
+  KEY \`idx_status\` (\`status\`),
+  FOREIGN KEY (\`assigned_to\`) REFERENCES \`users\`(\`id\`) ON DELETE SET ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+
+      await conn.commit()
+    } catch (err) {
+      await conn.rollback()
+      console.error('Schema error for housekeeping_assignments:', err.message)
+    } finally {
+      conn.release()
+    }
+  }
+
+  async findByStatus(...args) {
+    const [rows] = await this.pool.execute("SELECT * FROM \`housekeeping_assignments\` WHERE \`status\` = ? ORDER BY \`priority\`, \`created_at\`", args)
+    return rows
+  }
+
+  async findByRoom(...args) {
+    const [rows] = await this.pool.execute("SELECT * FROM \`housekeeping_assignments\` WHERE \`room_number\` = ? ORDER BY \`created_at\` DESC", args)
+    return rows
+  }
+
+  async findById(...args) {
+    const [rows] = await this.pool.execute("SELECT * FROM \`housekeeping_assignments\` WHERE \`id\` = ?", args)
+    return rows
+  }
+
+  async findAll(...args) {
+    const [rows] = await this.pool.execute("SELECT * FROM \`housekeeping_assignments\` ORDER BY \`created_at\` DESC", args)
+    return rows
+  }
+}
+
+module.exports = new (HousekeepingAssignments)()

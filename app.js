@@ -10,92 +10,37 @@ const cookieParser = require("cookie-parser");
 
 const db = require("./config/db");
 const { getDbConnectionLabel } = require("./config/databaseConfig");
-const {
-  ensureSchema: ensureHotelRoomInventorySchema,
-} = require("./models/hotelRoomInventoryModel");
-const {
-  ensureSchema: ensureGuestSchema,
-} = require("./models/guestModel");
-const {
-  ensureSchema: ensureGuestDocumentSchema,
-} = require("./models/guestDocumentModel");
-const {
-  ensureSchema: ensureOtherBookingSchema,
-} = require("./models/otherBookingModel");
-const {
-  ensureSchema: ensureReferenceNotesSchema,
-} = require("./models/referenceModel");
-const {
-  ensureSchema: ensureAdvancePaymentSchema,
-} = require("./models/advanceModel");
-const {
-  ensureSchema: ensureAccountsSchema,
-} = require("./models/AccountsModel");
-const {
-  ensureSchema: ensureAttendanceSchema,
-} = require("./models/AttendanceModel");
-const {
-  ensureSchema: ensureBanquetSchema,
-} = require("./models/BanquetModel");
-const {
-  ensureSchema: ensureCompanySchema,
-} = require("./models/companyModel");
-const {
-  ensureSchema: ensurePaymentHistorySchema,
-} = require("./models/Paymentadvance");
-const {
-  ensureSchema: ensurePaxSchema,
-} = require("./models/paxModel");
-const {
-  ensureSchema: ensurePaymentSchema,
-} = require("./models/paymentModel");
-const {
-  ensureSchema: ensureRoomServiceSchema,
-} = require("./models/RoomServiceModel");
-const {
-  ensureSchema: ensureRoomTariffSchema,
-} = require("./models/roomTariffModel");
-const {
-  ensureSchema: ensureTokenSchema,
-} = require("./models/TokenModel");
-const {
-  ensureSchema: ensureRestaurantSchema,
-  bootstrapLegacyBills,
-} = require("./models/RestaurantModel");
-const {
-  ensureSchema: ensureKitchenSchema,
-} = require("./models/kitchen");
-const {
-  ensureSchema: ensureHousekeepingSchema,
-} = require("./models/Housekeeping");
-const {
-  ensureSchema: ensureAuditLogSchema,
-} = require("./models/AuditLogModel");
-const {
-  ensureSchema: ensureCompletedCleaningLogSchema,
-} = require("./models/CompletedCleaningLogModel");
-const {
-  ensureSchema: ensureAccountsExpansionSchema,
-} = require("./models/AccountsExpansionModel");
-const {
-  ensureSchema: ensureInventoryMastersSchema,
-} = require("./models/InventoryMastersModel");
-const {
-  ensureSchema: ensureMenuRecipeSchema,
-} = require("./models/MenuRecipeModel");
-const {
-  ensureSchema: ensureAssignmentSchema,
-} = require("./models/AssignmentModel");
-const {
-  ensureSchema: ensureGroupBookingSchema,
-} = require("./models/GroupBookingModel");
-const {
-  ensureSchema: ensureNotificationSchema,
-} = require("./models/NotificationModel");
+const { ensureSchema: ensureHotelRoomInventorySchema } = require("./models/RoomsModel");
+const { ensureSchema: ensureGuestSchema } = require("./models/GuestProfilesModel");
+const { ensureSchema: ensureGuestDocumentSchema } = require("./models/GuestIdentificationsModel");
+const { ensureSchema: ensureOtherBookingSchema } = require("./models/BookingSourcesModel");
+const { ensureSchema: ensureReferenceNotesSchema } = require("./models/SpecialRequestsModel");
+const { ensureSchema: ensureAdvancePaymentSchema } = require("./models/PaymentsModel");
+const { ensureSchema: ensureAccountsSchema } = require("./models/ChartOfAccountsModel");
+const { ensureSchema: ensureAttendanceSchema } = require("./models/AttendanceRecordsModel");
+const { ensureSchema: ensureBanquetSchema } = require("./models/BanquetHallsModel");
+const { ensureSchema: ensureCompanySchema } = require("./models/ResortProfilesModel");
+const { ensureSchema: ensurePaymentHistorySchema } = require("./models/PaymentsModel");
+const { ensureSchema: ensurePaxSchema } = require("./models/BookingGuestsModel");
+const { ensureSchema: ensurePaymentSchema } = require("./models/PaymentsModel");
+const { ensureSchema: ensureRoomServiceSchema } = require("./models/KotOrdersModel");
+const { ensureSchema: ensureRoomTariffSchema } = require("./models/RatePlansModel");
+const { ensureSchema: ensureTokenSchema } = require("./models/TokensModel");
+const { ensureSchema: ensureRestaurantSchema } = require("./models/RestaurantTablesModel");
+const { ensureSchema: ensureKitchenSchema } = require("./models/KotOrdersModel");
+const { ensureSchema: ensureHousekeepingSchema } = require("./models/HousekeepingStatusesModel");
+const { ensureSchema: ensureAuditLogSchema } = require("./models/AuditLogsModel");
+const { ensureSchema: ensureCompletedCleaningLogSchema } = require("./models/HousekeepingLogsModel");
+const { ensureSchema: ensureAccountsExpansionSchema } = require("./models/TransactionsModel");
+const { ensureSchema: ensureInventoryMastersSchema } = require("./models/InventoryCategoriesModel");
+const { ensureSchema: ensureMenuRecipeSchema } = require("./models/MenuItemIngredientsModel");
+const { ensureSchema: ensureAssignmentSchema } = require("./models/HousekeepingAssignmentsModel");
+const { ensureSchema: ensureGroupBookingSchema } = require("./models/BookingsModel");
+const { ensureSchema: ensureNotificationSchema } = require("./models/NotificationsModel");
 const {
   ensureSchema: ensureRegisterSchema,
   seedDefaults: seedDefaultStaffLogins,
-} = require("./models/UserModel");
+} = require("./models/UsersModel");
 const auditLogger = require("./middleware/auditLogger");
 const { getCorsOptions } = require("./config/security");
 
@@ -240,7 +185,7 @@ async function initializeDatabase(options = {}) {
     // One-time migration: sync legacy restaurant_bills from bills. Runs once
     // on startup after the schema is in place — never per-request.
     try {
-      await bootstrapLegacyBills();
+      await require("./models/RestaurantTablesModel").bootstrapLegacyBills();
     } catch (err) {
       console.error("Legacy bill sync bootstrap failed:", err.message);
     }
