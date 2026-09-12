@@ -1,4 +1,4 @@
-const { server, initializeDatabase, shutdown } = require("./app");
+const { server, initializeDatabase, shutdown } = require("./src/app");
 
 const PORT = process.env.PORT || 5002;
 
@@ -8,7 +8,7 @@ server.listen(PORT, () => {
 
 initializeDatabase().then(() => {
   try {
-    const { printQueue } = require("./services/PrintQueue");
+    const { printQueue } = require("./src/services/PrintQueue");
     printQueue.start();
   } catch (e) {
     console.error("Print queue init failed:", e.message);

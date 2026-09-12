@@ -11,7 +11,7 @@ router.get("/", authMiddleware, (req, res, next) => {
   const userId = req.user?.id;
 
   if (userRole === "admin") {
-    return attendanceController.getForDate(req, res, next);
+    return attendanceController.getAllAttendance(req, res, next);
   }
 
   const AttendanceRecordsModel = require("../models/AttendanceRecordsModel");
@@ -39,7 +39,7 @@ router.post(
   "/",
   authMiddleware,
   roleMiddleware(["admin"]),
-  attendanceController.createManual
+  attendanceController.markMyAttendance
 );
 
 module.exports = router;

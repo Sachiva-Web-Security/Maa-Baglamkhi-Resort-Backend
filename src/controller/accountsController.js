@@ -1191,3 +1191,11 @@ exports.getBankLedgerBySource = getBankLedgerBySource;
 exports.getTransactionsByModule = getTransactionsByModule;
 exports.getSourceModules = getSourceModules;
 exports.createBillPayment = createBillPayment;
+
+const addIncome = async (req, res) => res.status(501).json({ message: "Not implemented" });
+const addExpense = async (req, res) => res.status(501).json({ message: "Not implemented" });
+const settlePendingBill = async (req, res) => res.status(501).json({ message: "Not implemented" });
+
+exports.addIncome = addIncome;
+exports.addExpense = addExpense;
+exports.settlePendingBill = settlePendingBill;

@@ -12,39 +12,38 @@ const {
   getRestaurantBillingRecords,
   getExtendedSummary,
   getReconciliationSummary,
-  getReconciliationItems,
+  listReconciliationItems,
   matchBankLedger,
   unmatchBankLedger,
-  getBankLedger,
+  listBankLedger,
   addBankLedger,
   updateBankLedger,
   deleteBankLedger,
-  getPettyCash,
+  listPettyCash,
   addPettyCash,
   updatePettyCash,
   deletePettyCash,
-  getGstReturns,
+  listGstReturns,
   addGstReturn,
   updateGstReturn,
   deleteGstReturn,
-  getVendorPayments,
+  listVendorPayments,
   addVendorPayment,
   updateVendorPayment,
   deleteVendorPayment,
-  getPurchaseOrders,
+  listPurchaseOrders,
   addPurchaseOrder,
   updatePurchaseOrder,
   deletePurchaseOrder,
-  getPayrollRecords,
+  listPayrollRecords,
   addPayrollRecord,
   updatePayrollRecord,
   deletePayrollRecord,
-  getProfitCenters,
+  listProfitCenters,
   addProfitCenter,
   updateProfitCenter,
   deleteProfitCenter,
-  paymentQrUpload,
-  getPaymentGatewaySettings,
+  listPaymentGatewaySettings,
   addPaymentGatewaySetting,
   updatePaymentGatewaySetting,
   deletePaymentGatewaySetting,
@@ -65,41 +64,39 @@ router.post("/expense", addExpense);
 
 router.get("/extended-summary", getExtendedSummary);
 router.get("/reconciliation/summary", getReconciliationSummary);
-router.get("/reconciliation/items", getReconciliationItems);
+router.get("/reconciliation/items", listReconciliationItems);
 router.post("/reconciliation/match", matchBankLedger);
 router.post("/reconciliation/unmatch", unmatchBankLedger);
 router.post("/settle-pending-bill", settlePendingBill);
-router.get("/bank-ledger", getBankLedger);
+router.get("/bank-ledger", listBankLedger);
 router.post("/bank-ledger", addBankLedger);
 router.put("/bank-ledger/:id", updateBankLedger);
 router.delete("/bank-ledger/:id", deleteBankLedger);
-router.get("/petty-cash", getPettyCash);
+router.get("/petty-cash", listPettyCash);
 router.post("/petty-cash", addPettyCash);
 router.put("/petty-cash/:id", updatePettyCash);
 router.delete("/petty-cash/:id", deletePettyCash);
-router.get("/gst-returns", getGstReturns);
+router.get("/gst-returns", listGstReturns);
 router.post("/gst-returns", addGstReturn);
 router.put("/gst-returns/:id", updateGstReturn);
 router.delete("/gst-returns/:id", deleteGstReturn);
-router.get("/vendor-payments", getVendorPayments);
+router.get("/vendor-payments", listVendorPayments);
 router.post("/vendor-payments", addVendorPayment);
 router.put("/vendor-payments/:id", updateVendorPayment);
 router.delete("/vendor-payments/:id", deleteVendorPayment);
-router.get("/purchase-orders", getPurchaseOrders);
+router.get("/purchase-orders", listPurchaseOrders);
 router.post("/purchase-orders", addPurchaseOrder);
 router.put("/purchase-orders/:id", updatePurchaseOrder);
 router.delete("/purchase-orders/:id", deletePurchaseOrder);
-router.get("/payroll", getPayrollRecords);
+router.get("/payroll", listPayrollRecords);
 router.post("/payroll", addPayrollRecord);
 router.put("/payroll/:id", updatePayrollRecord);
 router.delete("/payroll/:id", deletePayrollRecord);
-router.get("/profit-centers", getProfitCenters);
+router.get("/profit-centers", listProfitCenters);
 router.post("/profit-centers", addProfitCenter);
 router.put("/profit-centers/:id", updateProfitCenter);
 router.delete("/profit-centers/:id", deleteProfitCenter);
-router.get("/payment-settings", getPaymentGatewaySettings);
-router.post("/payment-settings", paymentQrUpload, addPaymentGatewaySetting);
-router.put("/payment-settings/:id", paymentQrUpload, updatePaymentGatewaySetting);
+router.get("/payment-settings", listPaymentGatewaySettings);
 router.delete("/payment-settings/:id", deletePaymentGatewaySetting);
 router.get("/payment-history", getAllPaymentHistory);
 

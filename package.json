@@ -1,9 +1,9 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "src/index.js",
   "scripts": {
-    "dev": "nodemon --watch . --ext js,json --ignore node_modules --ignore .git index.js",
+    "dev": "nodemon --watch src --ext js,json --ignore node_modules --ignore .git index.js",
     "start": "node index.js",
     "init": "node initialize.js",
     "init:prod": "node initialize.js",
