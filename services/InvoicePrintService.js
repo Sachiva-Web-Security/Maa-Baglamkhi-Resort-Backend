@@ -18,7 +18,7 @@
 const path = require("path");
 const fs = require("fs");
 const PrintConfig = require("../PrintConfig");
-const PrintLogModel = require("../models/PrintLogModel");
+const PrintLogModel = require("../models/PrintLogsModel");
 const { printQueue } = require("./PrintQueue");
 const { generateA4InvoicePdf, printPdfToPrinter } = require("./PrintUtils");
 

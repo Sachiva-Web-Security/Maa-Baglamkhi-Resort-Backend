@@ -11,7 +11,7 @@
  */
 
 const PrintConfig = require("../PrintConfig");
-const PrintLogModel = require("../models/PrintLogModel");
+const PrintLogModel = require("../models/PrintLogsModel");
 const { printQueue } = require("./PrintQueue");
 const { ThermalPrintService } = require("./ThermalPrintService");
 

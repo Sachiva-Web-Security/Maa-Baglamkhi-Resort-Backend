@@ -3,11 +3,6 @@ const authMiddleware = require("../middleware/authMiddleware");
 const roleMiddleware = require("../middleware/roleMiddleware");
 const attendanceController = require("../controller/attendanceController");
 
-/**
- * GET /api/attendance
- * Admin: gets ALL attendance records for the requested date.
- * Non-admin: gets ONLY their own attendance records.
- */
 router.get("/", authMiddleware, (req, res, next) => {
   const { date } = req.query;
   if (!date) return res.status(400).json({ message: "date query required" });
@@ -16,31 +11,24 @@ router.get("/", authMiddleware, (req, res, next) => {
   const userId = req.user?.id;
 
   if (userRole === "admin") {
-    // Admin sees all employees
     return attendanceController.getForDate(req, res, next);
   }
 
-  // Non-admin: only own records
-  // We need to load the actual attendance records and filter by user_id
-  const AttendanceModel = require("../models/AttendanceModel");
-  const UserModel = require("../models/UserModel");
+  const AttendanceRecordsModel = require("../models/AttendanceRecordsModel");
+  const UsersModel = require("../models/UsersModel");
 
-  // Get user's name so we can match attendance records
-  UserModel.findUserById(userId, (userErr, userRows) => {
-    if (userErr || !userRows || userRows.length === 0) {
-      return res.status(401).json({ message: "User not found" });
-    }
-    const userName = userRows[0].name;
-
-    AttendanceModel.getByDate(date, (attErr, rows) => {
-      if (attErr) {
-        return res.status(500).json({ message: "Error fetching attendance" });
+  Promise.all([
+    UsersModel.findById(userId).then((rows) => rows[0] || null),
+    AttendanceRecordsModel.findAll().then((rows) => rows || []),
+  ])
+    .then(([user, rows]) => {
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
       }
-      // Filter to only this user's records
-      const myRecords = rows.filter(r => r.name === userName || r.user_id === userId);
+      const myRecords = rows.filter((r) => r.employee_name === user.name || r.user_id === userId);
       res.json(myRecords);
-    });
-  });
+    })
+    .catch(() => res.status(500).json({ message: "Error fetching attendance" }));
 });
 
 /**

@@ -1,42 +1,32 @@
-const AssignmentModel = require("../models/AssignmentModel");
+const db = require("../config/db");
+const HousekeepingAssignmentsModel = require("../models/HousekeepingAssignmentsModel");
+const { getRequestActor } = require("../utils/requestActor");
 
 const query = (sql, params = []) =>
   new Promise((resolve, reject) =>
     db.query(sql, params, (err, results) => (err ? reject(err) : resolve(results)))
   );
 
-const ASSIGNEE_ROLES = new Set(["housekeeping", "accountant", "staff"]);
-const MANAGER_ROLES = new Set(["admin", "manager", "receptionist"]);
-
-const isAssigneeRole = (role) => ASSIGNEE_ROLES.has(String(role || "").toLowerCase());
-const isManagerRole = (role) => MANAGER_ROLES.has(String(role || "").toLowerCase());
-
-const getVisibilityContext = (req) => {
-  const actor = getRequestActor(req);
-  return {
-    actor,
-    restrictToOwnAssignments: isAssigneeRole(actor.role) && actor.normalizedName,
-  };
-};
-
-const ensureColumn = async (tableName, columnName, definition) => {
-  const rows = await query(`SHOW COLUMNS FROM ${tableName} LIKE ?`, [columnName]);
-  if (!Array.isArray(rows) || rows.length === 0) {
-    await query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
-  }
-};
-
-// Delegate schema creation to the model
-const ensureSchema = AssignmentModel.ensureSchema.bind(AssignmentModel);
-
 exports.bootstrap = async (_req, _res, next) => {
   try {
-    await ensureSchema();
+    await HousekeepingAssignmentsModel.ensureSchema();
     next();
   } catch (error) {
     next(error);
   }
 };
+
+const getVisibilityContext = (req) => {
+  const actor = getRequestActor(req);
+  const ASSIGNEE_ROLES = new Set(["housekeeping", "accountant", "staff"]);
+  return {
+    actor,
+    restrictToOwnAssignments: ASSIGNEE_ROLES.has(String(actor.role || "").toLowerCase()) && actor.normalizedName,
+  };
+};
+
+const isAssigneeRole = (role) => ["housekeeping", "accountant", "staff"].includes(String(role || "").toLowerCase());
+const isManagerRole = (role) => ["admin", "manager", "receptionist"].includes(String(role || "").toLowerCase());
 
 /* ── GET ALL (with role-based filtering) ───────────────────────── */
 exports.getAll = async (req, res) => {

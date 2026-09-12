@@ -49,6 +49,95 @@ class PrintLogs {
     const [rows] = await this.pool.execute("SELECT * FROM \`print_logs\` ORDER BY \`created_at\` DESC", args)
     return rows
   }
+
+  async buildPrintNo() {
+    return `PRN-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${String(Date.now()).slice(-6)}`
+  }
+
+  async createPrintLog(logData = {}) {
+    const printNo = logData.printNo || await this.buildPrintNo()
+    const [result] = await this.pool.execute(
+      `INSERT INTO print_logs
+        (print_type, reference_id, reference_type, status, printer_name, error_message, printed_by, printed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        logData.printType || null,
+        logData.referenceId || logData.reference_id || null,
+        logData.referenceType || logData.reference_type || null,
+        logData.status || 'pending',
+        logData.printerName || logData.printer_name || null,
+        logData.errorMessage || logData.error_message || null,
+        logData.printedBy || logData.printed_by || null,
+        logData.printedAt || logData.printed_at || new Date(),
+      ]
+    )
+    return { id: result.insertId, printNo }
+  }
+
+  async getPrintHistory(filters = {}) {
+    const conditions = []
+    const params = []
+
+    if (filters.printType) {
+      conditions.push('print_type = ?')
+      params.push(filters.printType)
+    }
+    if (filters.printerName) {
+      conditions.push('printer_name = ?')
+      params.push(filters.printerName)
+    }
+    if (filters.referenceId) {
+      conditions.push('reference_id = ?')
+      params.push(filters.referenceId)
+    }
+    if (filters.referenceType) {
+      conditions.push('reference_type = ?')
+      params.push(filters.referenceType)
+    }
+    if (filters.status) {
+      conditions.push('status = ?')
+      params.push(filters.status)
+    }
+    if (filters.printedBy) {
+      conditions.push('printed_by = ?')
+      params.push(filters.printedBy)
+    }
+    if (filters.fromDate) {
+      conditions.push('printed_at >= ?')
+      params.push(filters.fromDate)
+    }
+    if (filters.toDate) {
+      conditions.push('printed_at <= ?')
+      params.push(filters.toDate)
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+    const [rows] = await this.pool.execute(
+      `SELECT * FROM print_logs ${whereClause} ORDER BY printed_at DESC LIMIT ? OFFSET ?`,
+      [...params, filters.limit || 50, filters.offset || 0]
+    )
+    return rows
+  }
+
+  async getPrintCount(invoiceNo, kotNo) {
+    if (!invoiceNo && !kotNo) return 0
+    const conditions = []
+    const params = []
+    if (invoiceNo) {
+      conditions.push('reference_id = ?')
+      params.push(invoiceNo)
+    }
+    if (kotNo) {
+      conditions.push('reference_id = ?')
+      params.push(kotNo)
+    }
+    const whereClause = conditions.join(' AND ')
+    const [[{ count }]] = await this.pool.execute(
+      `SELECT COUNT(*) AS count FROM print_logs WHERE ${whereClause} AND status = 'completed'`,
+      params
+    )
+    return Number(count || 0)
+  }
 }
 
 module.exports = new (PrintLogs)()

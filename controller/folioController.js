@@ -1,15 +1,29 @@
-/**
- * folioController.js
- * Guest Folio / Night Audit — REST handlers.
- *
- * Routes (add to bookingRoutes.js):
- *   GET    /hotel/folio/:bookingId          → getByBooking
- *   POST   /hotel/folio/:bookingId          → addEntry
- *   DELETE /hotel/folio/entry/:entryId      → deleteEntry
- *   GET    /hotel/folio/:bookingId/totals   → getTotals
- */
+const db = require("../config/db");
 
-const folioModel = require("../models/folioModel");
+const runQuery = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+  });
+
+const ensureSchema = async () => {
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS hotel_folio_entries (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      booking_id  INT NOT NULL,
+      entry_date  DATE NOT NULL,
+      entry_type  ENUM(
+                    'Room Charge','Extra Charge',
+                    'Discount','Payment','Refund','Adjustment'
+                  ) NOT NULL DEFAULT 'Extra Charge',
+      category    VARCHAR(100) DEFAULT 'Miscellaneous',
+      description VARCHAR(255) NOT NULL,
+      amount      DECIMAL(10,2) NOT NULL DEFAULT 0,
+      created_by  VARCHAR(100) DEFAULT 'Front Desk',
+      created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (booking_id) REFERENCES guests(id) ON DELETE CASCADE
+    )
+  `);
+};
 
 // ─── GET all entries for a booking ────────────────────────────────────────────
 exports.getByBooking = async (req, res) => {
@@ -20,7 +34,13 @@ exports.getByBooking = async (req, res) => {
   }
 
   try {
-    const entries = await folioModel.getFolioByBooking(Number(bookingId));
+    await ensureSchema();
+    const entries = await runQuery(
+      `SELECT * FROM hotel_folio_entries
+       WHERE booking_id = ?
+       ORDER BY entry_date ASC, id ASC`,
+      [Number(bookingId)],
+    );
     res.json(entries);
   } catch (err) {
     console.error("[folio] getByBooking error:", err);
@@ -56,16 +76,28 @@ exports.addEntry = async (req, res) => {
   }
 
   try {
-    const result = await folioModel.addFolioEntry({
-      booking_id: Number(bookingId),
-      entry_date,
-      entry_type,
-      category,
-      description,
-      amount: Number(amount),
-      created_by,
-    });
-    res.status(201).json({ message: "Folio entry added", ...result });
+    await ensureSchema();
+
+    if (!bookingId || !description || amount === undefined) {
+      throw new Error("booking_id, description, and amount are required");
+    }
+
+    const result = await runQuery(
+      `INSERT INTO hotel_folio_entries
+         (booking_id, entry_date, entry_type, category, description, amount, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        Number(bookingId),
+        entry_date || new Date().toISOString().slice(0, 10),
+        entry_type,
+        category,
+        description,
+        Number(amount),
+        created_by,
+      ],
+    );
+
+    res.status(201).json({ message: "Folio entry added", id: result.insertId, booking_id: Number(bookingId), entry_type, amount: Number(amount) });
   } catch (err) {
     console.error("[folio] addEntry error:", err);
     res.status(500).json({ error: err.message || "Failed to add folio entry" });
@@ -81,7 +113,8 @@ exports.deleteEntry = async (req, res) => {
   }
 
   try {
-    await folioModel.deleteFolioEntry(Number(entryId));
+    await ensureSchema();
+    await runQuery("DELETE FROM hotel_folio_entries WHERE id = ?", [Number(entryId)]);
     res.json({ message: "Folio entry deleted" });
   } catch (err) {
     console.error("[folio] deleteEntry error:", err);
@@ -98,8 +131,30 @@ exports.getTotals = async (req, res) => {
   }
 
   try {
-    const totals = await folioModel.getFolioTotals(Number(bookingId));
-    res.json(totals);
+    await ensureSchema();
+    const rows = await runQuery(
+      `SELECT
+         SUM(CASE WHEN entry_type IN ('Room Charge','Extra Charge','Adjustment')
+                  THEN amount ELSE 0 END)  AS totalCharges,
+         SUM(CASE WHEN entry_type = 'Discount' THEN amount ELSE 0 END) AS totalDiscounts,
+         SUM(CASE WHEN entry_type = 'Payment'  THEN amount ELSE 0 END) AS totalPayments,
+         SUM(CASE WHEN entry_type = 'Refund'   THEN amount ELSE 0 END) AS totalRefunds
+       FROM hotel_folio_entries
+       WHERE booking_id = ?`,
+      [Number(bookingId)],
+    );
+    const t = rows[0] || {};
+    const charges   = Number(t.totalCharges   || 0);
+    const discounts = Number(t.totalDiscounts || 0);
+    const payments  = Number(t.totalPayments  || 0);
+    const refunds   = Number(t.totalRefunds   || 0);
+    res.json({
+      charges,
+      discounts,
+      payments,
+      refunds,
+      netBalance: charges - discounts - payments + refunds,
+    });
   } catch (err) {
     console.error("[folio] getTotals error:", err);
     res.status(500).json({ error: "Failed to get folio totals" });

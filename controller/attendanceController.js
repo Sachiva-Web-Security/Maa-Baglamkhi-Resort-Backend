@@ -1,136 +1,214 @@
-const AttendanceModel = require("../models/AttendanceModel");
-const SalaryModel = require("../models/SalaryModel");
 const db = require("../config/db");
+const AttendanceRecordsModel = require("../models/AttendanceRecordsModel");
+const UsersModel = require("../models/UsersModel");
 
-/**
- * Compute per-day salary amount for a record based on user's monthly salary + status.
- */
-function calcDayAmount(monthlySalary, status, dateStr) {
-  if (!monthlySalary || !dateStr) return 0;
-  const [year, month] = dateStr.split("-").map(Number);
-  return SalaryModel.calculateDaySalary(monthlySalary, status, year, month);
-}
+const runQuery = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.query(sql, params, (err, result) => (err ? reject(err) : resolve(result)));
+  });
 
-/**
- * GET /api/attendance?date=YYYY-MM-DD
- * Admin sees all rows for the date. Non-admin sees only own rows.
- * Each row now includes user_salary (monthly) and salary_amount (per-day calculated).
- */
-exports.getForDate = async (req, res) => {
-  const { date } = req.query;
-  if (!date) return res.status(400).json({ message: "date query required" });
+const SALARY_STATUS_MULTIPLIER = {
+  present: 1,
+  absent: 0,
+  late: 0.5,
+  half_day: 0.5,
+  on_leave: 0,
+  holiday: 1,
+  week_off: 1,
+};
 
-  AttendanceModel.getByDate(date, async (err, rows) => {
-    if (err) {
-      console.error("Error fetching attendance:", err);
-      return res.status(500).json({ message: "Error fetching attendance" });
-    }
+const calculateDaySalary = (monthlySalary, status, year, month) => {
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const daily = Number(monthlySalary || 0) / daysInMonth;
+  const multiplier = SALARY_STATUS_MULTIPLIER[String(status || "").toLowerCase()] || 0;
+  return Number((daily * multiplier).toFixed(2));
+};
 
-    try {
-      // For each row, try to find the matching user to attach salary information
-      // We do this by `staff_name` (since older rows have name only) OR user_id if present.
-      const enriched = await Promise.all(
-        rows.map(async (row) => {
-          let monthlySalary = 0;
-          let userId = row.user_id || null;
+const withAttendanceSchema = async (res, task) => {
+  try {
+    await AttendanceRecordsModel.ensureSchema();
+    await task();
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      message: error.message || "Failed to prepare attendance schema.",
+      error,
+    });
+  }
+};
 
-          if (userId) {
-            const user = await SalaryModel.getSalaryByUserId(userId);
-            monthlySalary = parseFloat(user?.salary || 0);
-          } else if (row.name) {
-            // Lookup by name (legacy rows)
-            const userRows = await new Promise((resolve, reject) => {
-              db.query(
-                "SELECT id, salary FROM register WHERE name = ? LIMIT 1",
-                [row.name],
-                (e, r) => (e ? reject(e) : resolve(r))
-              );
-            });
-            if (userRows?.[0]) {
-              userId = userRows[0].id;
-              monthlySalary = parseFloat(userRows[0].salary || 0);
-            }
-          }
+const normalizeStatus = (status) => String(status || "").toLowerCase().trim();
 
-          const calc = calcDayAmount(monthlySalary, row.status, row.date);
-          return {
-            ...row,
-            user_id: userId,
-            user_salary: monthlySalary,
-            salary_amount: calc,
-          };
-        })
-      );
+exports.getMyAttendance = async (req, res) => {
+  const id = req.user?.id;
+  if (!id) {
+    return res.status(401).json({ message: "Authentication required" });
+  }
 
-      return res.json(enriched);
-    } catch (innerErr) {
-      console.error("Error enriching attendance:", innerErr);
-      // Fall back to plain rows if enrichment fails
-      return res.json(rows);
-    }
+  return withAttendanceSchema(res, async () => {
+    const [rows] = await runQuery(
+      "SELECT * FROM attendance_records WHERE user_id = ? ORDER BY date DESC",
+      [id]
+    );
+    res.json(rows);
   });
 };
 
-/**
- * POST /api/attendance
- * Admin only: create attendance record.
- * Body: { date, user_id, name, role, department, status, checkIn, checkOut, notes }
- * Salary amount is auto-calculated based on user's monthly salary + status.
- */
-exports.createManual = (req, res) => {
-  const data = req.body;
-  if (!data.date || (!data.user_id && !data.name) || !data.role || !data.status) {
-    return res.status(400).json({ message: "Missing required fields" });
+exports.getAllAttendance = async (req, res) => {
+  return withAttendanceSchema(res, async () => {
+    const [users] = await UsersModel.findAll();
+    const userIds = users.map((u) => u.id);
+    const placeholders = userIds.map(() => "?").join(",");
+    const records = userIds.length
+      ? await runQuery(
+          `SELECT * FROM attendance_records WHERE user_id IN (${placeholders}) ORDER BY date DESC`,
+          userIds
+        )
+      : [];
+
+    const enrichedRecords = await Promise.all(
+      records.map(async (record) => {
+        const [matched] = await UsersModel.findById(record.user_id);
+        const user = matched[0] || {};
+        return {
+          ...record,
+          userName: user.name || null,
+          userEmail: user.email || null,
+        };
+      })
+    );
+
+    res.json(enrichedRecords);
+  });
+};
+
+exports.markMyAttendance = async (req, res) => {
+  const id = req.user?.id;
+  if (!id) {
+    return res.status(401).json({ message: "Authentication required" });
   }
 
-  // Resolve name from user_id if needed
-  const finish = (name) => {
-    const payload = { ...data, name: name || data.name };
-    AttendanceModel.createRecord(payload, async (err, result) => {
-      if (err) {
-        console.error("Error creating attendance:", err);
-        return res.status(500).json({ message: "Error creating record" });
-      }
+  const { status } = req.body || {};
+  const normalized = normalizeStatus(status);
 
-      // Calculate salary_amount now that we have the record id and date
-      const recordId = result.insertId;
-      let monthlySalary = 0;
+  if (!["present", "absent", "late", "half_day", "on_leave", "holiday", "week_off"].includes(normalized)) {
+    return res.status(400).json({ message: "Invalid attendance status" });
+  }
 
-      try {
-        if (data.user_id) {
-          const user = await SalaryModel.getSalaryByUserId(data.user_id);
-          monthlySalary = parseFloat(user?.salary || 0);
-        }
-      } catch (e) {
-        console.error("Salary lookup error:", e);
-      }
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0, 10);
+  const timeStr = now.toISOString().slice(11, 19);
 
-      const calc = calcDayAmount(monthlySalary, data.status, data.date);
+  return withAttendanceSchema(res, async () => {
+    const existing = await runQuery(
+      "SELECT id FROM attendance_records WHERE user_id = ? AND date = ? LIMIT 1",
+      [id, dateStr]
+    );
 
-      // Update the just-created record with calculated salary_amount + user_id
-      db.query(
-        "UPDATE attendance_records SET salary_amount = ?, user_id = COALESCE(user_id, ?) WHERE id = ?",
-        [calc, data.user_id || null, recordId],
-        (updErr) => {
-          if (updErr) {
-            console.error("Update salary error:", updErr);
-          }
-          return res.json({
-            message: "Attendance saved",
-            id: recordId,
-            salary_amount: calc,
-            user_salary: monthlySalary,
-          });
-        }
-      );
+    if (existing[0]) {
+      return res.status(409).json({ message: "Attendance already marked for today" });
+    }
+
+    const [result] = await runQuery(
+      `INSERT INTO attendance_records (user_id, date, status, check_in, check_out, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
+      [id, dateStr, normalized, timeStr, timeStr]
+    );
+
+    res.json({
+      message: "Attendance marked successfully",
+      id: result.insertId,
+      date: dateStr,
+      status: normalized,
     });
-  };
+  });
+};
 
-  if (data.user_id && !data.name) {
-    SalaryModel.getSalaryByUserId(data.user_id)
-      .then((u) => finish(u?.name))
-      .catch(() => finish(data.name));
-  } else {
-    finish(data.name);
+exports.updateAttendanceRecord = async (req, res) => {
+  return withAttendanceSchema(res, async () => {
+    const { status, checkIn, checkOut } = req.body || {};
+    const recordId = req.params.id;
+
+    if (!recordId) {
+      return res.status(400).json({ message: "Attendance record id required" });
+    }
+
+    const updates = [];
+    const params = [];
+
+    if (status) {
+      updates.push("status = ?");
+      params.push(normalizeStatus(status));
+    }
+
+    if (checkIn) {
+      updates.push("check_in = ?");
+      params.push(checkIn);
+    }
+
+    if (checkOut) {
+      updates.push("check_out = ?");
+      params.push(checkOut);
+    }
+
+    if (!updates.length) {
+      return res.status(400).json({ message: "No updatable fields provided" });
+    }
+
+    params.push(recordId);
+    const [result] = await runQuery(
+      `UPDATE attendance_records SET ${updates.join(", ")}, updated_at = NOW() WHERE id = ?`,
+      params
+    );
+
+    if (!result?.affectedRows) {
+      return res.status(404).json({ message: "Attendance record not found" });
+    }
+
+    res.json({ message: "Attendance record updated" });
+  });
+};
+
+exports.calculateMySalary = async (req, res) => {
+  const id = req.user?.id;
+  if (!id) {
+    return res.status(401).json({ message: "Authentication required" });
   }
+
+  const { month, year } = req.query || {};
+  const targetMonth = Number(month || new Date().getMonth() + 1);
+  const targetYear = Number(year || new Date().getFullYear());
+
+  return withAttendanceSchema(res, async () => {
+    const [userRows] = await runQuery("SELECT salary, designation FROM users WHERE id = ? LIMIT 1", [id]);
+    const user = userRows[0] || null;
+    const monthlySalary = Number(user?.salary || 0);
+
+    const records = await AttendanceRecordsModel.findByEmployeeAndMonth(id, targetMonth, targetYear);
+
+    const attendanceRecords = records.map((r) => {
+      const status = normalizeStatus(r.status);
+      const daySalary = calculateDaySalary(monthlySalary, status, targetYear, targetMonth);
+      return {
+        id: r.id,
+        date: r.date,
+        status,
+        checkIn: r.check_in,
+        checkOut: r.check_out,
+        daySalary,
+      };
+    });
+
+    const totalPaid = attendanceRecords.reduce((sum, r) => sum + r.daySalary, 0);
+
+    res.json({
+      employee: {
+        id,
+        salary: monthlySalary,
+        designation: user?.designation || null,
+      },
+      month: `${targetYear}-${String(targetMonth).padStart(2, "0")}`,
+      attendanceRecords,
+      totalPaid: Number(totalPaid.toFixed(2)),
+    });
+  });
 };

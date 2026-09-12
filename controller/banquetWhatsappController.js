@@ -10,7 +10,7 @@
 
 const WhatsAppService = require("../services/whatsappService");
 const BanquetPdfService = require("../services/banquetInvoicePdfService");
-const UserModel = require("../models/UserModel");
+const db = require("../config/db");
 
 /**
  * Resolve the public base URL for serving PDFs.
@@ -36,44 +36,27 @@ const round2 = (value) => Number((Number(value || 0)).toFixed(2));
 
 const INR = "₹";
 
+const runQuery = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+  });
+
 /**
- * Fetch a booking by ID from the DB.
- * Tries raw column names first, falls back to the generic getBookingById helper.
+ * Fetch a booking by ID from the DB using raw SQL.
  */
 const getBookingRowById = async (id) => {
-  const db = require("../config/db");
-  const runQuery = (sql, params = []) =>
-    new Promise((resolve, reject) => {
-      db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-    });
-
   try {
     const rows = await runQuery(
-      `SELECT * FROM banquet_bookings WHERE id = ? LIMIT 1`,
+      "SELECT * FROM banquet_bookings WHERE id = ? LIMIT 1",
       [id],
     );
-    if (rows[0]) return rows[0];
-  } catch {
-    // fall through to model helper
-  }
-
-  try {
-    const row = await new Promise((resolve, reject) => {
-      Booking.getBookingById(id, (err, r) => (err ? reject(err) : resolve(r)));
-    });
-    return row;
+    return rows[0] || null;
   } catch {
     return null;
   }
 };
 
 const getHallName = async (hallId) => {
-  const db = require("../config/db");
-  const runQuery = (sql, params = []) =>
-    new Promise((resolve, reject) => {
-      db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-    });
-
   try {
     const hallRateColumn =
       (await runQuery("SHOW COLUMNS FROM banquet_halls LIKE 'rate_per_hour'")).length > 0
@@ -81,7 +64,7 @@ const getHallName = async (hallId) => {
         : "ratePerHour";
 
     const rows = await runQuery(
-      `SELECT name FROM banquet_halls WHERE id = ? LIMIT 1`,
+      "SELECT name FROM banquet_halls WHERE id = ? LIMIT 1",
       [hallId],
     );
     if (rows[0]) return rows[0].name;
@@ -224,10 +207,10 @@ exports.sendBanquetInvoiceWhatsApp = async (req, res) => {
     let adminNumber = req.body?.adminNumber || "";
     if (!adminNumber) {
       try {
-        const adminRow = await new Promise((resolve, reject) => {
-          UserModel.findAdminWithPhone((err, row) => (err ? reject(err) : resolve(row)));
-        });
-        adminNumber = adminRow?.phone || "";
+        const adminRow = await runQuery(
+          "SELECT id, name, email, phone FROM register WHERE LOWER(role) = 'admin' AND phone IS NOT NULL AND TRIM(phone) <> '' ORDER BY id ASC LIMIT 1"
+        );
+        adminNumber = adminRow?.[0]?.phone || "";
       } catch {
         // continue without admin
       }

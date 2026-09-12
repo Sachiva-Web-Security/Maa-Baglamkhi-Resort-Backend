@@ -1,4 +1,10 @@
+const db = require("../config/db");
 const roomInventoryModel = require("../models/hotelRoomInventoryModel");
+
+const runQuery = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+  });
 
 exports.bootstrap = async (_req, _res, next) => {
   try {

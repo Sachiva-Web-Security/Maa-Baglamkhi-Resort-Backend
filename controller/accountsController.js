@@ -1,1034 +1,1193 @@
-const AccountsModel = require("../models/AccountsModel");
-const AccountsExpansionModel = require("../models/AccountsExpansionModel");
-const InvoiceModel = require("../models/InvoiceModel");
-const RestaurantModel = require("../models/RestaurantModel");
-const upload = require("../utils/upload");
+const db = require("../config/db");
 
-exports.paymentQrUpload = upload.single("qrImage");
+const BookingsModel = require("../models/BookingsModel");
 
-const getAccountsSummaryRow = () =>
+const query = (sql, params = []) =>
   new Promise((resolve, reject) => {
-    AccountsModel.getSummary((err, results) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-
-      resolve(results?.[0] || {});
+    db.query(sql, params, (error, results) => {
+      if (error) return reject(error);
+      resolve(results);
     });
   });
 
-exports.getTransactions = (req, res) => {
-  AccountsModel.getTransactions((err, rows) => {
-    if (err) {
-      console.error("Error fetching transactions:", err);
-      return res.status(500).json({ message: "Error fetching transactions" });
-    }
-    res.json(rows);
-  });
-};
+const getSummary = async (req, res) => {
+  const { from, to, type, department, status } = req.query;
 
-exports.addIncome = (req, res) => {
-  const { date, description, narration, customerName, customerMobile, amount, paymentMode, department, sourceModule } = req.body;
-  if (!date || !description || amount == null || !paymentMode) {
-    return res.status(400).json({ message: "Missing fields" });
+  let sql = `
+    SELECT
+      id,
+      date,
+      type,
+      department,
+      source_module,
+      description,
+      amount,
+      payment_mode,
+      CASE WHEN payment_mode = 'UPI' THEN 'Digital' ELSE 'Manual' END AS payment_method
+    FROM accounts_transactions
+    WHERE 1 = 1
+  `;
+
+  const params = [];
+
+  if (from) {
+    sql += " AND date >= ?";
+    params.push(from);
+  }
+  if (to) {
+    sql += " AND date <= ?";
+    params.push(to);
+  }
+  if (type) {
+    sql += " AND type = ?";
+    params.push(type);
+  }
+  if (department) {
+    sql += " AND department = ?";
+    params.push(department);
+  }
+  if (status) {
+    sql += " AND status = ?";
+    params.push(status);
   }
 
-  req.setAuditContext?.({
-    action: "accounts.income.create",
-    userId: req.user?.id || null,
-    oldValue: null,
-    newValue: { date, description, customerName, customerMobile, amount, paymentMode, department, sourceModule },
-  });
+  sql += " ORDER BY date DESC";
 
-  AccountsModel.createTransaction(
-    { date, type: "Income", description, narration, customerName, customerMobile, amount, paymentMode, department, sourceModule },
-    (err, result) => {
-      if (err) {
-        console.error("Error adding income:", err);
-        return res.status(500).json({ message: "Error adding income" });
-      }
-
-      // Also save to payment_history for accountability tracking
-      const paymentData = {
-        guest_name: customerName || description,
-        mobile: customerMobile || null,
-        booking_id: null,
-        amount: Number(amount),
-        payment_mode: paymentMode,
-        status: "Completed",
-        discount_amount: 0,
-        source: "accounts_manual",
-        created_by: req.user?.id || null,
-        description: description,
-      };
-
-      AccountsModel.savePaymentHistory(paymentData, (phErr) => {
-        if (phErr) console.error("Error saving to payment_history:", phErr);
-      });
-
-      res.json({ message: "Income added", id: result.insertId });
-    }
-  );
-};
-
-exports.addExpense = (req, res) => {
-  const { date, description, narration, customerName, customerMobile, amount, paymentMode, department, sourceModule } = req.body;
-  if (!date || !description || amount == null || !paymentMode) {
-    return res.status(400).json({ message: "Missing fields" });
-  }
-
-  req.setAuditContext?.({
-    action: "accounts.expense.create",
-    userId: req.user?.id || null,
-    oldValue: null,
-    newValue: { date, description, customerName, customerMobile, amount, paymentMode, department, sourceModule },
-  });
-
-  AccountsModel.createTransaction(
-    { date, type: "Expense", description, narration, customerName, customerMobile, amount, paymentMode, department, sourceModule },
-    (err, result) => {
-      if (err) {
-        console.error("Error adding expense:", err);
-        return res.status(500).json({ message: "Error adding expense" });
-      }
-
-      // Also save to payment_history for accountability tracking
-      const paymentData = {
-        guest_name: customerName || description,
-        mobile: customerMobile || null,
-        booking_id: null,
-        amount: Number(amount),
-        payment_mode: paymentMode,
-        status: "Completed",
-        discount_amount: 0,
-        source: "accounts_expense",
-        created_by: req.user?.id || null,
-        description: description,
-      };
-
-      AccountsModel.savePaymentHistory(paymentData, (phErr) => {
-        if (phErr) console.error("Error saving to payment_history:", phErr);
-      });
-
-      res.json({ message: "Expense added", id: result.insertId });
-    }
-  );
-};
-
-const mapTransactionBody = (body) => ({
-  date: body.date,
-  type: body.type,
-  department: body.department || "Other",
-  source_module: body.sourceModule || null,
-  description: body.description,
-  narration: body.narration || null,
-  customer_name: body.customerName || null,
-  customer_mobile: body.customerMobile || null,
-  amount: Number(body.amount || 0),
-  payment_mode: body.paymentMode,
-});
-
-exports.getTransactionById = async (req, res) => {
   try {
-    const row = await AccountsModel.getTransactionById(req.params.id);
-    if (!row) {
-      return res.status(404).json({ message: "Transaction not found" });
-    }
-    res.json(row);
+    const results = await query(sql, params);
+
+    const totals = results.reduce(
+      (acc, row) => {
+        const amount = Number(row.amount || 0);
+        if (row.type === "Income") {
+          acc.income += amount;
+        } else if (row.type === "Expense") {
+          acc.expense += amount;
+        }
+        return acc;
+      },
+      { income: 0, expense: 0 },
+    );
+
+    totals.balance = totals.income - totals.expense;
+
+    res.json({
+      transactions: results,
+      summary: totals,
+      totalRecords: results.length,
+    });
   } catch (error) {
-    console.error("Error fetching transaction:", error);
-    res.status(500).json({ message: "Error fetching transaction" });
+    res.status(500).json({ message: "Failed to fetch summary", error: error.message });
   }
 };
 
-exports.updateTransaction = async (req, res) => {
+const getTransactions = async (req, res) => {
+  const { from, to, type, department, search, page = 1, limit = 25 } = req.query;
+  const offset = (Number(page) - 1) * Number(limit);
+
+  let sql = `
+    SELECT
+      id,
+      date,
+      type,
+      department,
+      source_module,
+      description,
+      amount,
+      payment_mode,
+      CASE WHEN payment_mode = 'UPI' THEN 'Digital' ELSE 'Manual' END AS payment_method
+    FROM accounts_transactions
+    WHERE 1 = 1
+  `;
+
+  const params = [];
+  const countParams = [];
+
+  if (from) {
+    sql += " AND date >= ?";
+    params.push(from);
+    countParams.push(from);
+  }
+  if (to) {
+    sql += " AND date <= ?";
+    params.push(to);
+    countParams.push(to);
+  }
+  if (type) {
+    sql += " AND type = ?";
+    params.push(type);
+    countParams.push(type);
+  }
+  if (department) {
+    sql += " AND department = ?";
+    params.push(department);
+    countParams.push(department);
+  }
+  if (search) {
+    sql += " AND (description LIKE ? OR source_module LIKE ?)";
+    params.push(`%${search}%`, `%${search}%`);
+    countParams.push(`%${search}%`, `%${search}%`);
+  }
+
+  const countSql = sql.replace(/SELECT[\s\S]*FROM/, "SELECT COUNT(*) AS total FROM");
+  const dataSql = `${sql} ORDER BY date DESC LIMIT ? OFFSET ?`;
+
   try {
-    const body = req.body || {};
+    const [countResult, transactions] = await Promise.all([
+      query(countSql, countParams),
+      query(dataSql, [...params, Number(limit), offset]),
+    ]);
 
-    // Validate required fields
-    const requiredFields = ["date", "type", "description", "amount", "paymentMode"];
-    const missingFields = requiredFields.filter(f => {
-      const value = body[f];
-      return value === undefined || value === null || String(value).trim() === "";
-    });
-    if (missingFields.length > 0) {
-      return res.status(400).json({ message: `${missingFields.join(", ")} is required` });
-    }
-
-    if (!["Income", "Expense"].includes(body.type)) {
-      return res.status(400).json({ message: "type must be Income or Expense" });
-    }
-
-    const amountNumber = Number(body.amount);
-    if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
-      return res.status(400).json({ message: "amount must be a positive number" });
-    }
-
-    const existingRow = await AccountsModel.getTransactionById(req.params.id);
-    if (!existingRow) {
-      return res.status(404).json({ message: "Transaction not found" });
-    }
-
-    const updatedBody = { ...mapTransactionBody(body), updatedBy: req.user?.id || null };
-
-    req.setAuditContext?.({
-      action: "accounts.transaction.update",
-      userId: req.user?.id || null,
-      oldValue: {
-        date: existingRow.date,
-        type: existingRow.type,
-        description: existingRow.description,
-        amount: Number(existingRow.amount || 0),
-        paymentMode: existingRow.payment_mode || existingRow.paymentMode,
+    const totals = transactions.reduce(
+      (acc, row) => {
+        const amount = Number(row.amount || 0);
+        if (row.type === "Income") {
+          acc.income += amount;
+        } else if (row.type === "Expense") {
+          acc.expense += amount;
+        }
+        return acc;
       },
-      newValue: {
-        date: updatedBody.date,
-        type: updatedBody.type,
-        description: updatedBody.description,
-        amount: updatedBody.amount,
-        paymentMode: updatedBody.payment_mode,
-      },
+      { income: 0, expense: 0 },
+    );
+
+    totals.balance = totals.income - totals.expense;
+
+    res.json({
+      transactions,
+      summary: totals,
+      totalRecords: countResult[0]?.total || 0,
+      page: Number(page),
+      limit: Number(limit),
     });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch transactions", error: error.message });
+  }
+};
 
-    const result = await AccountsModel.updateTransaction(req.params.id, updatedBody);
+const createTransaction = async (req, res) => {
+  const { date, type, department, source_module, description, amount, payment_mode } = req.body;
 
-    if (!result?.affectedRows) {
-      return res.status(404).json({ message: "Transaction not found" });
-    }
+  try {
+    const result = await query(
+      `INSERT INTO accounts_transactions (date, type, department, source_module, description, amount, payment_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [date || new Date().toISOString().slice(0, 10), type, department, source_module, description, amount, payment_mode],
+    );
+
+    res.status(201).json({ message: "Transaction created", id: result.insertId });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to create transaction", error: error.message });
+  }
+};
+
+const getTransactionById = async (req, res) => {
+  try {
+    const results = await query("SELECT * FROM accounts_transactions WHERE id = ?", [req.params.id]);
+    res.json(results[0] || null);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch transaction", error: error.message });
+  }
+};
+
+const updateTransaction = async (req, res) => {
+  const { date, type, department, source_module, description, amount, payment_mode } = req.body;
+
+  try {
+    await query(
+      `UPDATE accounts_transactions
+       SET date = ?, type = ?, department = ?, source_module = ?, description = ?, amount = ?, payment_mode = ?
+       WHERE id = ?`,
+      [date, type, department, source_module, description, amount, payment_mode, req.params.id],
+    );
 
     res.json({ message: "Transaction updated" });
   } catch (error) {
-    console.error("Error updating transaction:", error);
-    res.status(500).json({ message: "Error updating transaction" });
+    res.status(500).json({ message: "Failed to update transaction", error: error.message });
   }
 };
 
-exports.deleteTransaction = async (req, res) => {
+const deleteTransaction = async (req, res) => {
   try {
-    const existingRow = await AccountsModel.getTransactionById(req.params.id);
-    if (!existingRow) {
-      return res.status(404).json({ message: "Transaction not found" });
-    }
-
-    req.setAuditContext?.({
-      action: "accounts.transaction.delete",
-      userId: req.user?.id || null,
-      oldValue: {
-        date: existingRow.date,
-        type: existingRow.type,
-        description: existingRow.description,
-        amount: Number(existingRow.amount || 0),
-        paymentMode: existingRow.payment_mode || existingRow.paymentMode,
-        customerName: existingRow.customer_name || existingRow.customerName,
-        customerMobile: existingRow.customer_mobile || existingRow.customerMobile,
-      },
-      newValue: null,
-    });
-
-    const result = await AccountsModel.deleteTransaction(req.params.id);
-    if (!result?.affectedRows) {
-      return res.status(404).json({ message: "Transaction not found" });
-    }
-
+    await query("DELETE FROM accounts_transactions WHERE id = ?", [req.params.id]);
     res.json({ message: "Transaction deleted" });
   } catch (error) {
-    console.error("Error deleting transaction:", error);
-    res.status(500).json({ message: "Error deleting transaction" });
+    res.status(500).json({ message: "Failed to delete transaction", error: error.message });
   }
 };
 
-exports.getSummary = (req, res) => {
-  AccountsModel.getSummary((err, results) => {
-    if (err) {
-      console.error("Error fetching summary:", err);
-      return res.status(500).json({ message: "Error fetching summary" });
-    }
+const getDepartmentSummary = async (req, res) => {
+  const { from, to } = req.query;
 
-    const row = results?.[0] || {};
-    const income =
-      (Number(row.invoiceIncome) || 0) +
-      (Number(row.hotelAdvanceIncome) || 0) +
-      (Number(row.restaurantIncome) || 0) +
-      (Number(row.banquetIncome) || 0) +
-      (Number(row.manualIncome) || 0);
-    const expense = Number(row.totalExpense) || 0;
-    const net = income - expense;
-    const gstPayable =
-      (Number(row.invoiceGst) || 0) +
-      (Number(row.hotelAdvanceGst) || 0) +
-      (Number(row.restaurantGst) || 0) +
-      (Number(row.banquetGst) || 0);
+  let sql = `
+    SELECT
+      department,
+      type,
+      SUM(amount) AS total_amount,
+      COUNT(*) AS transaction_count
+    FROM accounts_transactions
+    WHERE 1 = 1
+  `;
 
-    res.json({ income, expense, net, gstPayable });
-  });
-};
+  const params = [];
 
-exports.getDepartmentSummary = (req, res) => {
-  AccountsModel.getDepartmentSummary((err, results) => {
-    if (err) {
-      console.error("Error fetching department summary:", err);
-      return res.status(500).json({ message: "Error fetching department summary" });
-    }
+  if (from) {
+    sql += " AND date >= ?";
+    params.push(from);
+  }
+  if (to) {
+    sql += " AND date <= ?";
+    params.push(to);
+  }
 
-    const row = results?.[0] || {};
-    res.json({
-      roomIncome: Number(row.roomIncome) || 0,
-      restaurantIncome: Number(row.restaurantIncome) || 0,
-      banquetIncome: Number(row.banquetIncome) || 0,
-      roomExpense: Number(row.roomExpense) || 0,
-      restaurantExpense: Number(row.restaurantExpense) || 0,
-      banquetExpense: Number(row.banquetExpense) || 0,
-    });
-  });
-};
+  sql += " GROUP BY department, type ORDER BY department, type";
 
-exports.getHotelBillingRecords = (req, res) => {
-  AccountsModel.getHotelBillingRecords((err, rows) => {
-    if (err) {
-      console.error("Error fetching hotel billing records:", err);
-      return res.status(500).json({ message: "Error fetching hotel billing records" });
-    }
-
-    res.json(rows || []);
-  });
-};
-
-exports.getRestaurantBillingRecords = (req, res) => {
-  AccountsModel.getRestaurantBillingRecords((err, rows) => {
-    if (err) {
-      console.error("Error fetching restaurant billing records:", err);
-      return res.status(500).json({ message: "Error fetching restaurant billing records" });
-    }
-
-    res.json(rows || []);
-  });
-};
-
-const handleList = async (res, loader, errorMessage) => {
   try {
-    const rows = await loader();
-    res.json(rows);
+    const results = await query(sql, params);
+    res.json(results);
   } catch (error) {
-    console.error(errorMessage, error);
-    res.status(500).json({ message: errorMessage });
+    res.status(500).json({ message: "Failed to fetch department summary", error: error.message });
   }
 };
 
-const handleCreate = async (req, res, mapper, saver, successMessage, errorMessage) => {
+const getHotelBillingRecords = async (req, res) => {
+  const { from, to, status } = req.query;
+
+  let sql = `
+    SELECT
+      g.id AS booking_id,
+      g.booking_code,
+      g.guest_name,
+      DATE_FORMAT(g.check_in, '%Y-%m-%d') AS check_in,
+      DATE_FORMAT(g.check_out, '%Y-%m-%d') AS check_out,
+      COALESCE(SUM(rt.tariff * rt.quantity), 0) AS total_amount,
+      IFNULL(a.amount, 0) AS paid_amount,
+      IFNULL(a.discount_amount, 0) AS discount_amount,
+      (
+        COALESCE(SUM(rt.tariff * rt.quantity), 0) -
+        (IFNULL(a.amount, 0) + IFNULL(a.discount_amount, 0))
+      ) AS remaining_amount
+    FROM guests g
+    LEFT JOIN room_tariff rt ON g.id = rt.booking_id
+    LEFT JOIN advance_payment a ON g.id = a.booking_id
+    WHERE 1 = 1
+  `;
+
+  const params = [];
+
+  if (from) {
+    sql += " AND g.check_in >= ?";
+    params.push(from);
+  }
+  if (to) {
+    sql += " AND g.check_out <= ?";
+    params.push(to);
+  }
+  if (status) {
+    sql += " AND g.booking_status = ?";
+    params.push(status);
+  }
+
+  sql += " GROUP BY g.id, g.booking_code, g.guest_name, g.check_in, g.check_out, a.amount, a.discount_amount ORDER BY g.id DESC";
+
   try {
-    const payload = mapper(req.body || {});
-    const result = await saver(payload);
-    res.json({ message: successMessage, id: result.insertId });
+    const results = await query(sql, params);
+    res.json(results);
   } catch (error) {
-    console.error(errorMessage, error);
-    res.status(500).json({ message: errorMessage });
+    res.status(500).json({ message: "Failed to fetch hotel billing records", error: error.message });
   }
 };
 
-const handleUpdate = async (req, res, mapper, saver, successMessage, errorMessage) => {
+const getRestaurantBillingRecords = async (req, res) => {
+  const { from, to, status } = req.query;
+
+  let sql = `
+    SELECT
+      b.id,
+      b.invoice_no,
+      b.room_number,
+      b.total_amount,
+      b.discount_amount,
+      b.gst_amount,
+      b.grand_total,
+      b.paid_amount,
+      b.payment_mode,
+      b.payment_status,
+      b.bill_type,
+      DATE_FORMAT(b.bill_date, '%Y-%m-%d') AS bill_date
+    FROM bills b
+    WHERE LOWER(IFNULL(b.source_module, '')) = 'restaurant' OR LOWER(IFNULL(b.bill_type, '')) = 'restaurant'
+  `;
+
+  const params = [];
+
+  if (from) {
+    sql += " AND DATE(b.bill_date) >= ?";
+    params.push(from);
+  }
+  if (to) {
+    sql += " AND DATE(b.bill_date) <= ?";
+    params.push(to);
+  }
+  if (status) {
+    sql += " AND b.payment_status = ?";
+    params.push(status);
+  }
+
+  sql += " ORDER BY b.bill_date DESC, b.id DESC";
+
   try {
-    const payload = mapper(req.body || {});
-    const result = await saver(req.params.id, payload);
-
-    if (!result?.affectedRows) {
-      return res.status(404).json({ message: "Record not found" });
-    }
-
-    res.json({ message: successMessage });
+    const results = await query(sql, params);
+    res.json(results);
   } catch (error) {
-    console.error(errorMessage, error);
-    res.status(500).json({ message: errorMessage });
+    res.status(500).json({ message: "Failed to fetch restaurant billing records", error: error.message });
   }
 };
 
-const handleDelete = async (req, res, remover, successMessage, errorMessage) => {
+const getAllPaymentHistory = async (req, res) => {
+  const { from, to, module, payment_mode } = req.query;
+
+  let sql = `
+    SELECT
+      ph.id,
+      ph.booking_id,
+      ph.amount,
+      IFNULL(ph.discount_amount, 0) AS discount_amount,
+      ph.payment_mode,
+      ph.description,
+      DATE_FORMAT(ph.created_at, '%Y-%m-%d') AS date,
+      g.guest_name,
+      b.invoice_no
+    FROM payment_history ph
+    LEFT JOIN guests g ON ph.booking_id = g.id
+    LEFT JOIN bills b ON ph.bill_id = b.id
+    WHERE 1 = 1
+  `;
+
+  const params = [];
+
+  if (from) {
+    sql += " AND DATE(ph.created_at) >= ?";
+    params.push(from);
+  }
+  if (to) {
+    sql += " AND DATE(ph.created_at) <= ?";
+    params.push(to);
+  }
+  if (module) {
+    sql += " AND ph.source_module = ?";
+    params.push(module);
+  }
+  if (payment_mode) {
+    sql += " AND ph.payment_mode = ?";
+    params.push(payment_mode);
+  }
+
+  sql += " ORDER BY ph.created_at DESC, ph.id DESC";
+
   try {
-    const result = await remover(req.params.id);
-
-    if (!result?.affectedRows) {
-      return res.status(404).json({ message: "Record not found" });
-    }
-
-    res.json({ message: successMessage });
+    const results = await query(sql, params);
+    res.json(results);
   } catch (error) {
-    console.error(errorMessage, error);
-    res.status(500).json({ message: errorMessage });
+    res.status(500).json({ message: "Failed to fetch payment history", error: error.message });
   }
 };
 
-exports.getExtendedSummary = async (req, res) => {
+const savePaymentHistory = async (req, res) => {
+  const { booking_id, bill_id, amount, discount_amount, payment_mode, description } = req.body;
+
   try {
-    const [extendedSummary, summaryRow] = await Promise.all([
-      AccountsExpansionModel.getExtendedSummary(),
-      getAccountsSummaryRow(),
-    ]);
-
-    const derivedGstPayable =
-      (Number(summaryRow.invoiceGst) || 0) +
-      (Number(summaryRow.hotelAdvanceGst) || 0) +
-      (Number(summaryRow.restaurantGst) || 0) +
-      (Number(summaryRow.banquetGst) || 0);
-
-    res.json({
-      ...extendedSummary,
-      gstPendingPayable:
-        Number(extendedSummary.gstPendingPayable) > 0
-          ? Number(extendedSummary.gstPendingPayable)
-          : derivedGstPayable,
-    });
-  } catch (error) {
-    console.error("Error fetching accounts extended summary:", error);
-    res.status(500).json({ message: "Error fetching accounts extended summary" });
-  }
-};
-
-exports.getReconciliationSummary = async (req, res) => {
-  try {
-    const summary = await AccountsExpansionModel.getReconciliationSummary({
-      paymentMode: req.query.paymentMode,
-      sourceType: req.query.sourceType,
-      matchStatus: req.query.matchStatus,
-    });
-    res.json(summary);
-  } catch (error) {
-    console.error("Error fetching reconciliation summary:", error);
-    res.status(500).json({ message: "Error fetching reconciliation summary" });
-  }
-};
-
-exports.getReconciliationItems = async (req, res) => {
-  try {
-    const items = await AccountsExpansionModel.listReconciliationItems({
-      paymentMode: req.query.paymentMode,
-      sourceType: req.query.sourceType,
-      matchStatus: req.query.matchStatus,
-    });
-    res.json(items);
-  } catch (error) {
-    console.error("Error fetching reconciliation items:", error);
-    res.status(500).json({ message: "Error fetching reconciliation items" });
-  }
-};
-
-exports.matchBankLedger = async (req, res) => {
-  try {
-    const result = await AccountsExpansionModel.matchBankLedger({
-      bankLedgerId: req.body.bankLedgerId,
-      sourceType: req.body.sourceType,
-      sourceId: req.body.sourceId,
-      matchedAmount: req.body.matchedAmount,
-    });
-
-    if (!result?.affectedRows) {
-      return res.status(404).json({ message: "Bank ledger record not found" });
-    }
-
-    res.json({ message: "Bank ledger linked successfully" });
-  } catch (error) {
-    console.error("Error matching bank ledger:", error);
-    res.status(500).json({ message: "Error matching bank ledger" });
-  }
-};
-
-exports.unmatchBankLedger = async (req, res) => {
-  try {
-    const result = await AccountsExpansionModel.unmatchBankLedger({
-      bankLedgerId: req.body.bankLedgerId,
-    });
-
-    if (!result?.affectedRows) {
-      return res.status(404).json({ message: "Bank ledger record not found" });
-    }
-
-    res.json({ message: "Bank ledger unlinked successfully" });
-  } catch (error) {
-    console.error("Error unlinking bank ledger:", error);
-    res.status(500).json({ message: "Error unlinking bank ledger" });
-  }
-};
-
-exports.getBankLedger = (req, res) =>
-  handleList(res, AccountsExpansionModel.listBankLedger, "Error fetching bank ledger");
-
-exports.addBankLedger = (req, res) =>
-  handleCreate(
-    req,
-    res,
-    (body) => ({
-      amount: Number(body.amount || body.credit || body.debit || 0),
-      direction:
-        String(body.direction || "").toLowerCase() === "out" ||
-        Number(body.debit || 0) > Number(body.credit || 0)
-          ? "out"
-          : "in",
-      entry_date: body.entryDate,
-      bank_name: body.bankName,
-      bank_account: body.bankAccount || null,
-      reference_no: body.referenceNo || null,
-      description: body.description,
-      debit: Number(body.debit || 0),
-      credit: Number(body.credit || 0),
-      source_type: body.sourceType || null,
-      source_id: body.sourceId ? Number(body.sourceId) : null,
-      payment_mode: body.paymentMode || null,
-      reconciliation_status: body.reconciliationStatus || "Pending",
-      match_status: body.matchStatus || "unmatched",
-      matched_amount: Number(body.matchedAmount || 0),
-      statement_ref: body.statementRef || null,
-      statement_date: body.statementDate || null,
-      reconciled_at:
-        body.reconciliationStatus === "Reconciled"
-          ? body.reconciledAt || new Date()
-          : body.reconciledAt || null,
-      notes: body.notes || null,
-    }),
-    AccountsExpansionModel.addBankLedger,
-    "Bank ledger entry added",
-    "Error adding bank ledger entry",
-  );
-
-exports.updateBankLedger = (req, res) =>
-  handleUpdate(
-    req,
-    res,
-    (body) => ({
-      amount: Number(body.amount || body.credit || body.debit || 0),
-      direction:
-        String(body.direction || "").toLowerCase() === "out" ||
-        Number(body.debit || 0) > Number(body.credit || 0)
-          ? "out"
-          : "in",
-      entry_date: body.entryDate,
-      bank_name: body.bankName,
-      bank_account: body.bankAccount || null,
-      reference_no: body.referenceNo || null,
-      description: body.description,
-      debit: Number(body.debit || 0),
-      credit: Number(body.credit || 0),
-      source_type: body.sourceType || null,
-      source_id: body.sourceId ? Number(body.sourceId) : null,
-      payment_mode: body.paymentMode || null,
-      reconciliation_status: body.reconciliationStatus || "Pending",
-      match_status: body.matchStatus || "unmatched",
-      matched_amount: Number(body.matchedAmount || 0),
-      statement_ref: body.statementRef || null,
-      statement_date: body.statementDate || null,
-      reconciled_at:
-        body.reconciliationStatus === "Reconciled"
-          ? body.reconciledAt || new Date()
-          : body.reconciledAt || null,
-      notes: body.notes || null,
-    }),
-    AccountsExpansionModel.updateBankLedger,
-    "Bank ledger entry updated",
-    "Error updating bank ledger entry",
-  );
-
-exports.deleteBankLedger = (req, res) =>
-  handleDelete(
-    req,
-    res,
-    AccountsExpansionModel.deleteBankLedger,
-    "Bank ledger entry deleted",
-    "Error deleting bank ledger entry",
-  );
-
-exports.getPettyCash = (req, res) =>
-  handleList(res, AccountsExpansionModel.listPettyCash, "Error fetching petty cash");
-
-exports.addPettyCash = (req, res) =>
-  handleCreate(
-    req,
-    res,
-    (body) => ({
-      entry_date: body.entryDate,
-      entry_type: body.entryType,
-      category: body.category,
-      description: body.description,
-      amount: Number(body.amount || 0),
-      approved_by: body.approvedBy || null,
-      notes: body.notes || null,
-    }),
-    AccountsExpansionModel.addPettyCash,
-    "Petty cash entry added",
-    "Error adding petty cash entry",
-  );
-
-exports.updatePettyCash = (req, res) =>
-  handleUpdate(
-    req,
-    res,
-    (body) => ({
-      entry_date: body.entryDate,
-      entry_type: body.entryType,
-      category: body.category,
-      description: body.description,
-      amount: Number(body.amount || 0),
-      approved_by: body.approvedBy || null,
-      notes: body.notes || null,
-    }),
-    AccountsExpansionModel.updatePettyCash,
-    "Petty cash entry updated",
-    "Error updating petty cash entry",
-  );
-
-exports.deletePettyCash = (req, res) =>
-  handleDelete(
-    req,
-    res,
-    AccountsExpansionModel.deletePettyCash,
-    "Petty cash entry deleted",
-    "Error deleting petty cash entry",
-  );
-
-exports.getGstReturns = (req, res) =>
-  handleList(res, AccountsExpansionModel.listGstReturns, "Error fetching GST returns");
-
-exports.addGstReturn = (req, res) =>
-  handleCreate(
-    req,
-    res,
-    (body) => ({
-      filing_period: body.filingPeriod,
-      return_type: body.returnType,
-      taxable_amount: Number(body.taxableAmount || 0),
-      gst_collected: Number(body.gstCollected || 0),
-      gst_paid: Number(body.gstPaid || 0),
-      net_payable: Number(body.netPayable || 0),
-      status: body.status || "Draft",
-      filed_on: body.filedOn || null,
-      notes: body.notes || null,
-    }),
-    AccountsExpansionModel.addGstReturn,
-    "GST return record added",
-    "Error adding GST return record",
-  );
-
-exports.updateGstReturn = (req, res) =>
-  handleUpdate(
-    req,
-    res,
-    (body) => ({
-      filing_period: body.filingPeriod,
-      return_type: body.returnType,
-      taxable_amount: Number(body.taxableAmount || 0),
-      gst_collected: Number(body.gstCollected || 0),
-      gst_paid: Number(body.gstPaid || 0),
-      net_payable: Number(body.netPayable || 0),
-      status: body.status || "Draft",
-      filed_on: body.filedOn || null,
-      notes: body.notes || null,
-    }),
-    AccountsExpansionModel.updateGstReturn,
-    "GST return record updated",
-    "Error updating GST return record",
-  );
-
-exports.deleteGstReturn = (req, res) =>
-  handleDelete(
-    req,
-    res,
-    AccountsExpansionModel.deleteGstReturn,
-    "GST return record deleted",
-    "Error deleting GST return record",
-  );
-
-exports.getVendorPayments = (req, res) =>
-  handleList(res, AccountsExpansionModel.listVendorPayments, "Error fetching vendor payments");
-
-exports.addVendorPayment = (req, res) =>
-  handleCreate(
-    req,
-    res,
-    (body) => ({
-      vendor_name: body.vendorName,
-      invoice_ref: body.invoiceRef || null,
-      payment_date: body.paymentDate,
-      amount: Number(body.amount || 0),
-      payment_mode: body.paymentMode || "Bank Transfer",
-      status: body.status || "Scheduled",
-      notes: body.notes || null,
-    }),
-    AccountsExpansionModel.addVendorPayment,
-    "Vendor payment added",
-    "Error adding vendor payment",
-  );
-
-exports.updateVendorPayment = (req, res) =>
-  handleUpdate(
-    req,
-    res,
-    (body) => ({
-      vendor_name: body.vendorName,
-      invoice_ref: body.invoiceRef || null,
-      payment_date: body.paymentDate,
-      amount: Number(body.amount || 0),
-      payment_mode: body.paymentMode || "Bank Transfer",
-      status: body.status || "Scheduled",
-      notes: body.notes || null,
-    }),
-    AccountsExpansionModel.updateVendorPayment,
-    "Vendor payment updated",
-    "Error updating vendor payment",
-  );
-
-exports.deleteVendorPayment = (req, res) =>
-  handleDelete(
-    req,
-    res,
-    AccountsExpansionModel.deleteVendorPayment,
-    "Vendor payment deleted",
-    "Error deleting vendor payment",
-  );
-
-exports.getPurchaseOrders = (req, res) =>
-  handleList(res, AccountsExpansionModel.listPurchaseOrders, "Error fetching purchase orders");
-
-exports.addPurchaseOrder = (req, res) =>
-  handleCreate(
-    req,
-    res,
-    (body) => ({
-      po_number: body.poNumber,
-      vendor_name: body.vendorName,
-      order_date: body.orderDate,
-      expected_date: body.expectedDate || null,
-      total_amount: Number(body.totalAmount || 0),
-      status: body.status || "Draft",
-      notes: body.notes || null,
-    }),
-    AccountsExpansionModel.addPurchaseOrder,
-    "Purchase order added",
-    "Error adding purchase order",
-  );
-
-exports.updatePurchaseOrder = (req, res) =>
-  handleUpdate(
-    req,
-    res,
-    (body) => ({
-      po_number: body.poNumber,
-      vendor_name: body.vendorName,
-      order_date: body.orderDate,
-      expected_date: body.expectedDate || null,
-      total_amount: Number(body.totalAmount || 0),
-      status: body.status || "Draft",
-      notes: body.notes || null,
-    }),
-    AccountsExpansionModel.updatePurchaseOrder,
-    "Purchase order updated",
-    "Error updating purchase order",
-  );
-
-exports.deletePurchaseOrder = (req, res) =>
-  handleDelete(
-    req,
-    res,
-    AccountsExpansionModel.deletePurchaseOrder,
-    "Purchase order deleted",
-    "Error deleting purchase order",
-  );
-
-exports.getPayrollRecords = (req, res) =>
-  handleList(res, AccountsExpansionModel.listPayrollRecords, "Error fetching payroll records");
-
-exports.addPayrollRecord = (req, res) =>
-  handleCreate(
-    req,
-    res,
-    (body) => ({
-      staff_name: body.staffName,
-      payroll_month: body.payrollMonth,
-      attendance_days: Number(body.attendanceDays || 0),
-      base_salary: Number(body.baseSalary || 0),
-      allowance: Number(body.allowance || 0),
-      deduction: Number(body.deduction || 0),
-      net_salary: Number(body.netSalary || 0),
-      status: body.status || "Draft",
-      notes: body.notes || null,
-    }),
-    AccountsExpansionModel.addPayrollRecord,
-    "Payroll record added",
-    "Error adding payroll record",
-  );
-
-exports.updatePayrollRecord = (req, res) =>
-  handleUpdate(
-    req,
-    res,
-    (body) => ({
-      staff_name: body.staffName,
-      payroll_month: body.payrollMonth,
-      attendance_days: Number(body.attendanceDays || 0),
-      base_salary: Number(body.baseSalary || 0),
-      allowance: Number(body.allowance || 0),
-      deduction: Number(body.deduction || 0),
-      net_salary: Number(body.netSalary || 0),
-      status: body.status || "Draft",
-      notes: body.notes || null,
-    }),
-    AccountsExpansionModel.updatePayrollRecord,
-    "Payroll record updated",
-    "Error updating payroll record",
-  );
-
-exports.deletePayrollRecord = (req, res) =>
-  handleDelete(
-    req,
-    res,
-    AccountsExpansionModel.deletePayrollRecord,
-    "Payroll record deleted",
-    "Error deleting payroll record",
-  );
-
-exports.getProfitCenters = (req, res) =>
-  handleList(res, AccountsExpansionModel.listProfitCenters, "Error fetching profit center records");
-
-exports.addProfitCenter = (req, res) =>
-  handleCreate(
-    req,
-    res,
-    (body) => ({
-      center_name: body.centerName,
-      entry_date: body.entryDate,
-      income_amount: Number(body.incomeAmount || 0),
-      expense_amount: Number(body.expenseAmount || 0),
-      notes: body.notes || null,
-    }),
-    AccountsExpansionModel.addProfitCenter,
-    "Profit center record added",
-    "Error adding profit center record",
-  );
-
-exports.updateProfitCenter = (req, res) =>
-  handleUpdate(
-    req,
-    res,
-    (body) => ({
-      center_name: body.centerName,
-      entry_date: body.entryDate,
-      income_amount: Number(body.incomeAmount || 0),
-      expense_amount: Number(body.expenseAmount || 0),
-      notes: body.notes || null,
-    }),
-    AccountsExpansionModel.updateProfitCenter,
-    "Profit center record updated",
-    "Error updating profit center record",
-  );
-
-exports.deleteProfitCenter = (req, res) =>
-  handleDelete(
-    req,
-    res,
-    AccountsExpansionModel.deleteProfitCenter,
-    "Profit center record deleted",
-    "Error deleting profit center record",
-  );
-
-exports.getPaymentGatewaySettings = (req, res) =>
-  handleList(
-    res,
-    AccountsExpansionModel.listPaymentGatewaySettings,
-    "Error fetching payment gateway settings",
-  );
-
-exports.addPaymentGatewaySetting = async (req, res) => {
-  try {
-    const payload = {
-      payment_mode: req.body.paymentMode,
-      department: req.body.department || "Hotel",
-      provider_name: req.body.providerName || null,
-      upi_id: req.body.upiId || null,
-      account_holder_name: req.body.accountHolderName || null,
-      bank_name: req.body.bankName || null,
-      qr_image_url: req.file ? `/uploads/${req.file.filename}` : req.body.qrImageUrl || null,
-      is_active: String(req.body.isActive || "1") === "0" ? 0 : 1,
-      notes: req.body.notes || null,
-    };
-
-    const result = await AccountsExpansionModel.addPaymentGatewaySetting(payload);
-    res.json({ message: "Payment gateway setting added", id: result.insertId });
-  } catch (error) {
-    console.error("Error adding payment gateway setting:", error);
-    res.status(500).json({ message: "Error adding payment gateway setting" });
-  }
-};
-
-exports.updatePaymentGatewaySetting = async (req, res) => {
-  try {
-    const existingRows = await AccountsExpansionModel.listPaymentGatewaySettings();
-    const existing =
-      existingRows.find((row) => Number(row.id) === Number(req.params.id)) || null;
-
-    if (!existing) {
-      return res.status(404).json({ message: "Payment gateway setting not found" });
-    }
-
-    const payload = {
-      payment_mode: req.body.paymentMode,
-      department: req.body.department || "Hotel",
-      provider_name: req.body.providerName || null,
-      upi_id: req.body.upiId || null,
-      account_holder_name: req.body.accountHolderName || null,
-      bank_name: req.body.bankName || null,
-      qr_image_url: req.file
-        ? `/uploads/${req.file.filename}`
-        : req.body.qrImageUrl || existing.qr_image_url || null,
-      is_active: String(req.body.isActive || "1") === "0" ? 0 : 1,
-      notes: req.body.notes || null,
-    };
-
-    const result = await AccountsExpansionModel.updatePaymentGatewaySetting(
-      req.params.id,
-      payload,
+    const result = await query(
+      `INSERT INTO payment_history
+        (booking_id, bill_id, amount, discount_amount, payment_mode, description)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [booking_id || null, bill_id || null, amount, discount_amount || 0, payment_mode, description || null],
     );
 
-    if (!result?.affectedRows) {
-      return res.status(404).json({ message: "Payment gateway setting not found" });
-    }
-
-    res.json({ message: "Payment gateway setting updated" });
+    res.status(201).json({ message: "Payment history saved", id: result.insertId });
   } catch (error) {
-    console.error("Error updating payment gateway setting:", error);
-    res.status(500).json({ message: "Error updating payment gateway setting" });
+    res.status(500).json({ message: "Failed to save payment history", error: error.message });
   }
 };
 
-exports.deletePaymentGatewaySetting = (req, res) =>
-  handleDelete(
-    req,
-    res,
-    AccountsExpansionModel.deletePaymentGatewaySetting,
-    "Payment gateway setting deleted",
-    "Error deleting payment gateway setting",
-  );
+const getExtendedSummary = async (req, res) => {
+  try {
+    const { from, to } = req.query;
 
-exports.settlePendingBill = async (req, res) => {
-  const {
-    sourceType,
-    sourceId,
-    paymentMode = "UPI",
-    paymentSettingId,
-    referenceNo,
-    notes,
-  } = req.body || {};
+    let sql = `
+      SELECT
+        at.type,
+        at.department,
+        at.payment_mode,
+        SUM(at.amount) AS total_amount,
+        COUNT(*) AS count
+      FROM accounts_transactions at
+      WHERE 1 = 1
+    `;
 
-  if (!sourceType || !sourceId) {
-    return res.status(400).json({ message: "sourceType and sourceId are required" });
+    const params = [];
+    if (from) {
+      sql += " AND at.date >= ?";
+      params.push(from);
+    }
+    if (to) {
+      sql += " AND at.date <= ?";
+      params.push(to);
+    }
+
+    sql += " GROUP BY at.type, at.department, at.payment_mode ORDER BY at.type, at.department";
+
+    const results = await query(sql, params);
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch extended summary", error: error.message });
   }
+};
+
+const getReconciliationSummary = async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT
+        bl.source,
+        bl.status,
+        COUNT(*) AS count,
+        SUM(bl.amount) AS total_amount
+      FROM bank_ledger bl
+      GROUP BY bl.source, bl.status
+      ORDER BY bl.source, bl.status
+    `);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch reconciliation summary", error: error.message });
+  }
+};
+
+const listReconciliationItems = async (req, res) => {
+  const { status, from, to } = req.query;
+
+  let sql = "SELECT * FROM bank_ledger WHERE 1 = 1";
+  const params = [];
+
+  if (status) {
+    sql += " AND status = ?";
+    params.push(status);
+  }
+  if (from) {
+    sql += " AND date >= ?";
+    params.push(from);
+  }
+  if (to) {
+    sql += " AND date <= ?";
+    params.push(to);
+  }
+
+  sql += " ORDER BY date DESC, id DESC";
 
   try {
-    const normalizedMode = String(paymentMode || "UPI").trim() || "UPI";
-    const isCashMode = String(normalizedMode).toLowerCase() === "cash";
-
-    const paymentSetting = paymentSettingId
-      ? await AccountsExpansionModel.getPaymentGatewaySettingById(paymentSettingId)
-      : null;
-
-    let bankLedgerAmount = 0;
-    let bankLedgerDescription = "";
-    let ledgerSourceType = sourceType;
-    let ledgerSourceId = Number(sourceId);
-
-    if (sourceType === "invoice") {
-      await InvoiceModel.updatePaymentStatus(sourceId, "Paid", {
-        paymentMode: normalizedMode,
-        notes,
-      });
-
-      const invoice = await new Promise((resolve, reject) => {
-        InvoiceModel.getAllInvoices((err, rows) => {
-          if (err) return reject(err);
-          resolve((rows || []).find((row) => Number(row.id) === Number(sourceId)) || null);
-        });
-      });
-
-      if (!invoice) {
-        return res.status(404).json({ message: "Invoice not found" });
-      }
-
-      bankLedgerAmount = Number(invoice.totalAmount || invoice.total_amount || invoice.final_total || 0);
-      bankLedgerDescription = `Invoice payment received - ${invoice.invoice_no || `Invoice #${sourceId}`}`;
-    } else if (sourceType === "restaurant_bill") {
-      const result = await RestaurantModel.processBillPayment({
-        billId: Number(sourceId),
-        paymentMethod: normalizedMode,
-      });
-
-      const bills = await new Promise((resolve, reject) => {
-        RestaurantModel.getBills((err, rows) => {
-          if (err) return reject(err);
-          resolve(rows || []);
-        });
-      });
-      const bill = bills.find((row) => Number(row.id) === Number(sourceId));
-      if (!bill) {
-        return res.status(404).json({ message: "Restaurant bill not found" });
-      }
-
-      bankLedgerAmount = Number(bill.total || 0);
-      bankLedgerDescription = `Restaurant bill payment received - Bill #${sourceId}`;
-      ledgerSourceId = Number(sourceId);
-
-      if (result?.billId) {
-        ledgerSourceId = Number(result.billId);
-      }
-    } else {
-      return res.status(400).json({ message: "Unsupported sourceType" });
-    }
-
-    if (!isCashMode) {
-      const existingLedger = await AccountsExpansionModel.getBankLedgerBySource(
-        ledgerSourceType,
-        ledgerSourceId,
-      );
-
-      const ledgerPayload = {
-        entry_date: new Date().toISOString().slice(0, 10),
-        bank_name: paymentSetting?.provider_name || paymentSetting?.bank_name || normalizedMode,
-        bank_account: paymentSetting?.account_holder_name || paymentSetting?.upi_id || null,
-        reference_no: referenceNo || null,
-        description: bankLedgerDescription,
-        debit: 0,
-        credit: bankLedgerAmount,
-        amount: bankLedgerAmount,
-        direction: "in",
-        source_type: ledgerSourceType,
-        source_id: ledgerSourceId,
-        payment_mode: normalizedMode,
-        reconciliation_status: "Paid",
-        match_status: "matched",
-        matched_amount: bankLedgerAmount,
-        statement_ref: null,
-        statement_date: null,
-        reconciled_at: null,
-        notes:
-          [paymentSetting?.upi_id ? `UPI: ${paymentSetting.upi_id}` : null, notes || null]
-            .filter(Boolean)
-            .join(" | ") || null,
-      };
-
-      if (existingLedger) {
-        await AccountsExpansionModel.updateBankLedger(existingLedger.id, ledgerPayload);
-      } else {
-        await AccountsExpansionModel.addBankLedger(ledgerPayload);
-      }
-    }
-
-    res.json({ message: "Pending bill settled successfully" });
+    const results = await query(sql, params);
+    res.json(results);
   } catch (error) {
-    console.error("Error settling pending bill:", error);
-    res.status(500).json({ message: "Error settling pending bill" });
+    res.status(500).json({ message: "Failed to fetch reconciliation items", error: error.message });
   }
 };
 
-exports.getAllPaymentHistory = (req, res) => {
-  AccountsModel.getAllPaymentHistory((err, rows) => {
-    if (err) {
-      console.error("Error fetching payment history:", err);
-      return res.status(500).json({ message: "Error fetching payment history" });
-    }
-    res.json(rows || []);
-  });
+const matchBankLedger = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    await query("UPDATE bank_ledger SET status = 'Matched' WHERE id = ?", [id]);
+    res.json({ message: "Bank ledger item matched" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to match bank ledger item", error: error.message });
+  }
 };
+
+const unmatchBankLedger = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    await query("UPDATE bank_ledger SET status = 'Unmatched' WHERE id = ?", [id]);
+    res.json({ message: "Bank ledger item unmatched" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to unmatch bank ledger item", error: error.message });
+  }
+};
+
+const listBankLedger = async (req, res) => {
+  const { from, to, status } = req.query;
+
+  let sql = "SELECT * FROM bank_ledger WHERE 1 = 1";
+  const params = [];
+
+  if (from) {
+    sql += " AND date >= ?";
+    params.push(from);
+  }
+  if (to) {
+    sql += " AND date <= ?";
+    params.push(to);
+  }
+  if (status) {
+    sql += " AND status = ?";
+    params.push(status);
+  }
+
+  sql += " ORDER BY date DESC, id DESC";
+
+  try {
+    const results = await query(sql, params);
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch bank ledger", error: error.message });
+  }
+};
+
+const addBankLedger = async (req, res) => {
+  const { date, amount, reference_no, description, source, status } = req.body;
+
+  try {
+    const result = await query(
+      `INSERT INTO bank_ledger (date, amount, reference_no, description, source, status)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [date || new Date().toISOString().slice(0, 10), amount, reference_no, description, source, status || "Unmatched"],
+    );
+    res.status(201).json({ message: "Bank ledger entry added", id: result.insertId });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to add bank ledger entry", error: error.message });
+  }
+};
+
+const updateBankLedger = async (req, res) => {
+  const { date, amount, reference_no, description, source, status } = req.body;
+
+  try {
+    await query(
+      `UPDATE bank_ledger
+       SET date = ?, amount = ?, reference_no = ?, description = ?, source = ?, status = ?
+       WHERE id = ?`,
+      [date, amount, reference_no, description, source, status, req.params.id],
+    );
+    res.json({ message: "Bank ledger entry updated" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to update bank ledger entry", error: error.message });
+  }
+};
+
+const deleteBankLedger = async (req, res) => {
+  try {
+    await query("DELETE FROM bank_ledger WHERE id = ?", [req.params.id]);
+    res.json({ message: "Bank ledger entry deleted" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to delete bank ledger entry", error: error.message });
+  }
+};
+
+const listPettyCash = async (req, res) => {
+  const { from, to } = req.query;
+
+  let sql = "SELECT * FROM petty_cash WHERE 1 = 1";
+  const params = [];
+
+  if (from) {
+    sql += " AND date >= ?";
+    params.push(from);
+  }
+  if (to) {
+    sql += " AND date <= ?";
+    params.push(to);
+  }
+
+  sql += " ORDER BY date DESC, id DESC";
+
+  try {
+    const results = await query(sql, params);
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch petty cash", error: error.message });
+  }
+};
+
+const addPettyCash = async (req, res) => {
+  const { date, amount, description, category } = req.body;
+
+  try {
+    const result = await query(
+      `INSERT INTO petty_cash (date, amount, description, category)
+       VALUES (?, ?, ?, ?)`,
+      [date || new Date().toISOString().slice(0, 10), amount, description, category || "General"],
+    );
+    res.status(201).json({ message: "Petty cash entry added", id: result.insertId });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to add petty cash entry", error: error.message });
+  }
+};
+
+const updatePettyCash = async (req, res) => {
+  const { date, amount, description, category } = req.body;
+
+  try {
+    await query(
+      `UPDATE petty_cash
+       SET date = ?, amount = ?, description = ?, category = ?
+       WHERE id = ?`,
+      [date, amount, description, category, req.params.id],
+    );
+    res.json({ message: "Petty cash entry updated" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to update petty cash entry", error: error.message });
+  }
+};
+
+const deletePettyCash = async (req, res) => {
+  try {
+    await query("DELETE FROM petty_cash WHERE id = ?", [req.params.id]);
+    res.json({ message: "Petty cash entry deleted" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to delete petty cash entry", error: error.message });
+  }
+};
+
+const listGstReturns = async (req, res) => {
+  const { from, to } = req.query;
+
+  let sql = "SELECT * FROM gst_returns WHERE 1 = 1";
+  const params = [];
+
+  if (from) {
+    sql += " AND period >= ?";
+    params.push(from);
+  }
+  if (to) {
+    sql += " AND period <= ?";
+    params.push(to);
+  }
+
+  sql += " ORDER BY period DESC, id DESC";
+
+  try {
+    const results = await query(sql, params);
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch GST returns", error: error.message });
+  }
+};
+
+const addGstReturn = async (req, res) => {
+  const { period, gst_type, total_taxable_value, total_cgst, total_sgst, total_igst, total_tax, status } = req.body;
+
+  try {
+    const result = await query(
+      `INSERT INTO gst_returns (period, gst_type, total_taxable_value, total_cgst, total_sgst, total_igst, total_tax, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [period, gst_type, total_taxable_value, total_cgst, total_sgst, total_igst, total_tax, status || "Pending"],
+    );
+    res.status(201).json({ message: "GST return added", id: result.insertId });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to add GST return", error: error.message });
+  }
+};
+
+const updateGstReturn = async (req, res) => {
+  const { period, gst_type, total_taxable_value, total_cgst, total_sgst, total_igst, total_tax, status } = req.body;
+
+  try {
+    await query(
+      `UPDATE gst_returns
+       SET period = ?, gst_type = ?, total_taxable_value = ?, total_cgst = ?, total_sgst = ?, total_igst = ?, total_tax = ?, status = ?
+       WHERE id = ?`,
+      [period, gst_type, total_taxable_value, total_cgst, total_sgst, total_igst, total_tax, status, req.params.id],
+    );
+    res.json({ message: "GST return updated" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to update GST return", error: error.message });
+  }
+};
+
+const deleteGstReturn = async (req, res) => {
+  try {
+    await query("DELETE FROM gst_returns WHERE id = ?", [req.params.id]);
+    res.json({ message: "GST return deleted" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to delete GST return", error: error.message });
+  }
+};
+
+const listVendorPayments = async (req, res) => {
+  const { from, to, status } = req.query;
+
+  let sql = "SELECT * FROM vendor_payments WHERE 1 = 1";
+  const params = [];
+
+  if (from) {
+    sql += " AND date >= ?";
+    params.push(from);
+  }
+  if (to) {
+    sql += " AND date <= ?";
+    params.push(to);
+  }
+  if (status) {
+    sql += " AND status = ?";
+    params.push(status);
+  }
+
+  sql += " ORDER BY date DESC, id DESC";
+
+  try {
+    const results = await query(sql, params);
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch vendor payments", error: error.message });
+  }
+};
+
+const addVendorPayment = async (req, res) => {
+  const { date, vendor_name, amount, payment_mode, description, status } = req.body;
+
+  try {
+    const result = await query(
+      `INSERT INTO vendor_payments (date, vendor_name, amount, payment_mode, description, status)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [date || new Date().toISOString().slice(0, 10), vendor_name, amount, payment_mode, description, status || "Pending"],
+    );
+    res.status(201).json({ message: "Vendor payment added", id: result.insertId });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to add vendor payment", error: error.message });
+  }
+};
+
+const updateVendorPayment = async (req, res) => {
+  const { date, vendor_name, amount, payment_mode, description, status } = req.body;
+
+  try {
+    await query(
+      `UPDATE vendor_payments
+       SET date = ?, vendor_name = ?, amount = ?, payment_mode = ?, description = ?, status = ?
+       WHERE id = ?`,
+      [date, vendor_name, amount, payment_mode, description, status, req.params.id],
+    );
+    res.json({ message: "Vendor payment updated" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to update vendor payment", error: error.message });
+  }
+};
+
+const deleteVendorPayment = async (req, res) => {
+  try {
+    await query("DELETE FROM vendor_payments WHERE id = ?", [req.params.id]);
+    res.json({ message: "Vendor payment deleted" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to delete vendor payment", error: error.message });
+  }
+};
+
+const listPurchaseOrders = async (req, res) => {
+  const { from, to, status } = req.query;
+
+  let sql = "SELECT * FROM purchase_orders WHERE 1 = 1";
+  const params = [];
+
+  if (from) {
+    sql += " AND date >= ?";
+    params.push(from);
+  }
+  if (to) {
+    sql += " AND date <= ?";
+    params.push(to);
+  }
+  if (status) {
+    sql += " AND status = ?";
+    params.push(status);
+  }
+
+  sql += " ORDER BY date DESC, id DESC";
+
+  try {
+    const results = await query(sql, params);
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch purchase orders", error: error.message });
+  }
+};
+
+const addPurchaseOrder = async (req, res) => {
+  const { date, vendor_name, item_description, amount, status } = req.body;
+
+  try {
+    const result = await query(
+      `INSERT INTO purchase_orders (date, vendor_name, item_description, amount, status)
+       VALUES (?, ?, ?, ?, ?)`,
+      [date || new Date().toISOString().slice(0, 10), vendor_name, item_description, amount, status || "Pending"],
+    );
+    res.status(201).json({ message: "Purchase order added", id: result.insertId });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to add purchase order", error: error.message });
+  }
+};
+
+const updatePurchaseOrder = async (req, res) => {
+  const { date, vendor_name, item_description, amount, status } = req.body;
+
+  try {
+    await query(
+      `UPDATE purchase_orders
+       SET date = ?, vendor_name = ?, item_description = ?, amount = ?, status = ?
+       WHERE id = ?`,
+      [date, vendor_name, item_description, amount, status, req.params.id],
+    );
+    res.json({ message: "Purchase order updated" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to update purchase order", error: error.message });
+  }
+};
+
+const deletePurchaseOrder = async (req, res) => {
+  try {
+    await query("DELETE FROM purchase_orders WHERE id = ?", [req.params.id]);
+    res.json({ message: "Purchase order deleted" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to delete purchase order", error: error.message });
+  }
+};
+
+const listPayrollRecords = async (req, res) => {
+  const { from, to, department } = req.query;
+
+  let sql = "SELECT * FROM payroll_records WHERE 1 = 1";
+  const params = [];
+
+  if (from) {
+    sql += " AND date >= ?";
+    params.push(from);
+  }
+  if (to) {
+    sql += " AND date <= ?";
+    params.push(to);
+  }
+  if (department) {
+    sql += " AND department = ?";
+    params.push(department);
+  }
+
+  sql += " ORDER BY date DESC, id DESC";
+
+  try {
+    const results = await query(sql, params);
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch payroll records", error: error.message });
+  }
+};
+
+const addPayrollRecord = async (req, res) => {
+  const { date, employee_name, department, amount, notes } = req.body;
+
+  try {
+    const result = await query(
+      `INSERT INTO payroll_records (date, employee_name, department, amount, notes)
+       VALUES (?, ?, ?, ?, ?)`,
+      [date || new Date().toISOString().slice(0, 10), employee_name, department, amount, notes || null],
+    );
+    res.status(201).json({ message: "Payroll record added", id: result.insertId });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to add payroll record", error: error.message });
+  }
+};
+
+const updatePayrollRecord = async (req, res) => {
+  const { date, employee_name, department, amount, notes } = req.body;
+
+  try {
+    await query(
+      `UPDATE payroll_records
+       SET date = ?, employee_name = ?, department = ?, amount = ?, notes = ?
+       WHERE id = ?`,
+      [date, employee_name, department, amount, notes, req.params.id],
+    );
+    res.json({ message: "Payroll record updated" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to update payroll record", error: error.message });
+  }
+};
+
+const deletePayrollRecord = async (req, res) => {
+  try {
+    await query("DELETE FROM payroll_records WHERE id = ?", [req.params.id]);
+    res.json({ message: "Payroll record deleted" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to delete payroll record", error: error.message });
+  }
+};
+
+const listProfitCenters = async (req, res) => {
+  try {
+    const results = await query("SELECT * FROM profit_centers ORDER BY name ASC, id ASC");
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch profit centers", error: error.message });
+  }
+};
+
+const addProfitCenter = async (req, res) => {
+  const { name, code, description, is_active } = req.body;
+
+  try {
+    const result = await query(
+      `INSERT INTO profit_centers (name, code, description, is_active)
+       VALUES (?, ?, ?, ?)`,
+      [name, code, description, is_active !== false ? 1 : 0],
+    );
+    res.status(201).json({ message: "Profit center added", id: result.insertId });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to add profit center", error: error.message });
+  }
+};
+
+const updateProfitCenter = async (req, res) => {
+  const { name, code, description, is_active } = req.body;
+
+  try {
+    await query(
+      `UPDATE profit_centers SET name = ?, code = ?, description = ?, is_active = ? WHERE id = ?`,
+      [name, code, description, is_active !== false ? 1 : 0, req.params.id],
+    );
+    res.json({ message: "Profit center updated" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to update profit center", error: error.message });
+  }
+};
+
+const deleteProfitCenter = async (req, res) => {
+  try {
+    await query("DELETE FROM profit_centers WHERE id = ?", [req.params.id]);
+    res.json({ message: "Profit center deleted" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to delete profit center", error: error.message });
+  }
+};
+
+const listPaymentGatewaySettings = async (req, res) => {
+  try {
+    const results = await query("SELECT * FROM payment_gateway_settings ORDER BY id ASC");
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch payment gateway settings", error: error.message });
+  }
+};
+
+const addPaymentGatewaySetting = async (req, res) => {
+  const { gateway_name, api_key, api_secret, merchant_id, environment, is_active, description } = req.body;
+
+  try {
+    const result = await query(
+      `INSERT INTO payment_gateway_settings (gateway_name, api_key, api_secret, merchant_id, environment, is_active, description)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        gateway_name,
+        api_key || null,
+        api_secret || null,
+        merchant_id || null,
+        environment || "sandbox",
+        is_active !== false ? 1 : 0,
+        description || null,
+      ],
+    );
+    res.status(201).json({ message: "Payment gateway setting added", id: result.insertId });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to add payment gateway setting", error: error.message });
+  }
+};
+
+const updatePaymentGatewaySetting = async (req, res) => {
+  const { gateway_name, api_key, api_secret, merchant_id, environment, is_active, description } = req.body;
+
+  try {
+    await query(
+      `UPDATE payment_gateway_settings
+       SET gateway_name = ?, api_key = ?, api_secret = ?, merchant_id = ?, environment = ?, is_active = ?, description = ?
+       WHERE id = ?`,
+      [gateway_name, api_key, api_secret, merchant_id, environment, is_active !== false ? 1 : 0, description, req.params.id],
+    );
+    res.json({ message: "Payment gateway setting updated" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to update payment gateway setting", error: error.message });
+  }
+};
+
+const deletePaymentGatewaySetting = async (req, res) => {
+  try {
+    await query("DELETE FROM payment_gateway_settings WHERE id = ?", [req.params.id]);
+    res.json({ message: "Payment gateway setting deleted" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to delete payment gateway setting", error: error.message });
+  }
+};
+
+const getPaymentGatewaySettingById = async (req, res) => {
+  try {
+    const results = await query("SELECT * FROM payment_gateway_settings WHERE id = ?", [req.params.id]);
+    res.json(results[0] || null);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch payment gateway setting", error: error.message });
+  }
+};
+
+const getBankLedgerBySource = async (req, res) => {
+  const { source } = req.params;
+
+  try {
+    const results = await query(
+      "SELECT * FROM bank_ledger WHERE source = ? ORDER BY date DESC, id DESC",
+      [source],
+    );
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch bank ledger by source", error: error.message });
+  }
+};
+
+const getTransactionsByModule = async (req, res) => {
+  const { module } = req.params;
+  const { from, to } = req.query;
+
+  let sql = `
+    SELECT
+      id,
+      date,
+      type,
+      department,
+      source_module,
+      description,
+      amount,
+      payment_mode
+    FROM accounts_transactions
+    WHERE source_module = ?
+  `;
+  const params = [module];
+
+  if (from) {
+    sql += " AND date >= ?";
+    params.push(from);
+  }
+  if (to) {
+    sql += " AND date <= ?";
+    params.push(to);
+  }
+
+  sql += " ORDER BY date DESC, id DESC";
+
+  try {
+    const results = await query(sql, params);
+    const totals = results.reduce(
+      (acc, row) => {
+        const amount = Number(row.amount || 0);
+        if (row.type === "Income") {
+          acc.income += amount;
+        } else if (row.type === "Expense") {
+          acc.expense += amount;
+        }
+        return acc;
+      },
+      { income: 0, expense: 0 },
+    );
+    totals.balance = totals.income - totals.expense;
+
+    res.json({
+      transactions: results,
+      summary: totals,
+      totalRecords: results.length,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch module transactions", error: error.message });
+  }
+};
+
+const getSourceModules = async (req, res) => {
+  try {
+    const results = await query(
+      `
+        SELECT DISTINCT source_module
+        FROM accounts_transactions
+        WHERE source_module IS NOT NULL AND TRIM(source_module) <> ''
+        ORDER BY source_module ASC
+      `
+    );
+    const modules = results.map((row) => row.source_module);
+    res.json({ modules });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch source modules", error: error.message });
+  }
+};
+
+const createBillPayment = async (req, res) => {
+  const { billId, amount, paymentMode, notes } = req.body;
+
+  try {
+    const result = await query(
+      `
+        INSERT INTO payment_history (booking_id, bill_id, amount, payment_mode, description)
+        VALUES (NULL, ?, ?, ?, ?)
+      `,
+      [billId, amount, paymentMode || "Cash", notes || null],
+    );
+
+    res.json({ message: "Bill payment recorded", id: result.insertId });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to record bill payment", error: error.message });
+  }
+};
+
+exports.getSummary = getSummary;
+exports.getTransactions = getTransactions;
+exports.createTransaction = createTransaction;
+exports.getTransactionById = getTransactionById;
+exports.updateTransaction = updateTransaction;
+exports.deleteTransaction = deleteTransaction;
+exports.getDepartmentSummary = getDepartmentSummary;
+exports.getHotelBillingRecords = getHotelBillingRecords;
+exports.getRestaurantBillingRecords = getRestaurantBillingRecords;
+exports.getAllPaymentHistory = getAllPaymentHistory;
+exports.savePaymentHistory = savePaymentHistory;
+
+exports.getExtendedSummary = getExtendedSummary;
+exports.getReconciliationSummary = getReconciliationSummary;
+exports.listReconciliationItems = listReconciliationItems;
+exports.matchBankLedger = matchBankLedger;
+exports.unmatchBankLedger = unmatchBankLedger;
+exports.listBankLedger = listBankLedger;
+exports.addBankLedger = addBankLedger;
+exports.updateBankLedger = updateBankLedger;
+exports.deleteBankLedger = deleteBankLedger;
+exports.listPettyCash = listPettyCash;
+exports.addPettyCash = addPettyCash;
+exports.updatePettyCash = updatePettyCash;
+exports.deletePettyCash = deletePettyCash;
+exports.listGstReturns = listGstReturns;
+exports.addGstReturn = addGstReturn;
+exports.updateGstReturn = updateGstReturn;
+exports.deleteGstReturn = deleteGstReturn;
+exports.listVendorPayments = listVendorPayments;
+exports.addVendorPayment = addVendorPayment;
+exports.updateVendorPayment = updateVendorPayment;
+exports.deleteVendorPayment = deleteVendorPayment;
+exports.listPurchaseOrders = listPurchaseOrders;
+exports.addPurchaseOrder = addPurchaseOrder;
+exports.updatePurchaseOrder = updatePurchaseOrder;
+exports.deletePurchaseOrder = deletePurchaseOrder;
+exports.listPayrollRecords = listPayrollRecords;
+exports.addPayrollRecord = addPayrollRecord;
+exports.updatePayrollRecord = updatePayrollRecord;
+exports.deletePayrollRecord = deletePayrollRecord;
+exports.listProfitCenters = listProfitCenters;
+exports.addProfitCenter = addProfitCenter;
+exports.updateProfitCenter = updateProfitCenter;
+exports.deleteProfitCenter = deleteProfitCenter;
+exports.listPaymentGatewaySettings = listPaymentGatewaySettings;
+exports.addPaymentGatewaySetting = addPaymentGatewaySetting;
+exports.updatePaymentGatewaySetting = updatePaymentGatewaySetting;
+exports.deletePaymentGatewaySetting = deletePaymentGatewaySetting;
+exports.getPaymentGatewaySettingById = getPaymentGatewaySettingById;
+exports.getBankLedgerBySource = getBankLedgerBySource;
+exports.getTransactionsByModule = getTransactionsByModule;
+exports.getSourceModules = getSourceModules;
+exports.createBillPayment = createBillPayment;

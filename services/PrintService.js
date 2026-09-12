@@ -132,7 +132,7 @@ class PrintServiceClass {
    * Get print history for an invoice or KOT.
    */
   async getHistory(filters = {}) {
-    const PrintLogModel = require("../models/PrintLogModel");
+    const PrintLogModel = require("../models/PrintLogsModel");
     return PrintLogModel.getPrintHistory(filters);
   }
 
@@ -140,7 +140,7 @@ class PrintServiceClass {
    * Get print count for a document.
    */
   async getPrintCount(invoiceNo, kotNo) {
-    const PrintLogModel = require("../models/PrintLogModel");
+    const PrintLogModel = require("../models/PrintLogsModel");
     return PrintLogModel.getPrintCount(invoiceNo, kotNo);
   }
 

@@ -1,6 +1,7 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const UserModel = require("../models/UserModel");
+const db = require("../config/db");
+const UsersModel = require("../models/UsersModel");
 const { getJwtSecret } = require("../config/security");
 
 const JWT_SECRET = getJwtSecret();
@@ -29,7 +30,7 @@ const buildCandidateEmails = (email) => {
   });
 };
 
-exports.login = (req, res) => {
+exports.login = async (req, res) => {
   const { email, password } = req.body;
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const candidateEmails = buildCandidateEmails(normalizedEmail);
@@ -43,68 +44,63 @@ exports.login = (req, res) => {
     return res.status(400).json({ message: "Email and password required" });
   }
 
-  const tryLookup = (index) => {
+  const tryLookup = async (index) => {
     if (index >= candidateEmails.length) {
       return res.status(400).json({ message: "Invalid Email" });
     }
 
-    UserModel.findUserByEmail(candidateEmails[index], async (err, result) => {
-      if (err) return res.status(500).json({ message: "DB Error" });
+    const user = await UsersModel.findByEmail(candidateEmails[index]).then((rows) => rows[0] || null);
+    if (!user) {
+      return tryLookup(index + 1);
+    }
 
-      if (!result || result.length === 0) {
-        return tryLookup(index + 1);
-      }
+    const match = await bcrypt.compare(password, user.password_hash || user.password);
 
-      const user = result[0];
-      const match = await bcrypt.compare(password, user.password);
-
-      if (!match) {
-        req.setAuditContext?.({
-          action: "login_failed",
-          userId: user.id,
-        });
-        return res.status(400).json({ message: "Invalid Password" });
-      }
-
+    if (!match) {
       req.setAuditContext?.({
+        action: "login_failed",
         userId: user.id,
-        action: "login",
-        newValue: {
-          id: user.id,
-          email: user.email,
-          role: String(user.role || "").toLowerCase(),
-        },
       });
+      return res.status(400).json({ message: "Invalid Password" });
+    }
 
-      const token = jwt.sign(
-        {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: String(user.role || "").toLowerCase(),
-        },
-        JWT_SECRET,
-        { expiresIn: JWT_EXPIRES_IN },
-      );
-
-      // Set httpOnly cookie for browser-based sessions
-      const isProd = process.env.NODE_ENV === "production";
-      const cookieMaxAgeMs = 7 * 24 * 60 * 60 * 1000; // 7 days
-      res.cookie("token", token, {
-        httpOnly: true,
-        secure: isProd,
-        sameSite: isProd ? "none" : "lax",
-        partitioned: isProd,
-        maxAge: cookieMaxAgeMs,
-        path: "/",
-      });
-
-      return res.json({
-        token,
-        name: user.name,
-        role: String(user.role || "").toLowerCase(),
+    req.setAuditContext?.({
+      userId: user.id,
+      action: "login",
+      newValue: {
+        id: user.id,
         email: user.email,
-      });
+        role: String(user.role_id || user.role || "").toLowerCase(),
+      },
+    });
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: String(user.role_id || user.role || "").toLowerCase(),
+      },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN },
+    );
+
+    const isProd = process.env.NODE_ENV === "production";
+    const cookieMaxAgeMs = 7 * 24 * 60 * 60 * 1000;
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? "none" : "lax",
+      partitioned: isProd,
+      maxAge: cookieMaxAgeMs,
+      path: "/",
+    });
+
+    return res.json({
+      token,
+      name: user.name,
+      role: String(user.role_id || user.role || "").toLowerCase(),
+      email: user.email,
     });
   };
 
@@ -116,44 +112,28 @@ exports.login = (req, res) => {
  * - Allowed if ALLOW_REGISTER=true OR there are no users in DB yet.
  * - Creates user in `register` with hashed password.
  */
-exports.register = (req, res) => {
+exports.register = async (req, res) => {
   const { name, email, password, role } = req.body || {};
 
   if (!name || !email || !password) {
     return res.status(400).json({ message: "name, email, password required" });
   }
 
-  UserModel.countUsers(async (countErr, count) => {
-    if (countErr) return res.status(500).json({ message: "DB Error" });
-
-    const allowed = ALLOW_REGISTER || count === 0;
-    if (!allowed) {
-      return res.status(403).json({
-        message: "Registration is disabled. Ask admin to create a user.",
-      });
+  try {
+    const existing = await UsersModel.findByEmail(email).then(rows => rows[0] || null);
+    if (existing) {
+      return res.status(400).json({ message: "Email already exists" });
     }
 
-    UserModel.findUserByEmail(email, async (err, existing) => {
-      if (err) return res.status(500).json({ message: "DB Error" });
-      if (existing && existing.length > 0) {
-        return res.status(400).json({ message: "Email already exists" });
-      }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const normalizedRole = role ? String(role) : "admin";
+    await db.query(
+      "INSERT INTO users (name, email, password_hash, role_id, status) VALUES (?, ?, ?, ?, 'active')",
+      [name, email, hashedPassword, normalizedRole]
+    );
 
-      try {
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const normalizedRole = role ? String(role) : "admin";
-        UserModel.createUser(
-          { name, email, password: hashedPassword, role: normalizedRole },
-          (createErr) => {
-            if (createErr) {
-              return res.status(500).json({ message: "User creation failed" });
-            }
-            return res.json({ message: "Registered successfully" });
-          },
-        );
-      } catch (hashErr) {
-        return res.status(500).json({ message: "Internal server error" });
-      }
-    });
-  });
+    return res.json({ message: "Registered successfully" });
+  } catch (hashErr) {
+    return res.status(500).json({ message: "Internal server error" });
+  }
 };

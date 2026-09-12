@@ -4,11 +4,7 @@ const {
   ensureSchema: ensureCompletedCleaningLogSchema,
 } = require("../models/CompletedCleaningLogModel");
 
-const syncRoomStatus = async (roomNo, housekeepingStatus) => {
-  if (!roomNo) return;
-  const { syncOperationalStatus } = require("../models/Housekeeping");
-  await syncOperationalStatus(roomNo, housekeepingStatus);
-};
+const { syncOperationalStatus } = require("../models/Housekeeping");
 
 const query = (sql, params = []) =>
   new Promise((resolve, reject) =>
@@ -73,7 +69,6 @@ const sendBusyResponse = (res, task) => {
     busyUntil: task?.due_at || null,
   });
 };
-
 
 exports.bootstrap = async (req, res, next) => {
   try {
@@ -400,7 +395,7 @@ exports.completeNotification = async (req, res) => {
     // Mirror the housekeeping.status -> hotel_room_inventory.status / rooms.status
     // so the room immediately shows as "Available" in StaysOverview, the dashboard,
     // and the booking flow (no reception click needed).
-    await syncRoomStatus(String(targetRoomNo), "Vacant Clean");
+    await syncOperationalStatus(String(targetRoomNo), "Vacant Clean");
 
     // Real-time push so any Stay Overview / Stayover / dashboard tab refreshes
     // instantly without waiting for the 30s polling cycle.
@@ -732,8 +727,3 @@ exports.createCompletedCleaningLog = async (req, res) => {
     res.status(500).json({ message: "Failed to save completed cleaning log", error: err });
   }
 };
-
-
-
-
-

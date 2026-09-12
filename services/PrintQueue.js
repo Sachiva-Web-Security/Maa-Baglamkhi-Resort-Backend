@@ -10,7 +10,7 @@
  */
 
 const db = require("../config/db");
-const { buildPrintNo, ensureSchema } = require("../models/PrintLogModel");
+const { ensureSchema } = require("../models/PrintLogsModel");
 const PrintConfig = require("../PrintConfig");
 
 const runQuery = (sql, params = []) =>
@@ -140,7 +140,7 @@ class PrintQueue {
       // Success
       await runQuery(`UPDATE print_queue SET status = 'completed' WHERE id = ?`, [job.id]);
 
-      const printNo = buildPrintNo();
+      const printNo = `PRN-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${String(Date.now()).slice(-6)}`;
       await runQuery(
         `INSERT INTO print_logs
           (print_no, invoice_no, kot_no, print_type, printer_name, print_count, printed_by, printed_at, status, metadata)

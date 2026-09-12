@@ -1,4 +1,10 @@
+const db = require("../config/db");
 const InventoryMastersModel = require("../models/InventoryMastersModel");
+
+const runQuery = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+  });
 
 const withMastersSchema = async (res, task) => {
   try {

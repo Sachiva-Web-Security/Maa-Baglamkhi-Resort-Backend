@@ -8,14 +8,49 @@
  *   PUT   /hotel/room-block/:id       → updateStatus
  */
 
-const roomBlockModel = require("../models/roomBlockModel");
+const db = require("../config/db");
 const roomInventoryModel = require("../models/hotelRoomInventoryModel");
+
+const runQuery = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+  });
+
+const ensureSchema = async () => {
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS hotel_room_blocks (
+      id            INT AUTO_INCREMENT PRIMARY KEY,
+      room_number   VARCHAR(50) NOT NULL,
+      block_type    ENUM(
+                      'Maintenance','Deep Clean','Renovation',
+                      'Inspection','Pest Control','Other'
+                    ) NOT NULL DEFAULT 'Maintenance',
+      reason        TEXT DEFAULT NULL,
+      blocked_from  DATE NOT NULL,
+      blocked_until DATE NOT NULL,
+      blocked_by    VARCHAR(100) DEFAULT 'Manager',
+      status        ENUM('Active','Completed','Cancelled')
+                    NOT NULL DEFAULT 'Active',
+      created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+};
 
 // ─── GET all blocks (optionally ?status=Active) ───────────────────────────────
 exports.getAll = async (req, res) => {
   try {
+    await ensureSchema();
     const { status } = req.query;
-    const blocks = await roomBlockModel.getAllBlocks(status || null);
+    let sql = "SELECT * FROM hotel_room_blocks";
+    const params = [];
+    if (status) {
+      sql += " WHERE status = ?";
+      params.push(status);
+    }
+    sql += " ORDER BY blocked_from DESC";
+    const blocks = await runQuery(sql, params);
     res.json(blocks);
   } catch (err) {
     console.error("[roomBlock] getAll error:", err);
@@ -45,6 +80,8 @@ exports.create = async (req, res) => {
   }
 
   try {
+    await ensureSchema();
+
     // Optionally update the room's operational state to Blocked
     try {
       await roomInventoryModel.updateRoomOperationalState({
@@ -59,16 +96,14 @@ exports.create = async (req, res) => {
       console.warn("[roomBlock] inventory state update skipped:", inventoryErr.message);
     }
 
-    const result = await roomBlockModel.createBlock({
-      room_number,
-      block_type,
-      reason,
-      blocked_from,
-      blocked_until,
-      blocked_by,
-    });
+    const result = await runQuery(
+      `INSERT INTO hotel_room_blocks
+         (room_number, block_type, reason, blocked_from, blocked_until, blocked_by, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'Active')`,
+      [room_number, block_type, reason, blocked_from, blocked_until, blocked_by],
+    );
 
-    res.status(201).json({ message: "Room blocked successfully", ...result });
+    res.status(201).json({ message: "Room blocked successfully", id: result.insertId, room_number, block_type, status: "Active" });
   } catch (err) {
     console.error("[roomBlock] create error:", err);
     res.status(500).json({ error: err.message || "Failed to create block" });
@@ -92,11 +127,15 @@ exports.updateStatus = async (req, res) => {
   }
 
   try {
-    await roomBlockModel.updateBlockStatus(Number(blockId), status);
+    await ensureSchema();
+    await runQuery(
+      "UPDATE hotel_room_blocks SET status = ? WHERE id = ?",
+      [status, Number(blockId)],
+    );
 
     // When completing a block, reset the room to Available
     if (status === "Completed" || status === "Cancelled") {
-      const blocks = await roomBlockModel.getAllBlocks();
+      const blocks = await runQuery("SELECT * FROM hotel_room_blocks ORDER BY blocked_from DESC");
       const block = blocks.find((b) => Number(b.id) === Number(blockId));
 
       if (block) {

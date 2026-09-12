@@ -55,6 +55,52 @@ class Tokens {
     const [rows] = await this.pool.execute("SELECT * FROM \`tokens\` ORDER BY \`created_at\` DESC", args)
     return rows
   }
+  async createToken(tokenData = {}) {
+    const [result] = await this.pool.execute(
+      `INSERT INTO tokens (token_code, table_number, waiter_name, status)
+       VALUES (?, ?, ?, ?)`,
+      [
+        tokenData.tokenCode || null,
+        tokenData.tableNumber || tokenData.table_number || null,
+        tokenData.waiterName || tokenData.waiter || null,
+        tokenData.status || 'active',
+      ]
+    )
+    return { insertId: result.insertId }
+  }
+
+  async addTokenItem(itemData = {}) {
+    const [result] = await this.pool.execute(
+      `INSERT INTO token_items (token_id, item_name, qty, rate)
+       VALUES (?, ?, ?, ?)`,
+      [
+        itemData.tokenId || itemData.token_id || null,
+        itemData.name || itemData.item_name || 'Item',
+        itemData.qty || itemData.quantity || 1,
+        itemData.price || itemData.rate || 0,
+      ]
+    )
+    return { insertId: result.insertId }
+  }
+
+  async getTokenItems(...args) {
+    const [rows] = await this.pool.execute("SELECT * FROM `token_items` WHERE `token_id` = ?", args)
+    return rows
+  }
+
+  async updateTokenItem(id, updates = {}) {
+    const setParts = []
+    const values = []
+    if (updates.qty !== undefined) { setParts.push('qty = ?'); values.push(updates.qty) }
+    if (updates.rate !== undefined) { setParts.push('rate = ?'); values.push(updates.rate) }
+    if (!setParts.length) return
+    values.push(id)
+    await this.pool.execute(`UPDATE token_items SET ${setParts.join(', ')} WHERE id = ?`, values)
+  }
+
+  async deleteTokenItem(...args) {
+    await this.pool.execute("DELETE FROM `token_items` WHERE `id` = ?", args)
+  }
 }
 
 module.exports = new (Tokens)()

@@ -24,7 +24,6 @@
 
 const crypto = require("crypto");
 const db = require("../config/db");
-
 const GroupBookingModel = require("../models/GroupBookingModel");
 
 const runQuery = (sql, params = []) =>
@@ -38,8 +37,40 @@ const generateBookingCode = () => {
   return `GRP-${date}-${rand}`;
 };
 
-// Delegate schema creation to the model file
+// Delegate schema creation to the v4 model
 const ensureSchema = GroupBookingModel.ensureSchema.bind(GroupBookingModel);
+
+const updateRoomOperationalState = async ({ roomNumber, guestName, status, checkIn, checkOut }) => {
+  const updates = [];
+
+  // Update hotel_room_inventory if it exists
+  const tables = await runQuery("SHOW TABLES LIKE 'hotel_room_inventory'").catch(() => []);
+  if (Array.isArray(tables) && tables.length > 0) {
+    updates.push(
+      runQuery(
+        `UPDATE hotel_room_inventory
+         SET guest = ?, status = ?, check_in = ?, check_out = ?
+         WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)`,
+        [guestName, status, checkIn, checkOut, roomNumber],
+      ),
+    );
+  }
+
+  // Also update legacy rooms table if it exists
+  const legacyTables = await runQuery("SHOW TABLES LIKE 'rooms'").catch(() => []);
+  if (Array.isArray(legacyTables) && legacyTables.length > 0) {
+    updates.push(
+      runQuery(
+        `UPDATE rooms
+         SET guest = ?, status = ?, check_in = ?, check_out = ?
+         WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)`,
+        [guestName, status, checkIn, checkOut, roomNumber],
+      ),
+    );
+  }
+
+  await Promise.all(updates);
+};
 
 // ─── POST /hotel/group-booking ────────────────────────────────────────────────
 exports.create = async (req, res) => {
@@ -168,22 +199,15 @@ exports.create = async (req, res) => {
     }
 
     // ── Step 5: Group booking meta ────────────────────────────────────────
-    await runQuery(
-      `INSERT INTO hotel_group_bookings
-         (booking_id, group_label, total_rooms, grand_total, paid_amount)
-       VALUES (?, ?, ?, ?, ?)`,
-      [
-        bookingId,
-        guest.groupLabel || null,
-        rooms.length,
-        grandTotal,
-        paidAmount,
-      ],
-    );
+    await GroupBookingModel.create({
+      booking_id: bookingId,
+      group_label: guest.groupLabel || null,
+      total_rooms: rooms.length,
+      grand_total: grandTotal,
+      paid_amount: paidAmount,
+    });
 
     // ── Step 6: Mark rooms as Occupied in inventory ───────────────────────
-    const { updateRoomOperationalState } = require("../models/hotelRoomInventoryModel");
-
     await Promise.allSettled(
       rooms.map((room) =>
         updateRoomOperationalState({

@@ -1,20 +1,17 @@
 const db = require("../config/db");
 
-const GuestModel = require("../models/guestModel");
-const OtherBookingModel = require("../models/otherBookingModel");
-const CompanyModel = require("../models/companyModel");
-const PaxModel = require("../models/paxModel");
-const AdvanceModel = require("../models/advanceModel");
-const ReferenceModel = require("../models/referenceModel");
-const RoomTariffModel = require("../models/roomTariffModel");
-const Paymentadvance = require("../models/Paymentadvance");
-const InvoiceModel = require("../models/InvoiceModel");
-const roomInventoryModel = require("../models/hotelRoomInventoryModel");
+const GuestProfilesModel = require("../models/GuestProfilesModel");
+const BookingSourcesModel = require("../models/BookingSourcesModel");
+const ResortProfilesModel = require("../models/ResortProfilesModel");
+const BookingsModel = require("../models/BookingsModel");
+const PaymentsModel = require("../models/PaymentsModel");
+const BillsModel = require("../models/BillsModel");
+const RatePlansModel = require("../models/RatePlansModel");
+const UsersModel = require("../models/UsersModel");
 
 // WhatsApp helpers — wrapped in try/catch so failures never break the booking flow.
 let WhatsAppService;
 let InvoicePdfService;
-let UserModel;
 try {
   WhatsAppService = require("../services/whatsappService");
 } catch (e) {
@@ -29,6 +26,7 @@ try {
 const fireWhatsAppInvoice = async (bookingId) => {
   if (!WhatsAppService || !InvoicePdfService) return;
   try {
+    const InvoiceModel = require("../models/InvoiceModel");
     const invoice = await InvoiceModel.generateCustomerInvoice(Number(bookingId));
     if (!invoice) return;
     const pdf = await InvoicePdfService.generateInvoicePdf(invoice);
@@ -51,10 +49,9 @@ const fireWhatsAppInvoice = async (bookingId) => {
     // Resolve admin phone from register table (not from env/ADMIN_WHATSAPP_NUMBER)
     let adminNumber = "";
     try {
-      if (!UserModel) UserModel = require("../models/UserModel");
-      const adminRows = await new Promise((resolve, reject) => {
-        UserModel.findAdminUser((err, rows) => (err ? reject(err) : resolve(rows)));
-      });
+      const adminRows = await db.query(
+        "SELECT id, name, email, phone FROM register WHERE LOWER(role) = 'admin' AND phone IS NOT NULL AND TRIM(phone) <> '' ORDER BY id ASC LIMIT 1"
+      );
       adminNumber = adminRows?.[0]?.phone || "";
     } catch (e) {
       // ignore — admin will be skipped
@@ -120,21 +117,7 @@ const getBookingSummaryById = async (id) => {
   return rows[0] || null;
 };
 
-const ensureBookingWizardSchema = async () => {
-  await Promise.all([
-    GuestModel.ensureSchema?.(),
-    OtherBookingModel.ensureSchema?.(),
-    ReferenceModel.ensureSchema?.(),
-    CompanyModel.ensureSchema?.(),
-    PaxModel.ensureSchema?.(),
-    RoomTariffModel.ensureSchema?.(),
-    AdvanceModel.ensureSchema?.(),
-  ]);
-};
-
 const getBookingWizardDataById = async (id) => {
-  await ensureBookingWizardSchema();
-
   const [
     guestRows,
     otherBookingRows,
@@ -316,7 +299,7 @@ const updateRoomsForBooking = async (booking, nextStatus) => {
 
   for (const roomNumber of roomNumbers) {
     if (nextStatus === "Checked In") {
-      await roomInventoryModel.updateRoomOperationalState({
+      await GuestProfilesModel.updateRoomOperationalState({
         roomNumber,
         guestName: booking.guest_name || null,
         status: "Occupied",
@@ -331,7 +314,7 @@ const updateRoomsForBooking = async (booking, nextStatus) => {
       continue;
     }
 
-    await roomInventoryModel.updateRoomOperationalState({
+    await GuestProfilesModel.updateRoomOperationalState({
       roomNumber,
       guestName: null,
       status: "Cleaning",
@@ -346,23 +329,14 @@ const updateRoomsForBooking = async (booking, nextStatus) => {
   }
 };
 
-exports.createGuest = (req, res) => {
+exports.createGuest = async (req, res) => {
   const bookedBy =
     (req.user && (req.user.name || req.user.email)) ||
     (req.body && (req.body.bookedBy || req.body.booked_by)) ||
     "";
 
-  GuestModel.createGuest(req.body, (err, result) => {
-    if (err) {
-      console.error("[createGuest] DB error:", err);
-      return res.status(500).json({
-        message: "Guest creation failed",
-        error: err.message,
-        code: err.code,
-        sqlState: err.sqlState,
-        errno: err.errno,
-      });
-    }
+  try {
+    const result = await GuestProfilesModel.createGuest(req.body);
 
     const bookingId = result.insertId;
 
@@ -380,9 +354,8 @@ exports.createGuest = (req, res) => {
     if (bookingId) {
       setImmediate(async () => {
         try {
-          const Invoice = require("../models/InvoiceModel");
-          const UserModel = require("../models/UserModel");
-          const invoice = await Invoice.generateCustomerInvoice(bookingId);
+          const InvoiceModel = require("../models/InvoiceModel");
+          const invoice = await InvoiceModel.generateCustomerInvoice(bookingId);
           if (!invoice) return;
 
           const guestName = invoice.customerName || "Valued Guest";
@@ -427,7 +400,6 @@ exports.createGuest = (req, res) => {
 
           // Compute total same way the frontend does (getFullBooking):
           // tariff * qty * nights + GST per night * nights
-          // This keeps the WhatsApp total in sync with what's shown in the app.
           let swTotal = total;
           try {
             const guestRow = await new Promise((resolve, reject) => {
@@ -538,8 +510,9 @@ exports.createGuest = (req, res) => {
           let adminNumber = "";
           try {
             const adminRows = await new Promise((resolve, reject) => {
-              UserModel.findAdminUser((err, rows) =>
-                err ? reject(err) : resolve(rows),
+              db.query(
+                "SELECT id, name, email, phone FROM register WHERE LOWER(role) = 'admin' AND phone IS NOT NULL AND TRIM(phone) <> '' ORDER BY id ASC LIMIT 1",
+                (err, rows) => (err ? reject(err) : resolve(rows)),
               );
             });
             adminNumber = adminRows?.[0]?.phone || "";
@@ -563,41 +536,114 @@ exports.createGuest = (req, res) => {
       bookingId,
       bookingCode: result.bookingCode,
     });
-  });
+  } catch (err) {
+    console.error("[createGuest] DB error:", err);
+    res.status(500).json({
+      message: "Guest creation failed",
+      error: err.message,
+      code: err.code,
+      sqlState: err.sqlState,
+      errno: err.errno,
+    });
+  }
 };
 
-exports.updateOtherBooking = (req, res) => {
+exports.updateOtherBooking = async (req, res) => {
   const data = {
     guest_id: req.params.id,
     booking_id: req.params.id,
     ...req.body,
   };
 
-  OtherBookingModel.createOtherBooking(data, (err) => {
-    if (err) {
-      if (process.env.NODE_ENV !== "test") {
-        console.error("Other booking save failed:", err);
-      }
-      return res.status(500).json({ message: "Other booking failed" });
+  try {
+    const existing = await query("SELECT id FROM other_booking WHERE guest_id = ? LIMIT 1", [data.guest_id]);
+    if (existing.length) {
+      await query(
+        `UPDATE other_booking
+           SET booking_type = ?,
+               booking_source = ?,
+               booking_reference = ?,
+               address = ?,
+               country = ?,
+               state = ?,
+               city = ?,
+               pincode = ?
+         WHERE guest_id = ?`,
+        [
+          data.booking_type || null,
+          data.booking_source || null,
+          data.booking_reference || null,
+          data.address || null,
+          data.country || null,
+          data.state || null,
+          data.city || null,
+          data.pincode || null,
+          data.guest_id,
+        ],
+      );
+    } else {
+      await query(
+        `INSERT INTO other_booking
+          (guest_id, booking_id, booking_type, booking_source, booking_reference, address, country, state, city, pincode)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          data.guest_id,
+          data.booking_id,
+          data.booking_type || null,
+          data.booking_source || null,
+          data.booking_reference || null,
+          data.address || null,
+          data.country || null,
+          data.state || null,
+          data.city || null,
+          data.pincode || null,
+        ],
+      );
     }
 
     res.json({ message: "Other Booking Saved" });
-  });
+  } catch (err) {
+    if (process.env.NODE_ENV !== "test") {
+      console.error("Other booking save failed:", err);
+    }
+    res.status(500).json({ message: "Other booking failed" });
+  }
 };
 
-exports.updateReference = (req, res) => {
+exports.updateReference = async (req, res) => {
   const data = { booking_id: req.params.id, ...req.body };
 
-  ReferenceModel.createReference(data, (err) => {
-    if (err) {
-      return res.status(500).json({ message: "Reference save failed" });
+  try {
+    const existing = await query("SELECT id FROM reference_notes WHERE guest_id = ? LIMIT 1", [data.booking_id]);
+    if (existing.length) {
+      await query(
+        `UPDATE reference_notes
+           SET guest_type = ?,
+               guest_notes = ?,
+               internal_notes = ?
+         WHERE guest_id = ?`,
+        [
+          data.guest_type || null,
+          data.guest_notes || null,
+          data.internal_notes || null,
+          data.booking_id,
+        ],
+      );
+    } else {
+      await query(
+        `INSERT INTO reference_notes (guest_id, guest_type, guest_notes, internal_notes)
+         VALUES (?, ?, ?, ?)`,
+        [data.booking_id, data.guest_type || null, data.guest_notes || null, data.internal_notes || null],
+      );
     }
 
     res.json({ message: "Reference Saved" });
-  });
+  } catch (err) {
+    res.status(500).json({ message: "Reference save failed" });
+  }
 };
 
-exports.updateCompany = (req, res) => {
+exports.updateCompany = async (req, res) => {
   const data = { booking_id: req.params.id, ...req.body };
 
   if (!data.companyName && !data.company_name) {
@@ -606,41 +652,76 @@ exports.updateCompany = (req, res) => {
     });
   }
 
-  CompanyModel.addCompany(data, (err, result) => {
-    if (err) {
-      if (process.env.NODE_ENV !== "test") {
-        console.error("Company save failed:", err);
-      }
-
-      return res.status(500).json({
-        message: "Company save failed",
-        error: err.message,
-      });
-    }
+  try {
+    const result = await query(
+      `INSERT INTO companies (booking_id, company_name, gstin, address, city, state, pincode, country)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         company_name = VALUES(company_name),
+         gstin = VALUES(gstin),
+         address = VALUES(address),
+         city = VALUES(city),
+         state = VALUES(state),
+         pincode = VALUES(pincode),
+         country = VALUES(country)`,
+      [
+        data.booking_id,
+        data.companyName || data.company_name || "Direct Booking",
+        data.gstin || data.gst || null,
+        data.address || null,
+        data.city || null,
+        data.state || null,
+        data.pincode || null,
+        data.country || null,
+      ],
+    );
 
     res.json({
       message: "Company Added",
       id: result.insertId,
     });
-  });
-};
-
-exports.updatePax = (req, res) => {
-  const data = { booking_id: req.params.id, ...req.body };
-
-  PaxModel.addPax(data, (err) => {
-    if (err) {
-      return res.status(500).json({ message: "Pax save failed" });
+  } catch (err) {
+    if (process.env.NODE_ENV !== "test") {
+      console.error("Company save failed:", err);
     }
 
+    res.status(500).json({
+      message: "Company save failed",
+      error: err.message,
+    });
+  }
+};
+
+exports.updatePax = async (req, res) => {
+  const data = { booking_id: req.params.id, ...req.body };
+
+  try {
+    await query(
+      `INSERT INTO pax (booking_id, room_number, adults, children, meal_plan)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         adults = VALUES(adults),
+         children = VALUES(children),
+         meal_plan = VALUES(meal_plan)`,
+      [
+        data.booking_id,
+        data.room_number || data.roomNumber,
+        Number(data.adults || 1),
+        Number(data.children || 0),
+        data.meal_plan || data.mealPlan || "EP",
+      ],
+    );
+
     res.json({ message: "Pax Added" });
-  });
+  } catch (err) {
+    res.status(500).json({ message: "Pax save failed" });
+  }
 };
 
 exports.updateTariff = async (req, res) => {
   const data = { booking_id: req.params.id, ...req.body };
   const bookingId = Number(req.params.id);
-  const roomNumber = String(data.roomNumber || "").trim();
+  const roomNumber = String(data.room_number || data.roomNumber || "").trim();
 
   if (!roomNumber) {
     return res.status(400).json({ message: "Room number required" });
@@ -648,7 +729,6 @@ exports.updateTariff = async (req, res) => {
 
   try {
     // OVERLAP CHECK: prevent double-booking the same room for overlapping dates.
-    // Skips the current booking so editing an existing booking doesn't collide with itself.
     const guestRows = await query(
       "SELECT check_in, check_out FROM guests WHERE id = ? LIMIT 1",
       [bookingId],
@@ -658,6 +738,7 @@ exports.updateTariff = async (req, res) => {
       const checkIn = String(guestRows[0].check_in).slice(0, 10);
       const checkOut = String(guestRows[0].check_out).slice(0, 10);
 
+      const roomInventoryModel = require("../models/hotelRoomInventoryModel");
       const overlap = await roomInventoryModel.validateRoomAvailability({
         roomNumbers: [roomNumber],
         checkIn,
@@ -674,13 +755,26 @@ exports.updateTariff = async (req, res) => {
       }
     }
 
-    RoomTariffModel.addTariff(data, (err) => {
-      if (err) {
-        return res.status(500).json({ message: "Tariff save failed" });
-      }
+    await query(
+      `INSERT INTO room_tariff
+        (booking_id, room_number, tariff, gst, total, quantity)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         tariff = VALUES(tariff),
+         gst = VALUES(gst),
+         total = VALUES(total),
+         quantity = VALUES(quantity)`,
+      [
+        data.booking_id,
+        roomNumber,
+        Number(data.tariff || data.price || 0),
+        Number(data.gst || 0),
+        Number(data.total || 0),
+        Number(data.quantity || 1),
+      ],
+    );
 
-      res.json({ message: "Tariff Added" });
-    });
+    res.json({ message: "Tariff Added" });
   } catch (error) {
     if (process.env.NODE_ENV !== "test") {
       console.error("updateTariff failed:", error);
@@ -799,8 +893,6 @@ exports.getFullBooking = async (req, res) => {
   const id = req.params.id;
 
   try {
-    await ensureBookingWizardSchema();
-
     const summaryResult = await query(
       `
         SELECT
@@ -918,8 +1010,7 @@ exports.getFullBooking = async (req, res) => {
           )
         : 1;
 
-    // Recompute total per-row AND overall total using per-night tariff * nights * qty + GST,
-    // since `room_tariff.total` is stored as the **single-night** total only.
+    // Recompute total per-row AND overall total using per-night tariff * nights * qty + GST
     const enrichedRooms = (roomsResult || []).map((row) => {
       const tariff = Number(row.tariff || 0);
       const qty = Number(row.quantity || 1);
@@ -945,8 +1036,7 @@ exports.getFullBooking = async (req, res) => {
       guestCapacity,
       nights,
       rooms: enrichedRooms,
-      // If we have enriched rows, prefer the recalculated multi-night total;
-      // otherwise fall back to whatever the backend summed up.
+      // If we have enriched rows, prefer the recalculated multi-night total
       totalAmount: recalculatedTotal > 0 ? recalculatedTotal : storedTotal,
     });
   } catch (error) {
@@ -1005,6 +1095,7 @@ exports.updateFullBooking = async (req, res) => {
     }
 
     if (roomNumbers.length && effectiveCheckIn && effectiveCheckOut) {
+      const roomInventoryModel = require("../models/hotelRoomInventoryModel");
       const overlap = await roomInventoryModel.validateRoomAvailability({
         roomNumbers,
         checkIn: String(effectiveCheckIn).slice(0, 10),
@@ -1050,14 +1141,7 @@ exports.updateFullBooking = async (req, res) => {
       [company_name || "Direct Booking", id],
     );
 
-    // Overwrite advance_payment so editing the amount does NOT stack on top
-    // of the old value (which is what ON DUPLICATE KEY UPDATE ... amount =
-    // amount + VALUES(amount) does in addAdvance).
-    // 🐛 FIX: previously ran unconditionally on every booking edit, using
-    // `paidAmount ?? 0` / `paymentMode || "Cash"` as silent defaults. If a
-    // caller didn't explicitly send these fields (as the Edit Booking save
-    // used to), this wiped the booking's real advance back to ₹0/"Cash".
-    // Now only touches advance_payment when the request actually included
+    // Only touches advance_payment when the request actually included
     // payment info, so an edit that doesn't touch payment can't erase it.
     const paymentFieldsProvided =
       paidAmount !== undefined || discountAmount !== undefined || paymentMode !== undefined;
@@ -1088,13 +1172,7 @@ exports.updateFullBooking = async (req, res) => {
       );
     }
 
-    // 🐛 FIX: advance_payment was being updated correctly above, but
-    // payment_history — the table Accounts.jsx's transaction log actually
-    // reads for "Hotel payment received" entries — was never touched by
-    // this Edit Booking save path. So changing the payment mode (Cash ->
-    // Card, Card -> UPI, etc.) here updated the booking/advance itself, but
-    // the Accounts page kept showing the OLD payment mode/amount forever.
-    // Only sync when there's something to record (an actual paid amount).
+    // Sync payment_history so the Accounts page stays in sync
     if (Number(paidAmount ?? 0) > 0 || Number(discountAmount ?? 0) > 0) {
       await query("DELETE FROM payment_history WHERE booking_id = ?", [id]);
       await query(
@@ -1206,7 +1284,7 @@ exports.updateFullBooking = async (req, res) => {
     if (shouldSyncRoomState && syncedRoomNumbers.length) {
       await Promise.all(
         syncedRoomNumbers.map((roomNumber) =>
-          roomInventoryModel.updateRoomOperationalState({
+          GuestProfilesModel.updateRoomOperationalState({
             roomNumber,
             guestName: updatedBooking.guest_name || null,
             status: "Occupied",
@@ -1262,70 +1340,87 @@ exports.refundBooking = async (req, res) => {
   }
 };
 
-exports.updateAdvance = (req, res) => {
+exports.updateAdvance = async (req, res) => {
   const data = { booking_id: req.params.id, ...req.body };
 
-  Paymentadvance.addPayment(data, (paymentError) => {
-    if (paymentError) {
-      if (process.env.NODE_ENV !== "test") {
-        console.error(paymentError);
-      }
-      return res.status(500).json({
-        message: "Payment history failed",
-        error: paymentError.message,
-      });
-    }
-
-    AdvanceModel.addAdvance(data, (advanceError) => {
-      if (advanceError) {
-        if (process.env.NODE_ENV !== "test") {
-          console.error(advanceError);
-        }
-        return res.status(500).json({
-          message: "Advance save failed",
-          error: advanceError.message,
-        });
-      }
-
-      // Respond immediately — invoice PDF generation runs in background
-      res.json({ message: "Payment Added + History Saved" });
-
-      // Generate invoice PDF in background (no WhatsApp auto-send to avoid duplicates)
-      setImmediate(async () => {
-        try {
-          const invoice = await InvoiceModel.generateCustomerInvoice(Number(req.params.id));
-          if (!invoice) return;
-          await InvoicePdfService.generateInvoicePdf(invoice);
-        } catch (pdfErr) {
-          console.error("[auto-pdf] invoice generation failed:", pdfErr.message);
-        }
-      });
-
-      // Auto-print advance payment receipt
-      setImmediate(async () => {
-        try {
-          const { InvoicePrintService } = require("../services/InvoicePrintService");
-          const booking = await getBookingSummaryById(req.params.id);
-          await InvoicePrintService.immediatePrintInvoice("advance_payment", {
-            bookingId: req.params.id,
-            invoiceNo: `ADV-${req.params.id}`,
-            customerName: booking?.guest_name || "Guest",
-            phone: booking?.mobile || "",
-            roomNumber: booking?.rooms || "",
-            totalAmount: Number(data.amount || data.paidAmount || 0),
-            discount: Number(data.discountAmount || data.discount_amount || 0),
-            subtotal: Number(data.amount || data.paidAmount || 0),
-            tax: 0,
-            paymentMode: data.paymentMode || "Cash",
-            paymentStatus: "Paid",
-            printedBy: "System (Advance)",
-          });
-        } catch (err) {
-          console.error("[auto-print] advance receipt failed:", err.message);
-        }
-      });
+  try {
+    const paymentResult = await PaymentsModel.addPayment({
+      guest_name: data.guest_name || data.customerName || "Guest",
+      mobile: data.mobile || data.customerMobile || null,
+      booking_id: data.booking_id,
+      amount: Number(data.amount || data.paidAmount || 0),
+      payment_mode: data.paymentMode || data.payment_mode || "Cash",
+      status: "Completed",
+      discount_amount: Number(data.discountAmount || data.discount_amount || 0),
+      source: "booking_advance",
+      description: data.description || data.remarks || null,
     });
-  });
+
+    await query(
+      `INSERT INTO advance_payment
+        (booking_id, amount, discount_amount, payment_mode, remarks)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         amount = VALUES(amount),
+         discount_amount = VALUES(discount_amount),
+         payment_mode = VALUES(payment_mode),
+         remarks = VALUES(remarks)`,
+      [
+        data.booking_id,
+        Number(data.amount || data.paidAmount || 0),
+        Number(data.discountAmount || data.discount_amount || 0),
+        data.paymentMode || data.payment_mode || "Cash",
+        data.remarks || data.paymentRemarks || null,
+      ],
+    );
+
+    // Respond immediately — invoice PDF generation runs in background
+    res.json({ message: "Payment Added + History Saved" });
+
+    // Generate invoice PDF in background (no WhatsApp auto-send to avoid duplicates)
+    setImmediate(async () => {
+      try {
+        const InvoiceModel = require("../models/InvoiceModel");
+        const invoice = await InvoiceModel.generateCustomerInvoice(Number(req.params.id));
+        if (!invoice) return;
+        await InvoicePdfService.generateInvoicePdf(invoice);
+      } catch (pdfErr) {
+        console.error("[auto-pdf] invoice generation failed:", pdfErr.message);
+      }
+    });
+
+    // Auto-print advance payment receipt
+    setImmediate(async () => {
+      try {
+        const { InvoicePrintService } = require("../services/InvoicePrintService");
+        const booking = await getBookingSummaryById(req.params.id);
+        await InvoicePrintService.immediatePrintInvoice("advance_payment", {
+          bookingId: req.params.id,
+          invoiceNo: `ADV-${req.params.id}`,
+          customerName: booking?.guest_name || "Guest",
+          phone: booking?.mobile || "",
+          roomNumber: booking?.rooms || "",
+          totalAmount: Number(data.amount || data.paidAmount || 0),
+          discount: Number(data.discountAmount || data.discount_amount || 0),
+          subtotal: Number(data.amount || data.paidAmount || 0),
+          tax: 0,
+          paymentMode: data.paymentMode || "Cash",
+          paymentStatus: "Paid",
+          printedBy: "System (Advance)",
+        });
+      } catch (err) {
+        console.error("[auto-print] advance receipt failed:", err.message);
+      }
+    });
+  } catch (paymentError) {
+    if (process.env.NODE_ENV !== "test") {
+      console.error(paymentError);
+    }
+    res.status(500).json({
+      message: "Payment history failed",
+      error: paymentError.message,
+    });
+  }
 };
 
 exports.checkInBooking = async (req, res) => {
@@ -1427,7 +1522,7 @@ exports.cancelBooking = async (req, res) => {
 
     await Promise.all(
       roomNumbers.map(async (roomNumber) => {
-        await roomInventoryModel.updateRoomOperationalState({
+        await GuestProfilesModel.updateRoomOperationalState({
           roomNumber,
           guestName: null,
           status: "Available",
@@ -1449,10 +1544,10 @@ exports.cancelBooking = async (req, res) => {
           const customerNumber = booking.mobile || booking.guest_phone || "";
           let adminNumber = "";
           try {
-            if (!UserModel) UserModel = require("../models/UserModel");
             const adminRows = await new Promise((resolve, reject) => {
-              db.query("SELECT phone FROM users WHERE role = 'admin' LIMIT 1", (err, rows) =>
-                err ? reject(err) : resolve(rows),
+              db.query(
+                "SELECT id, name, email, phone FROM register WHERE LOWER(role) = 'admin' AND phone IS NOT NULL AND TRIM(phone) <> '' ORDER BY id ASC LIMIT 1",
+                (err, rows) => (err ? reject(err) : resolve(rows)),
               );
             });
             adminNumber = adminRows?.[0]?.phone || "";
@@ -1588,4 +1683,3 @@ exports.getPaymentHistory = async (req, res) => {
     res.status(500).json(error);
   }
 };
-

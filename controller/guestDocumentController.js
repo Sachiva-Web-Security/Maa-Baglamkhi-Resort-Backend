@@ -1,5 +1,5 @@
 const db = require("../config/db");
-const guestDocumentModel = require("../models/guestDocumentModel");
+const GuestIdentificationsModel = require("../models/GuestIdentificationsModel");
 
 const runQuery = (sql, params = []) =>
   new Promise((resolve, reject) => {
@@ -45,19 +45,23 @@ exports.uploadByBooking = async (req, res) => {
 
     const fileUrl = `/uploads/${req.file.filename}`;
 
-    const result = await guestDocumentModel.createDocument({
-      bookingId,
-      mobile: guest.mobile || "",
-      guestName: guest.guest_name || "",
-      documentType: normalizeDocumentType(req.body.documentType),
-      fileUrl,
-      termsAccepted: parseBoolean(req.body.termsAccepted),
-      notes: req.body.notes,
-      uploadedBy: req.body.uploadedBy,
-    });
+    const result = await db.query(
+      `INSERT INTO guest_identifications (booking_id, guest_id, document_type, file_url, notes, uploaded_by, is_accepted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+      [
+        bookingId,
+        guest.id,
+        normalizeDocumentType(req.body.documentType),
+        fileUrl,
+        req.body.notes || null,
+        req.body.uploadedBy || null,
+        parseBoolean(req.body.termsAccepted) ? 1 : 0,
+      ]
+    );
+    const insertId = result[0]?.insertId || result.insertId;
 
-    const documents = await guestDocumentModel.getDocumentsByBookingId(bookingId);
-    const document = documents.find((row) => Number(row.id) === Number(result.insertId)) || null;
+    const documents = await GuestIdentificationsModel.findAll().then(rows => rows.filter(row => Number(row.booking_id) === bookingId));
+    const document = documents.find((row) => Number(row.id) === Number(insertId)) || null;
 
     res.status(201).json({
       message: "Guest document uploaded successfully",
@@ -81,7 +85,7 @@ exports.listByBooking = async (req, res) => {
   }
 
   try {
-    const documents = await guestDocumentModel.getDocumentsByBookingId(bookingId);
+    const documents = await GuestIdentificationsModel.findAll().then(rows => rows.filter(row => Number(row.booking_id) === bookingId));
     res.json(documents);
   } catch (error) {
     if (process.env.NODE_ENV !== "test") {

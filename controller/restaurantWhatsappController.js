@@ -10,6 +10,7 @@
 
 const WhatsAppService = require("../services/whatsappService");
 const RestaurantPdfService = require("../services/restaurantInvoicePdfService");
+const db = require("../config/db");
 
 const getPublicBaseUrl = () => {
   const env =
@@ -21,7 +22,6 @@ const getPublicBaseUrl = () => {
   return `http://localhost:${process.env.PORT || 5002}`;
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 const formatINR = (value) => {
   const num = Number(value || 0);
   return num.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -31,14 +31,6 @@ const round2 = (value) => Number((Number(value || 0)).toFixed(2));
 
 /**
  * POST /api/restaurant/invoice/send-whatsapp/:billId
- *
- * Body (optional overrides):
- *   {
- *     "customerNumber": "9876543210",
- *     "customerMessage": "Your custom message",
- *     "adminNumber": "9876543210",
- *     "adminMessage": "Your custom admin message"
- *   }
  */
 exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
   try {
@@ -47,33 +39,39 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
       return res.status(400).json({ error: "Valid bill ID is required" });
     }
 
-    // ── 1. Fetch bill row ──────────────────────────────────────────────────
-    const BillModel = require("../models/RestaurantModel");
-    await BillModel.ensureSchema();
-
-    const bill = await new Promise((resolve, reject) => {
-      BillModel.getBillById(billId, (err, row) => (err ? reject(err) : resolve(row)));
+    // 1. Fetch bill row via raw SQL (replacing BillModel.getBillById)
+    const billRows = await new Promise((resolve, reject) => {
+      db.query(
+        "SELECT * FROM bills WHERE id = ? LIMIT 1",
+        [billId],
+        (err, rows) => (err ? reject(err) : resolve(rows?.[0] || null)),
+      );
     });
 
-    if (!bill) {
+    if (!billRows) {
       return res.status(404).json({ error: "Bill not found" });
     }
 
-    // ── 2. Fetch token items (if available) ────────────────────────────────
+    const bill = billRows;
+
+    // 2. Fetch token items (if available) via raw SQL (replacing TokenModel.getTokenItems)
     let tokenItems = [];
-    if (bill.tokenId) {
+    if (bill.token_id) {
       try {
-        const TokenModel = require("../models/TokenModel");
-        tokenItems = await new Promise((resolve, reject) => {
-          TokenModel.getTokenItems(bill.tokenId, (err, rows) => (err ? reject(err) : resolve(rows)));
+        const rows = await new Promise((resolve, reject) => {
+          db.query(
+            "SELECT item_name AS item_name, qty, rate FROM token_items WHERE token_id = ?",
+            [bill.token_id],
+            (err, rows) => (err ? reject(err) : resolve(rows || [])),
+          );
         });
+        tokenItems = rows;
       } catch {
-        // Token may have been deleted; continue without items
         tokenItems = [];
       }
     }
 
-    // ── 3. Normalise items for PDF ─────────────────────────────────────────
+    // 3. Normalise items for PDF
     const normalisedItems = tokenItems.map((item) => ({
       name: item.item_name || item.name || "Menu Item",
       qty: Number(item.qty || 0),
@@ -81,29 +79,29 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
       total: round2(Number(item.qty || 0) * Number(item.rate || 0)),
     }));
 
-    // ── 4. Build invoice payload for PDF ───────────────────────────────────
+    // 4. Build invoice payload for PDF
     const invoiceForPdf = {
       id: bill.id,
       billId: bill.id,
-      entityType: bill.entityType || "Table",
-      tableNumber: bill.tableNumber,
-      customerName: bill.customerName || "Walk-in Customer",
+      entityType: bill.entityType || bill.entity_type || "Table",
+      tableNumber: bill.tableNumber || bill.table_number || "",
+      customerName: bill.customerName || bill.customer_name || "Walk-in Customer",
       phone: bill.phone || "",
       subtotal: round2(bill.subtotal || 0),
       serviceCharge: round2(bill.serviceCharge || 0),
       gst: round2(bill.gst || 0),
       discountAmount: round2(bill.discountAmount || 0),
       total: round2(bill.total || 0),
-      paymentMethod: bill.paymentMethod || "Cash",
-      invoiceStatus: bill.invoiceStatus || "Generated",
+      paymentMethod: bill.paymentMethod || bill.payment_method || "Cash",
+      invoiceStatus: bill.invoiceStatus || bill.invoice_status || "Generated",
       created_at: bill.created_at,
-      waiterName: bill.waiter_name || "",
-      tokenId: bill.tokenId,
+      waiterName: bill.waiterName || bill.waiter_name || "",
+      tokenId: bill.tokenId || bill.token_id,
       tokenCode: bill.tokenCode || "",
       items: normalisedItems,
     };
 
-    // ── 5. Generate PDF ────────────────────────────────────────────────────
+    // 5. Generate PDF
     let pdfResult;
     try {
       pdfResult = await RestaurantPdfService.generateRestaurantInvoicePdf(invoiceForPdf);
@@ -112,19 +110,34 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
       return res.status(500).json({ error: "Failed to generate restaurant invoice PDF", details: pdfErr.message });
     }
 
-    // ── 6. Build public file URL ───────────────────────────────────────────
+    // 6. Build public file URL
     const publicBase = getPublicBaseUrl();
     const fileUrl = `${publicBase}/uploads/invoices/${pdfResult.fileName}`;
 
-    // ── 7. Resolve admin number ────────────────────────────────────────────
+    // 7. Resolve admin number via raw SQL (replacing UserModel.findAdminWithPhone)
     let adminNumber = req.body?.adminNumber || "";
     if (!adminNumber) {
       try {
-        const UserModel = require("../models/UserModel");
         const adminRow = await new Promise((resolve, reject) => {
-          UserModel.findAdminWithPhone((err, row) => (err ? reject(err) : resolve(row)));
+          db.query(
+            `SELECT id, name, email, phone FROM register
+             WHERE LOWER(role) = 'admin' AND phone IS NOT NULL AND TRIM(phone) <> ''
+             ORDER BY id ASC LIMIT 1`,
+            (err, rows) => (err ? reject(err) : resolve(rows?.[0] || null)),
+          );
         });
-        adminNumber = adminRow?.phone || "";
+        // Fallback: if no admin has a phone, pick the first admin
+        if (!adminRow) {
+          const fallback = await new Promise((resolve, reject) => {
+            db.query(
+              `SELECT id, name, email, phone FROM register WHERE LOWER(role) = 'admin' ORDER BY id ASC LIMIT 1`,
+              (err, rows) => (err ? reject(err) : resolve(rows?.[0] || null)),
+            );
+          });
+          adminNumber = fallback?.phone || "";
+        } else {
+          adminNumber = adminRow?.phone || "";
+        }
       } catch {
         // continue without admin
       }
@@ -133,10 +146,10 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
       adminNumber = process.env.ADMIN_WHATSAPP_NUMBER;
     }
 
-    // ── 8. Build messages ──────────────────────────────────────────────────
+    // 8. Build messages
     const customerNumber = req.body?.customerNumber || bill.phone || "";
     const entityLabel =
-      String(bill.entityType || "Table").toLowerCase() === "room" ? "Room" : "Table";
+      String(bill.entityType || bill.entity_type || "Table").toLowerCase() === "room" ? "Room" : "Table";
     const billDate = invoiceForPdf.created_at
       ? new Date(invoiceForPdf.created_at).toISOString().slice(0, 10)
       : "N/A";
@@ -156,7 +169,7 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
       `Thank you for dining at Maa Baglamukhi Resort.\n\n` +
       `📋 RESTAURANT INVOICE #${pdfResult.invoiceNo}\n` +
       `─────────────────────────────\n` +
-      `${entityLabel}: ${bill.tableNumber}\n` +
+      `${entityLabel}: ${invoiceForPdf.tableNumber}\n` +
       `Visit ID: ${invoiceForPdf.tokenCode || invoiceForPdf.tokenId || "N/A"}\n` +
       `Date: ${billDate}\n` +
       `Payment Method: ${paymentMethod}\n` +
@@ -179,7 +192,7 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
     const defaultAdminMessage =
       `📋 New restaurant invoice — #${pdfResult.invoiceNo}\n` +
       `─────────────────────────────\n` +
-      `${entityLabel}: ${bill.tableNumber}\n` +
+      `${entityLabel}: ${invoiceForPdf.tableNumber}\n` +
       `Guest: ${invoiceForPdf.customerName}\n` +
       `Phone: ${customerNumber || "N/A"}\n` +
       `Visit ID: ${invoiceForPdf.tokenCode || invoiceForPdf.tokenId || "N/A"}\n` +
@@ -197,7 +210,7 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
 
     const adminMessage = req.body?.adminMessage || defaultAdminMessage;
 
-    // ── 9. Send via WhatsApp Service ───────────────────────────────────────
+    // 9. Send via WhatsApp Service
     const invoicePayload = {
       customerName: invoiceForPdf.customerName,
       phone: customerNumber,
@@ -220,7 +233,7 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
       },
     );
 
-    // If WhatsApp delivery failed (likely due to PDF unreachable), retry text-only
+    // If WhatsApp delivery failed, retry text-only
     const whatsappFailed = (channel) =>
       channel?.whatsapp &&
       !channel.whatsapp.ok &&
@@ -242,7 +255,7 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
       );
     }
 
-    // ── 10. Determine overall status ──────────────────────────────────────
+    // 10. Determine overall status
     const customerWaOk =
       results?.customer?.whatsapp?.ok || results?.customer?.whatsapp?.skipped;
     const adminWaOk =

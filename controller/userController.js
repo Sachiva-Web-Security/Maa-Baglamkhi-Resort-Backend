@@ -1,8 +1,14 @@
+const db = require("../config/db");
 const bcrypt = require("bcryptjs");
 const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
-const UserModel = require("../models/UserModel");
+const UsersModel = require("../models/UsersModel");
+
+const runQuery = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+  });
 
 function sanitizeUser(user) {
   if (!user) return null;
@@ -11,7 +17,7 @@ function sanitizeUser(user) {
     id: user.id,
     name: user.name,
     email: user.email,
-    role: user.role,
+    role: user.role_id || user.role,
     avatar_url: user.avatar_url || null,
   };
 }
@@ -58,84 +64,60 @@ exports.createUser = async (req, res) => {
     return res.status(400).json({ message: "name, email, password and role required" });
   }
 
-  UserModel.findUserByEmail(email, async (err, existing) => {
-    if (err) {
-      return res.status(500).json({ message: "DB Error" });
-    }
-
-    if (existing && existing.length > 0) {
+  try {
+    const existing = await UsersModel.findByEmail(email).then(rows => rows[0] || null);
+    if (existing) {
       return res.status(400).json({
         message: "Email already exists",
       });
     }
 
-    try {
-      const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-      UserModel.createUser(
-        {
-          name,
-          email,
-          password: hashedPassword,
-          role: String(role).toLowerCase(),
-        },
-        (createErr, result) => {
-          if (createErr) {
-            console.error("Create error:", createErr);
-            return res.status(500).json({
-              message: "User creation failed",
-            });
-          }
+    await db.query(
+      "INSERT INTO users (name, email, password_hash, role_id, status) VALUES (?, ?, ?, ?, 'active')",
+      [name, email, hashedPassword, String(role).toLowerCase()]
+    );
 
-          return res.json({
-            message: "User created successfully",
-            user: {
-              id: result?.insertId,
-              name,
-              email,
-              role: String(role).toLowerCase(),
-            },
-          });
-        }
-      );
-    } catch (hashErr) {
-      console.error("Hash error:", hashErr);
-      return res.status(500).json({
-        message: "Internal server error",
-      });
-    }
-  });
+    return res.json({
+      message: "User created successfully",
+      user: {
+        id: null,
+        name,
+        email,
+        role: String(role).toLowerCase(),
+      },
+    });
+  } catch (hashErr) {
+    console.error("Create error:", hashErr);
+    return res.status(500).json({
+      message: "User creation failed",
+    });
+  }
 };
 
 // ================= GET USERS =================
 
-exports.getUsers = (req, res) => {
-  UserModel.getAllUsers((err, result) => {
-    if (err) {
-      console.error("Error fetching users:", err);
-      return res.status(500).json({
-        message: "Error fetching users",
-      });
-    }
-
-    res.json(result);
-  });
+exports.getUsers = async (req, res) => {
+  try {
+    const rows = await UsersModel.findAll();
+    res.json(rows);
+  } catch (err) {
+    console.error("Error fetching users:", err);
+    res.status(500).json({ message: "Error fetching users" });
+  }
 };
 
-exports.deleteUser = (req, res) => {
+exports.deleteUser = async (req, res) => {
   const { id } = req.params;
 
   if (!id) {
     return res.status(400).json({ message: "User id required" });
   }
 
-  UserModel.findUserById(id, (findErr, rows) => {
-    if (findErr) {
-      console.error("Error loading user before delete:", findErr);
-      return res.status(500).json({ message: "User delete failed" });
-    }
-
-    const existingUser = rows?.[0];
+  try {
+    const [rows] = await UsersModel.findById(id);
+    const existingUser = rows[0] || null;
     if (!existingUser) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -147,19 +129,12 @@ exports.deleteUser = (req, res) => {
       userId: req.user?.id || existingUser.id,
     });
 
-    UserModel.deleteUserById(id, (err, result) => {
-      if (err) {
-        console.error("Error deleting user:", err);
-        return res.status(500).json({ message: "User delete failed" });
-      }
-
-      if (!result?.affectedRows) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      return res.json({ message: "User deleted successfully" });
-    });
-  });
+    await runQuery("DELETE FROM users WHERE id = ?", [id]);
+    return res.json({ message: "User deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting user:", err);
+    res.status(500).json({ message: "User delete failed" });
+  }
 };
 
 exports.updateUser = async (req, res) => {
@@ -174,98 +149,73 @@ exports.updateUser = async (req, res) => {
     return res.status(400).json({ message: "name, email and role required" });
   }
 
-  UserModel.findUserById(id, async (findErr, rows) => {
-    if (findErr) {
-      console.error("Error loading user before update:", findErr);
-      return res
-        .status(500)
-        .json({ message: "User update failed", error: findErr.message });
-    }
-
-    const existingUser = rows?.[0];
+  try {
+    const [rows] = await UsersModel.findById(id);
+    const existingUser = rows[0] || null;
     if (!existingUser) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    try {
-      const hashedPassword = password ? await bcrypt.hash(password, 10) : "";
-      const nextUser = {
-        ...sanitizeUser(existingUser),
-        id: Number(id),
-        name,
-        email,
-        role,
-      };
+    const hashedPassword = password ? await bcrypt.hash(password, 10) : "";
+    const nextUser = {
+      ...sanitizeUser(existingUser),
+      id: Number(id),
+      name,
+      email,
+      role,
+    };
 
-      req.setAuditContext?.({
-        action: "update_user",
-        oldValue: sanitizeUser(existingUser),
-        newValue: nextUser,
-        userId: req.user?.id || existingUser.id,
-      });
+    req.setAuditContext?.({
+      action: "update_user",
+      oldValue: sanitizeUser(existingUser),
+      newValue: nextUser,
+      userId: req.user?.id || existingUser.id,
+    });
 
-      UserModel.updateUserById(
-        id,
-        { name, email, role, password: hashedPassword },
-        (err, result) => {
-          if (err) {
-            console.error("Error updating user:", err);
-            return res
-              .status(500)
-              .json({ message: "User update failed", error: err.message });
-          }
+    await runQuery(
+      "UPDATE users SET name = ?, email = ?, role_id = ?, password_hash = ?, updated_at = NOW() WHERE id = ?",
+      [name, email, role, hashedPassword || existingUser.password_hash, id]
+    );
 
-          if (!result?.affectedRows) {
-            return res.status(404).json({ message: "User not found" });
-          }
-
-          return res.json({
-            message: "User updated successfully",
-            user: nextUser,
-          });
-        }
-      );
-    } catch (err) {
-      console.error("Error updating user:", err);
-      return res
-        .status(500)
-        .json({ message: "Internal server error", error: err.message });
-    }
-  });
+    return res.json({
+      message: "User updated successfully",
+      user: nextUser,
+    });
+  } catch (err) {
+    console.error("Error updating user:", err);
+    return res.status(500).json({ message: "Internal server error", error: err.message });
+  }
 };
 
-exports.getMe = (req, res) => {
+exports.getMe = async (req, res) => {
   const email = req.user?.email;
 
   if (!email) {
-    return res.status(400).json({
-      message: "Missing user context",
-    });
+    return res.status(400).json({ message: "Missing user context" });
   }
 
-  UserModel.findUserByEmail(email, (err, result) => {
-    if (err) return res.status(500).json({ message: "DB Error" });
+  try {
+    const [rows] = await UsersModel.findByEmail(email);
+    const user = rows[0] || null;
 
-    if (!result || result.length === 0) {
-      return res.status(404).json({
-        message: "User not found",
-      });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
     }
-
-    const user = result[0];
 
     return res.json({
       id: user.id,
       name: user.name,
       email: user.email,
-      role: user.role,
+      role: String(user.role_id || user.role || "").toLowerCase(),
       phone: user.phone || null,
       avatarUrl: user.avatar_url || null,
     });
-  });
+  } catch (err) {
+    return res.status(500).json({ message: "DB Error" });
+  }
 };
 
-exports.updateMyPhone = (req, res) => {
+exports.updateMyPhone = async (req, res) => {
   const email = req.user?.email;
   const { phone } = req.body || {};
 
@@ -273,15 +223,15 @@ exports.updateMyPhone = (req, res) => {
     return res.status(400).json({ message: "Missing user context" });
   }
 
-  // Accept numbers only (normalize to digits-only, max 15 chars)
   const digitsOnly = String(phone || "").replace(/\D+/g, "").slice(0, 15);
   if (!digitsOnly) {
     return res.status(400).json({ message: "Please provide a valid phone number" });
   }
 
-  UserModel.updatePhoneByEmail(digitsOnly, email, (err, result) => {
-    if (err) return res.status(500).json({ message: "DB Error", error: err.message });
-    if (!result || result.affectedRows === 0) {
+  try {
+    const [result] = await db.query("UPDATE users SET phone = ?, updated_at = NOW() WHERE email = ?", [digitsOnly, email]);
+
+    if (!result?.affectedRows) {
       return res.status(404).json({ message: "User not found" });
     }
 
@@ -289,7 +239,9 @@ exports.updateMyPhone = (req, res) => {
       message: "Phone number updated successfully.",
       phone: digitsOnly,
     });
-  });
+  } catch (err) {
+    return res.status(500).json({ message: "DB Error", error: err.message });
+  }
 };
 
 // ================= CHANGE PASSWORD =================
@@ -312,18 +264,17 @@ exports.changePassword = async (req, res) => {
     });
   }
 
-  UserModel.findUserByEmail(targetEmail, async (err, result) => {
-    if (err) return res.status(500).json({ message: "DB Error" });
+  try {
+    const [rows] = await UsersModel.findByEmail(targetEmail);
+    const user = rows[0] || null;
 
-    if (!result || result.length === 0) {
+    if (!user) {
       return res.status(404).json({
         message: "User not found",
       });
     }
 
-    const user = result[0];
-
-    const match = await bcrypt.compare(currentPassword, user.password);
+    const match = await bcrypt.compare(currentPassword, user.password_hash || user.password);
     if (!match) {
       return res.status(400).json({
         message: "Current password incorrect",
@@ -339,23 +290,21 @@ exports.changePassword = async (req, res) => {
       newValue: { id: user.id, email: user.email, password: "[REDACTED]" },
     });
 
-    UserModel.updatePasswordByEmail(targetEmail, hashed, (uErr) => {
-      if (uErr) {
-        return res.status(500).json({
-          message: "Failed to update password",
-        });
-      }
+    await runQuery("UPDATE users SET password_hash = ?, updated_at = NOW() WHERE email = ?", [hashed, targetEmail]);
 
-      return res.json({
-        message: "Password updated successfully",
-      });
+    return res.json({
+      message: "Password updated successfully",
     });
-  });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Failed to update password",
+    });
+  }
 };
 
 // ================= UPDATE AVATAR =================
 
-exports.updateMyAvatar = (req, res) => {
+exports.updateMyAvatar = async (req, res) => {
   const emailFromToken = req.user?.email;
   const emailFromBody = req.body?.email;
   const email = emailFromToken || emailFromBody;
@@ -374,14 +323,9 @@ exports.updateMyAvatar = (req, res) => {
 
   const avatarUrl = `/uploads/${req.file.filename}`;
 
-  UserModel.findUserByEmail(email, (findErr, result) => {
-    if (findErr) {
-      return res.status(500).json({
-        message: "DB Error",
-      });
-    }
-
-    const existingUser = result?.[0] || null;
+  try {
+    const [rows] = await UsersModel.findByEmail(email);
+    const existingUser = rows[0] || null;
 
     req.setAuditContext?.({
       action: "update_profile_avatar",
@@ -393,25 +337,23 @@ exports.updateMyAvatar = (req, res) => {
       },
     });
 
-    UserModel.updateAvatarUrlByEmail(email, avatarUrl, (err) => {
-      if (err) {
-        return res.json({
-          message: "Avatar uploaded (not persisted in DB)",
-          avatarUrl,
-          persisted: false,
-        });
-      }
+    await runQuery("UPDATE users SET avatar_url = ?, updated_at = NOW() WHERE email = ?", [avatarUrl, email]);
 
-      return res.json({
-        message: "Avatar updated",
-        avatarUrl,
-        persisted: true,
-      });
+    return res.json({
+      message: "Avatar updated",
+      avatarUrl,
+      persisted: true,
     });
-  });
+  } catch (err) {
+    return res.json({
+      message: "Avatar uploaded (not persisted in DB)",
+      avatarUrl,
+      persisted: false,
+    });
+  }
 };
 
-exports.updateMe = (req, res) => {
+exports.updateMe = async (req, res) => {
   const id = req.user?.id;
   const { name, email } = req.body || {};
 
@@ -423,12 +365,9 @@ exports.updateMe = (req, res) => {
     return res.status(400).json({ message: "name and email required" });
   }
 
-  UserModel.findUserById(id, (findErr, rows) => {
-    if (findErr) {
-      return res.status(500).json({ message: "DB Error" });
-    }
-
-    const existingUser = rows?.[0];
+  try {
+    const [rows] = await UsersModel.findById(id);
+    const existingUser = rows[0] || null;
     if (!existingUser) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -446,23 +385,13 @@ exports.updateMe = (req, res) => {
       newValue: nextUser,
     });
 
-    UserModel.updateUserById(
-      id,
-      { name, email, role: existingUser.role, password: "" },
-      (updateErr, result) => {
-        if (updateErr) {
-          return res.status(500).json({ message: "Profile update failed" });
-        }
+    await runQuery("UPDATE users SET name = ?, email = ?, updated_at = NOW() WHERE id = ?", [name, email, id]);
 
-        if (!result?.affectedRows) {
-          return res.status(404).json({ message: "User not found" });
-        }
-
-        return res.json({
-          message: "Profile updated successfully",
-          user: nextUser,
-        });
-      }
-    );
-  });
+    return res.json({
+      message: "Profile updated successfully",
+      user: nextUser,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Profile update failed" });
+  }
 };

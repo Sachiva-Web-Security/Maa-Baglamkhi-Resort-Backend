@@ -1,14 +1,4 @@
-/**
- * guestProfileController.js
- * Guest Profile & Past Stay History — REST handler.
- *
- * Route (add to bookingRoutes.js):
- *   GET  /hotel/guest-profile?q=9876543210   → search
- *   GET  /hotel/guest-profile?q=Rahul Sharma  → search
- */
-
 const db = require("../config/db");
-const guestDocumentModel = require("../models/guestDocumentModel");
 
 const runQuery = (sql, params = []) =>
   new Promise((resolve, reject) => {
@@ -17,10 +7,8 @@ const runQuery = (sql, params = []) =>
 
 // ─── Search guest by mobile number or name ────────────────────────────────────
 // Optional `bookingId` query param: if present, load profile anchored to that
-// specific booking (used when opening Guest Profile from a booking row in
-// BookingFlow so the user does not have to type a search query).
+// specific booking (used when opening Guest Profile from a booking row).
 const loadProfileForMobile = async (mobile) => {
-  // ── All bookings for this mobile number ───────────────────────
   const bookings = await runQuery(
     `SELECT
        g.id           AS bookingId,
@@ -75,7 +63,24 @@ const loadProfileForMobile = async (mobile) => {
     { totalStays: 0, totalRevenue: 0, totalNights: 0 },
   );
 
-  const documents = await guestDocumentModel.getDocumentsByMobile(mobile);
+  // Replaced guestDocumentModel.getDocumentsByMobile with raw SQL
+  const documents = await runQuery(
+    `SELECT
+       id,
+       booking_id,
+       mobile,
+       guest_name,
+       document_type,
+       file_url,
+       terms_accepted,
+       notes,
+       uploaded_by,
+       uploaded_at
+     FROM guest_documents
+     WHERE mobile = ?
+     ORDER BY uploaded_at DESC, id DESC`,
+    [mobile],
+  );
 
   return { bookings, stats, documents, latestDocument: documents[0] || null };
 };
@@ -85,7 +90,7 @@ exports.search = async (req, res) => {
   const bookingId = Number(req.query.bookingId || 0);
 
   try {
-    // ── Path A: explicit bookingId — load that booking's guest directly ──
+    // Path A: explicit bookingId — load that booking's guest directly
     if (bookingId) {
       const bookingRows = await runQuery(
         `SELECT id, guest_name, mobile, guest_email, booking_status, check_in, check_out
@@ -115,7 +120,7 @@ exports.search = async (req, res) => {
       return res.json({ guest, ...profile });
     }
 
-    // ── Path B: free-text search ───────────────────────────────────────────
+    // Path B: free-text search
     if (!query) {
       return res.status(400).json({ error: "Query parameter 'q' or 'bookingId' is required" });
     }
