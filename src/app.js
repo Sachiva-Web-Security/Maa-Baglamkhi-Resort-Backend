@@ -199,7 +199,7 @@ async function initializeDatabase(options = {}) {
     await bootstrapSchema("Group booking schema init", ensureGroupBookingSchema);
     await bootstrapSchema("Notification schema init", ensureNotificationSchema);
     await bootstrapSchema("Print log schema init", async () => {
-      const printLogModel = require("./models/PrintLogModel");
+      const printLogModel = require("./models/PrintLogsModel");
       await printLogModel.ensureSchema();
     });
     await bootstrapSchema("Default staff login bootstrap", ensureDefaultStaffLogins);

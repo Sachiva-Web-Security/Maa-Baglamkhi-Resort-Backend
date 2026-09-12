@@ -7,7 +7,7 @@ const {
   getDatabaseName,
   getDbBaseConfig,
   getDbConnectionLabel,
-} = require("./config/databaseConfig");
+} = require("./src/config/databaseConfig");
 
 const requiredEnvVars = ["DB_HOST", "DB_USER", "DB_NAME", "JWT_SECRET"];
 
@@ -21,7 +21,7 @@ const ensureUploadsDir = () => {
 };
 
 async function runSchemaFile() {
-  const schemaPath = path.join(__dirname, "schema.sql");
+  const schemaPath = path.join(__dirname, "schema-v4.sql");
   if (!fs.existsSync(schemaPath)) {
     return;
   }

@@ -57,6 +57,22 @@ class Users {
     const [rows] = await this.pool.execute("SELECT * FROM \`users\` ORDER BY \`created_at\` DESC", args)
     return rows
   }
+
+  async findAdminUser(...args) {
+    const [rows] = await this.pool.execute("SELECT * FROM \`users\` ORDER BY \`id\` ASC LIMIT 1", args)
+    return rows
+  }
+
+  async findAdminWithPhone(...args) {
+    // First try to find a user with phone, falling back to first user if none
+    const [withPhone] = await this.pool.execute(
+      "SELECT * FROM \`users\` WHERE \`phone\` IS NOT NULL AND TRIM(phone) <> '' ORDER BY \`id\` ASC LIMIT 1",
+      args
+    )
+    if (withPhone.length) return withPhone
+    const [anyUser] = await this.pool.execute("SELECT * FROM \`users\` ORDER BY \`id\` ASC LIMIT 1", args)
+    return anyUser
+  }
 }
 
 module.exports = new (Users)()
