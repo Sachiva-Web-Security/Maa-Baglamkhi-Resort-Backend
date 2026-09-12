@@ -13,7 +13,7 @@
 const Invoice = require("../models/InvoiceModel");
 const WhatsAppService = require("../services/whatsappService");
 const InvoicePdfService = require("../services/invoicePdfService");
-const UserModel = require("../models/UserModel");
+const UserModel = require("../models/UsersModel");
 const db = require("../config/db");
 
 /**

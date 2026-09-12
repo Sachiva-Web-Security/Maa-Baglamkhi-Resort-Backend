@@ -1157,7 +1157,7 @@ const chargeBillToRoom = async (data) => {
     tableNumber: data?.tableNumber,
   });
 
-  const folioModel = require("./folioModel");
+  const folioModel = require("./FolioEntriesModel");
   await folioModel.ensureSchema();
   log("schema ready");
 

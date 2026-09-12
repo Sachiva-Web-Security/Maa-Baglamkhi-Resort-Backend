@@ -24,7 +24,8 @@
 
 const crypto = require("crypto");
 const db = require("../config/db");
-const GroupBookingModel = require("../models/GroupBookingModel");
+const BookingsModel = require("../models/BookingsModel");
+const { ensureSchema: ensureGroupBookingSchema, create: createGroupBooking } = require("../models/GroupBookingModel");
 
 const runQuery = (sql, params = []) =>
   new Promise((resolve, reject) => {
@@ -38,7 +39,7 @@ const generateBookingCode = () => {
 };
 
 // Delegate schema creation to the v4 model
-const ensureSchema = GroupBookingModel.ensureSchema.bind(GroupBookingModel);
+const ensureSchema = ensureGroupBookingSchema;
 
 const updateRoomOperationalState = async ({ roomNumber, guestName, status, checkIn, checkOut }) => {
   const updates = [];
@@ -199,7 +200,7 @@ exports.create = async (req, res) => {
     }
 
     // ── Step 5: Group booking meta ────────────────────────────────────────
-    await GroupBookingModel.create({
+    await createGroupBooking({
       booking_id: bookingId,
       group_label: guest.groupLabel || null,
       total_rooms: rooms.length,

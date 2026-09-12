@@ -1,6 +1,6 @@
 const db = require("../config/db");
 const { getRequestActor, isWaiterActor } = require("../utils/requestActor");
-const { ensureSchema: ensureKitchenSchema } = require("../models/kitchen");
+const { ensureSchema: ensureKitchenSchema } = require("../models/KotOrdersModel");
 const notificationController = require("../controller/notificationController");
 const { syncRestaurantOrdersToKitchen } = require("../utils/kitchenOrderSync");
 

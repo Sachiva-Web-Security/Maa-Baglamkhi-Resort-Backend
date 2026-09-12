@@ -1,6 +1,5 @@
 const db = require("../config/db");
 
-const BookingsModel = require("../models/BookingsModel");
 
 const query = (sql, params = []) =>
   new Promise((resolve, reject) => {

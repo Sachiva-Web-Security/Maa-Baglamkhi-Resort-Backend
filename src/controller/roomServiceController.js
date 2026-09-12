@@ -1,5 +1,5 @@
 const RoomService = require("../models/RoomServiceModel");
-const Kitchen = require("../models/kitchen");
+const Kitchen = require("../models/KotOrdersModel");
 
 const TAX_RATE = 0.1; // 10%
 

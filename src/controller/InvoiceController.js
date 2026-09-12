@@ -505,7 +505,7 @@ exports.updateInvoicePaymentStatus = async (req, res) => {
         try {
           const { generateInvoicePdf } = require("../services/invoicePdfService");
           const WhatsApp = require("../services/whatsappService");
-          const UserModel = require("../models/UserModel");
+          const UserModel = require("../models/UsersModel");
 
           const invoice = invoiceRow
             ? {

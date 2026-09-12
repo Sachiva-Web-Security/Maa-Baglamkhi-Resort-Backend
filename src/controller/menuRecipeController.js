@@ -1,6 +1,6 @@
 const db = require("../config/db");
 const MenuItemIngredientsModel = require("../models/MenuItemIngredientsModel");
-const InventoryModel = require("../models/InventoryModel");
+const InventoryModel = require("../models/InventoryCategoriesModel");
 
 const runQuery = (sql, params = []) =>
   new Promise((resolve, reject) => {

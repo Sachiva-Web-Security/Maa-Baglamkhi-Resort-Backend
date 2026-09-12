@@ -1,5 +1,5 @@
 const db = require("../config/db");
-const roomInventoryModel = require("../models/hotelRoomInventoryModel");
+const roomInventoryModel = require("../models/RoomsModel");
 
 const runQuery = (sql, params = []) =>
   new Promise((resolve, reject) => {
