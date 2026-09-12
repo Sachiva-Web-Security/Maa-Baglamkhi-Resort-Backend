@@ -27,7 +27,7 @@ class InventoryPurchases {
   KEY \`idx_vendor\` (\`vendor_id\`),
   KEY \`idx_date\` (\`purchase_date\`),
   KEY \`idx_status\` (\`status\`),
-  FOREIGN KEY (\`vendor_id\`) REFERENCES \`inventory_vendors\`(\`id\`) ON DELETE SET ON UPDATE CASCADE
+  FOREIGN KEY (\`vendor_id\`) REFERENCES \`inventory_vendors\`(\`id\`) ON DELETE SET NULL ON UPDATE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 
       await conn.commit()

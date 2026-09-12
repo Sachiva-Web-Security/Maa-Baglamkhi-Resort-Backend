@@ -32,7 +32,7 @@ class Orders {
   KEY \`idx_token\` (\`token_id\`),
   KEY \`idx_status\` (\`status\`),
   KEY \`idx_created\` (\`created_at\`),
-  FOREIGN KEY (\`waiter_id\`) REFERENCES \`users\`(\`id\`) ON DELETE SET ON UPDATE CASCADE
+  FOREIGN KEY (\`waiter_id\`) REFERENCES \`users\`(\`id\`) ON DELETE SET NULL ON UPDATE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 
       await conn.commit()

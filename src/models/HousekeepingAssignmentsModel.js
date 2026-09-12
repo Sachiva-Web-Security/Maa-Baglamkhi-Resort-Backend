@@ -30,7 +30,7 @@ class HousekeepingAssignments {
   KEY \`idx_room\` (\`room_number\`),
   KEY \`idx_assignee\` (\`assigned_to\`),
   KEY \`idx_status\` (\`status\`),
-  FOREIGN KEY (\`assigned_to\`) REFERENCES \`users\`(\`id\`) ON DELETE SET ON UPDATE CASCADE
+  FOREIGN KEY (\`assigned_to\`) REFERENCES \`users\`(\`id\`) ON DELETE SET NULL ON UPDATE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 
       await conn.commit()

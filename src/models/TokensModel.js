@@ -24,7 +24,7 @@ class Tokens {
   KEY \`idx_code\` (\`token_code\`),
   KEY \`idx_status\` (\`status\`),
   KEY \`idx_table\` (\`table_number\`),
-  FOREIGN KEY (\`table_id\`) REFERENCES \`restaurant_tables\`(\`id\`) ON DELETE SET ON UPDATE CASCADE
+  FOREIGN KEY (\`table_id\`) REFERENCES \`restaurant_tables\`(\`id\`) ON DELETE SET NULL ON UPDATE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 
       await conn.commit()

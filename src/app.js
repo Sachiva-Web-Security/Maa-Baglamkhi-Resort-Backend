@@ -37,10 +37,7 @@ const { ensureSchema: ensureMenuRecipeSchema } = require("./models/MenuItemIngre
 const { ensureSchema: ensureAssignmentSchema } = require("./models/HousekeepingAssignmentsModel");
 const { ensureSchema: ensureGroupBookingSchema } = require("./models/BookingsModel");
 const { ensureSchema: ensureNotificationSchema } = require("./models/NotificationsModel");
-const {
-  ensureSchema: ensureRegisterSchema,
-  seedDefaults: seedDefaultStaffLogins,
-} = require("./models/UsersModel");
+const { ensureSchema: ensureRegisterSchema } = require("./models/UsersModel");
 const auditLogger = require("./middleware/auditLogger");
 const { getCorsOptions } = require("./config/security");
 
@@ -147,8 +144,9 @@ async function bootstrapSchema(label, task) {
 }
 
 async function ensureDefaultStaffLogins() {
-  await ensureRegisterSchema();
-  await seedDefaultStaffLogins();
+  const usersModel = require("./models/UsersModel");
+  await usersModel.ensureSchema();
+  await usersModel.seedDefaults();
 }
 
 async function initializeDatabase(options = {}) {
@@ -185,7 +183,7 @@ async function initializeDatabase(options = {}) {
     // One-time migration: sync legacy restaurant_bills from bills. Runs once
     // on startup after the schema is in place — never per-request.
     try {
-      await require("./models/RestaurantTablesModel").bootstrapLegacyBills();
+      await require("./models/RestaurantModel").bootstrapLegacyBills();
     } catch (err) {
       console.error("Legacy bill sync bootstrap failed:", err.message);
     }

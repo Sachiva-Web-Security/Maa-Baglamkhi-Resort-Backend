@@ -17,7 +17,7 @@ class Designations {
   \`description\` TEXT,
   PRIMARY KEY (\`id\`),
   KEY \`idx_department\` (\`department_id\`),
-  FOREIGN KEY (\`department_id\`) REFERENCES \`departments\`(\`id\`) ON DELETE SET ON UPDATE CASCADE
+  FOREIGN KEY (\`department_id\`) REFERENCES \`departments\`(\`id\`) ON DELETE SET NULL ON UPDATE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 
       await conn.commit()

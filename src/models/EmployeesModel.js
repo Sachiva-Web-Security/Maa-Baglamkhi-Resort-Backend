@@ -35,8 +35,8 @@ class Employees {
   KEY \`idx_user\` (\`user_id\`),
   KEY \`idx_employee_code\` (\`employee_code\`),
   KEY \`idx_department\` (\`department_id\`),
-  FOREIGN KEY (\`user_id\`) REFERENCES \`users\`(\`id\`) ON DELETE SET ON UPDATE CASCADE,
-  FOREIGN KEY (\`designation_id\`) REFERENCES \`designations\`(\`id\`) ON DELETE SET ON UPDATE CASCADE
+  FOREIGN KEY (\`user_id\`) REFERENCES \`users\`(\`id\`) ON DELETE SET NULL ON UPDATE CASCADE,
+  FOREIGN KEY (\`designation_id\`) REFERENCES \`designations\`(\`id\`) ON DELETE SET NULL ON UPDATE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 
       await conn.commit()

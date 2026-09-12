@@ -1,4 +1,5 @@
-const { pool, getConnection } = require('../utils/poolPromise')
+const { pool, getConnection, runQuery } = require('../utils/poolPromise')
+const bcrypt = require('bcryptjs')
 
 class Users {
   constructor() {
@@ -72,6 +73,31 @@ class Users {
     if (withPhone.length) return withPhone
     const [anyUser] = await this.pool.execute("SELECT * FROM \`users\` ORDER BY \`id\` ASC LIMIT 1", args)
     return anyUser
+  }
+
+  async seedDefaults() {
+    const hashedPassword = await bcrypt.hash("password", 10);
+    const defaultUsers = [
+      ["Admin User", "admin@resort.com", 1],
+      ["Rajesh Manager", "manager@resort.com", 2],
+      ["Priya Reception", "reception@resort.com", 3],
+      ["CA Accounts", "accounts@resort.com", 4],
+      ["Tarun HK", "tarun@resort.com", 5],
+      ["Ramu Waiter", "waiter@resort.com", 6],
+      ["Chef Kumar", "kitchen@resort.com", 7],
+    ];
+
+    for (const [name, email, roleId] of defaultUsers) {
+      const [existing] = await this.pool.execute(
+        "SELECT id FROM \`users\` WHERE LOWER(\`email\`) = LOWER(?) LIMIT 1",
+        [email]
+      );
+      if (existing.length) continue;
+      await this.pool.execute(
+        "INSERT INTO \`users\` (\`name\`, \`email\`, \`phone\`, \`password_hash\`, \`role_id\`, \`status\`) VALUES (?, ?, ?, ?, ?, 'active')",
+        [name, email, "", hashedPassword, roleId]
+      );
+    }
   }
 }
 
