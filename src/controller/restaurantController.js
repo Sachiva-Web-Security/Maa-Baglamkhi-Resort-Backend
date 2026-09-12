@@ -1,10 +1,6 @@
 const db = require("../config/db");
 const { getRequestActor, isWaiterActor, namesMatch } = require("../utils/requestActor");
 
-const q = (sql, params = []) =>
-  new Promise((resolve, reject) =>
-    db.query(sql, params, (err, res) => (err ? reject(err) : resolve(res)))
-  );
 
 const resolveAssignedWaiterName = (req, fallbackEntityType = "Table") => {
   const actor = getRequestActor(req);
@@ -26,15 +22,24 @@ const isHappyHourActive = (item) => {
 };
 
 const withEffectivePrice = (item) => {
-  const effectivePrice = isHappyHourActive(item)
-    ? Number(item.happy_hour_price || item.happyHourPrice || item.price || 0)
-    : Number(item.price || 0);
+  const price = Number(item.price || 0);
+  const happyHourPrice = Number(item.happy_hour_price || 0);
+  const effectivePrice =
+    happyHourPrice > 0 &&
+    item.happy_hour_start &&
+    item.happy_hour_end &&
+    (() => {
+      const now = new Date();
+      const current = now.toTimeString().slice(0, 8);
+      return current >= item.happy_hour_start && current <= item.happy_hour_end;
+    })()
+      ? happyHourPrice
+      : price;
 
-  return {
-    ...item,
+  return Object.assign({}, item, {
     effectivePrice,
     effective_price: effectivePrice,
-  };
+  });
 };
 
 const normalizeTableRow = (tableRow) => ({
@@ -49,7 +54,7 @@ const normalizeTableRow = (tableRow) => ({
 
 const tableExistsInLegacyTable = async (number) => {
   try {
-    const rows = await q("SELECT id, number FROM tables WHERE number = ? LIMIT 1", [String(number)]);
+    const rows = await db.query("SELECT id, number FROM tables WHERE number = ? LIMIT 1", [String(number)]);
     return rows[0] || null;
   } catch {
     return null;
@@ -61,7 +66,7 @@ const getMergedTableRows = async () => {
   const merged = [];
 
   try {
-    const restaurantRows = await q("SELECT * FROM restaurant_tables ORDER BY CAST(number AS UNSIGNED), number ASC");
+    const restaurantRows = await db.query("SELECT * FROM restaurant_tables ORDER BY CAST(number AS UNSIGNED), number ASC");
     for (const row of restaurantRows) {
       const key = String(row.number || row.table_number || "").trim().toLowerCase();
       if (key && !seen.has(key)) {
@@ -74,7 +79,7 @@ const getMergedTableRows = async () => {
   }
 
   try {
-    const legacyRows = await q("SELECT * FROM tables ORDER BY CAST(number AS UNSIGNED), number ASC");
+    const legacyRows = await db.query("SELECT * FROM tables ORDER BY CAST(number AS UNSIGNED), number ASC");
     for (const row of legacyRows) {
       const key = String(row.number || "").trim().toLowerCase();
       if (key && !seen.has(key)) {
@@ -103,7 +108,7 @@ exports.addTable = async (req, res) => {
   }
 
   try {
-    const existing = await q(
+    const existing = await db.query(
       "SELECT id FROM restaurant_tables WHERE number = ? LIMIT 1",
       [String(number)]
     );
@@ -114,7 +119,7 @@ exports.addTable = async (req, res) => {
       return res.status(400).json({ message: "Table already exists" });
     }
 
-    const result = await q(
+    const result = await db.query(
       "INSERT INTO restaurant_tables (number, status, guestCount, floor_name, section_name, seat_count, status_color) VALUES (?, 'available', ?, ?, ?, ?, ?)",
       [
         String(number),
@@ -165,7 +170,7 @@ exports.updateTable = async (req, res) => {
   const { floorName, sectionName, seatCount, statusColor, status } = req.body || {};
 
   try {
-    await q(
+    await db.query(
       "UPDATE restaurant_tables SET floor_name=?, section_name=?, seat_count=?, status_color=?, status=? WHERE id=?",
       [floorName || null, sectionName || null, Number(seatCount || 4), statusColor || null, status || "available", id]
     );
@@ -184,7 +189,7 @@ exports.deleteTable = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const [tableRows] = await q(
+    const [tableRows] = await db.query(
       "SELECT id, number FROM restaurant_tables WHERE id = ? LIMIT 1",
       [id]
     );
@@ -198,7 +203,7 @@ exports.deleteTable = async (req, res) => {
 
     const tableNumber = String(tableRow.number || "").trim();
 
-    const [activeTokens] = await q(
+    const [activeTokens] = await db.query(
       "SELECT id FROM tokens WHERE tableNumber = ? AND status = 'active' LIMIT 1",
       [tableNumber],
     );
@@ -208,7 +213,7 @@ exports.deleteTable = async (req, res) => {
       });
     }
 
-    const [pendingOrders] = await q(
+    const [pendingOrders] = await db.query(
       "SELECT id FROM orders WHERE tableNumber = ? AND status = 'pending' LIMIT 1",
       [tableNumber],
     );
@@ -218,7 +223,7 @@ exports.deleteTable = async (req, res) => {
       });
     }
 
-    const [pendingBills] = await q(
+    const [pendingBills] = await db.query(
       "SELECT id FROM bills WHERE tableNumber = ? AND COALESCE(invoiceStatus, 'Saved') <> 'Paid' LIMIT 1",
       [tableNumber],
     );
@@ -228,7 +233,7 @@ exports.deleteTable = async (req, res) => {
       });
     }
 
-    await q(
+    await db.query(
       "DELETE FROM restaurant_tables WHERE id = ?",
       [id]
     );
@@ -272,8 +277,8 @@ exports.addMenuItem = async (req, res) => {
       imageUrl = req.body.imageUrl;
     }
 
-    const result = await q(
-      "INSERT INTO menu_items (name, price, category, table_number, image_url, description, food_type, availability_status, tax) VALUES (?,?,?,?,?,?,?,?,?)",
+    const result = await db.query(
+      "INSERT INTO menu_items (name, price, category_id, table_number, image_url, description, food_type, availability_status, tax) VALUES (?,?,?,?,?,?,?,?,?)",
       [name, price, category, tableNumber, imageUrl, description, foodType, status, tax]
     );
     res.json({ id: result.insertId, name, price, category, imageUrl, message: "Menu item added" });
@@ -287,7 +292,7 @@ exports.getMenuItems = async (req, res) => {
   const { tableNumber } = req.query;
   try {
     const rows = tableNumber
-      ? await q(
+      ? await db.query(
           `
             SELECT *
             FROM menu_items
@@ -296,12 +301,12 @@ exports.getMenuItems = async (req, res) => {
                OR TRIM(table_number) = ''
             ORDER BY
               CASE WHEN table_number = ? THEN 0 ELSE 1 END,
-              category,
+              category_id,
               name
           `,
           [String(tableNumber), String(tableNumber)],
         )
-      : await q("SELECT * FROM menu_items ORDER BY category, name");
+      : await db.query("SELECT * FROM menu_items ORDER BY category_id, name");
 
     res.json(rows.map(withEffectivePrice));
   } catch (err) {
@@ -318,7 +323,7 @@ exports.updateMenuItem = async (req, res) => {
   const {
     name,
     price,
-    category,
+    category_id,
     tableNumber,
     tax,
     happyHourPrice,
@@ -337,14 +342,14 @@ exports.updateMenuItem = async (req, res) => {
   }
 
   try {
-    await q(
+    await db.query(
       `UPDATE menu_items
-       SET name=?, price=?, category=?, table_number=?, image_url=?, description=?, food_type=?, availability_status=?, tax=?, happy_hour_price=?, happy_hour_start=?, happy_hour_end=?
+       SET name=?, price=?, category_id=?, table_number=?, image_url=?, description=?, food_type=?, availability_status=?, tax=?, happy_hour_price=?, happy_hour_start=?, happy_hour_end=?
        WHERE id=?`,
       [
         name,
         price,
-        category,
+        category_id,
         tableNumber || null,
         imageUrl || null,
         description || null,
@@ -370,7 +375,7 @@ exports.deleteMenuItem = async (req, res) => {
   }
 
   try {
-    await q("DELETE FROM menu_items WHERE id=?", [req.params.id]);
+    await db.query("DELETE FROM menu_items WHERE id=?", [req.params.id]);
     res.json({ message: "Menu item deleted" });
   } catch (err) {
     res.status(500).json({ message: "Failed to delete menu item", error: err.message });
@@ -387,24 +392,24 @@ exports.addOrderItem = async (req, res) => {
 
   try {
     let created = false;
-    let order = (await q("SELECT id, waiter_name FROM orders WHERE tableNumber=? AND status='pending' ORDER BY id DESC LIMIT 1", [tableNumber]))[0];
+    let order = (await db.query("SELECT id, waiter_name FROM orders WHERE tableNumber=? AND status='pending' ORDER BY id DESC LIMIT 1", [tableNumber]))[0];
 
     if (isWaiterActor(actor) && order?.waiter_name && !namesMatch(order.waiter_name, actor.name)) {
       return res.status(403).json({ message: "This table is already running under another waiter" });
     }
 
     if (!order) {
-      const result = await q(
+      const result = await db.query(
         "INSERT INTO orders (tableNumber, waiter_name, status) VALUES (?, ?, 'pending')",
         [tableNumber, waiterName || null],
       );
       order = { id: result.insertId };
       created = true;
     } else if (!order.waiter_name && waiterName) {
-      await q("UPDATE orders SET waiter_name = ? WHERE id = ?", [waiterName, order.id]);
+      await db.query("UPDATE orders SET waiter_name = ? WHERE id = ?", [waiterName, order.id]);
     }
 
-    await q(
+    await db.query(
       "INSERT INTO order_items (order_id, name, price, quantity) VALUES (?,?,?,?)",
       [order.id, item.name, Number(item.price), Number(item.quantity || 1)]
     );
@@ -429,7 +434,7 @@ exports.getOrders = async (req, res) => {
       params.push(actor.name);
     }
 
-    const rows = await q(
+    const rows = await db.query(
       `
         SELECT
           o.id,
@@ -464,7 +469,7 @@ exports.getOrder = async (req, res) => {
       params.push(actor.name);
     }
     sql += " ORDER BY id DESC LIMIT 1";
-    const rows = await q(sql, params);
+    const rows = await db.query(sql, params);
     res.json(rows[0] || {});
   } catch (err) {
     res.status(500).json({ message: "Failed to load order", error: err.message });
@@ -474,7 +479,7 @@ exports.getOrder = async (req, res) => {
 exports.getOrderItems = async (req, res) => {
   const { orderId } = req.params;
   try {
-    const rows = await q("SELECT * FROM order_items WHERE order_id=?", [orderId]);
+    const rows = await db.query("SELECT * FROM order_items WHERE order_id=?", [orderId]);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ message: "Failed to load order items", error: err.message });
@@ -487,7 +492,7 @@ exports.updateOrder = async (req, res) => {
   const { status, tableNumber } = req.body || {};
 
   try {
-    const existing = await q("SELECT id, waiter_name FROM orders WHERE id = ? LIMIT 1", [orderId]);
+    const existing = await db.query("SELECT id, waiter_name FROM orders WHERE id = ? LIMIT 1", [orderId]);
     if (!existing.length) {
       return res.status(404).json({ message: "Order not found" });
     }
@@ -513,7 +518,7 @@ exports.updateOrder = async (req, res) => {
     }
 
     values.push(orderId);
-    await q(`UPDATE orders SET ${fields.join(", ")} WHERE id = ?`, values);
+    await db.query(`UPDATE orders SET ${fields.join(", ")} WHERE id = ?`, values);
     res.json({ message: "Order updated" });
   } catch (err) {
     res.status(500).json({ message: "Failed to update order", error: err.message });
@@ -524,7 +529,7 @@ exports.deleteOrder = async (req, res) => {
   const actor = getRequestActor(req);
   const { orderId } = req.params;
   try {
-    const existing = await q("SELECT id, waiter_name FROM orders WHERE id = ? LIMIT 1", [orderId]);
+    const existing = await db.query("SELECT id, waiter_name FROM orders WHERE id = ? LIMIT 1", [orderId]);
     if (!existing.length) {
       return res.status(404).json({ message: "Order not found" });
     }
@@ -532,7 +537,7 @@ exports.deleteOrder = async (req, res) => {
       return res.status(403).json({ message: "You can delete only your own order" });
     }
 
-    const result = await q("DELETE FROM orders WHERE id = ?", [orderId]);
+    const result = await db.query("DELETE FROM orders WHERE id = ?", [orderId]);
     res.json({ message: "Order deleted" });
   } catch (err) {
     res.status(500).json({ message: "Failed to delete order", error: err.message });
@@ -549,7 +554,7 @@ exports.payOrder = async (req, res) => {
       sql += " AND LOWER(COALESCE(waiter_name, '')) = LOWER(?)";
       params.push(actor.name);
     }
-    const result = await q(sql, params);
+    const result = await db.query(sql, params);
     if (!result.affectedRows) {
       return res.json({ message: "Order already settled" });
     }
@@ -1406,7 +1411,7 @@ exports.createBill = async (req, res) => {
 
 exports.getBills = async (req, res) => {
   try {
-    const rows = await q(
+    const rows = await db.query(
       `
         SELECT
           b.id,
@@ -1449,7 +1454,7 @@ exports.getBills = async (req, res) => {
 
 exports.getBillById = async (req, res) => {
   try {
-    const [bill] = await q(
+    const [bill] = await db.query(
       `
         SELECT
           b.id,
@@ -1500,8 +1505,8 @@ exports.payBill = async (req, res) => {
         const { RestaurantPrintService } = require("../services/RestaurantPrintService");
         const { InvoicePrintService } = require("../services/InvoicePrintService");
 
-        const [billForPrint] = await q("SELECT * FROM bills WHERE id = ? LIMIT 1", [result.billId]);
-        const tokenItemsRows = await q(
+        const [billForPrint] = await db.query("SELECT * FROM bills WHERE id = ? LIMIT 1", [result.billId]);
+        const tokenItemsRows = await db.query(
           "SELECT item_name, qty, rate FROM token_items WHERE token_id = (SELECT token_id FROM bills WHERE id = ?)",
           [result.billId],
         );
@@ -1594,7 +1599,7 @@ exports.addItemActionRequest = async (req, res) => {
   }
 
   try {
-    const result = await q(
+    const result = await db.query(
       `
         INSERT INTO restaurant_item_action_requests
         (token_item_id, table_number, action_type, reason, requested_by, status)
@@ -1616,7 +1621,7 @@ exports.addItemActionRequest = async (req, res) => {
 
 exports.getItemActionRequests = async (req, res) => {
   try {
-    const rows = await q(
+    const rows = await db.query(
       `
         SELECT *
         FROM restaurant_item_action_requests
@@ -1647,7 +1652,7 @@ exports.reviewItemActionRequest = async (req, res) => {
   }
 
   try {
-    await q(
+    await db.query(
       `
         UPDATE restaurant_item_action_requests
         SET status=?, manager_note=?, approved_by=?
@@ -1688,7 +1693,7 @@ exports.createSplitBill = async (req, res) => {
   const startTime = Date.now();
 
   try {
-    const result = await q(
+    const result = await db.query(
       `
         INSERT INTO restaurant_split_bills
         (bill_id, table_number, entity_type, split_label, split_no, split_count, subtotal, gst, total, payment_method, items_json)
@@ -1720,7 +1725,7 @@ exports.createSplitBill = async (req, res) => {
 
 exports.getWaiterPerformance = async (req, res) => {
   try {
-    const rows = await q(
+    const rows = await db.query(
       `
         SELECT
           COALESCE(NULLIF(TRIM(waiter_name), ''), 'Waiter') AS waiterName,

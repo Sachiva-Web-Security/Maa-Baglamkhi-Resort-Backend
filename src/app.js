@@ -155,7 +155,7 @@ async function initializeDatabase(options = {}) {
       options.skipPaymentSchema === true ||
       String(process.env.SKIP_PAYMENT_SCHEMA_BOOTSTRAP || "").toLowerCase() === "true";
 
-    await db.promise().query("SELECT 1");
+    await db.query("SELECT 1");
     if (process.env.NODE_ENV !== "test") {
       console.log("MySQL Connected");
     }
@@ -180,13 +180,6 @@ async function initializeDatabase(options = {}) {
     await bootstrapSchema("Room service schema init", ensureRoomServiceSchema);
     await bootstrapSchema("Token schema init", ensureTokenSchema);
     await bootstrapSchema("Restaurant schema init", ensureRestaurantSchema);
-    // One-time migration: sync legacy restaurant_bills from bills. Runs once
-    // on startup after the schema is in place — never per-request.
-    try {
-      await require("./models/RestaurantModel").bootstrapLegacyBills();
-    } catch (err) {
-      console.error("Legacy bill sync bootstrap failed:", err.message);
-    }
     await bootstrapSchema("Kitchen schema init", ensureKitchenSchema);
     await bootstrapSchema("Audit log schema init", ensureAuditLogSchema);
     await bootstrapSchema("Completed cleaning log schema init", ensureCompletedCleaningLogSchema);

@@ -16,10 +16,6 @@
 
 const db = require("../config/db");
 
-const q = (sql, params = []) =>
-  new Promise((resolve, reject) =>
-    db.query(sql, params, (err, res) => (err ? reject(err) : resolve(res)))
-  );
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
 
@@ -67,7 +63,7 @@ function generateReservationCode() {
 
 async function getDiningConfig(req, res) {
   try {
-    const [tables] = await q(
+    const [tables] = await db.query(
       `SELECT id, table_number, floor_name, section_name, seat_count,
               status, status_color
        FROM restaurant_tables
@@ -84,7 +80,7 @@ async function getDiningConfig(req, res) {
       statusColor: t.status_color,
     }));
 
-    const [settings] = await q(
+    const [settings] = await db.query(
       `SELECT setting_key, setting_value FROM app_settings
        WHERE setting_key IN (
          'dining_open_time','dining_close_time',
@@ -115,7 +111,7 @@ async function getDiningAvailability(req, res) {
     const guests = Math.max(1, Number(guestCount) || 1);
 
     // Fetch tables with enough seats that are currently 'available'
-    const [tables] = await q(
+    const [tables] = await db.query(
       `SELECT id, table_number, floor_name, section_name, seat_count,
               status, status_color
        FROM restaurant_tables
@@ -127,7 +123,7 @@ async function getDiningAvailability(req, res) {
 
     // For each table check if there's an active reservation that overlaps
     // (simple same-slot check: we match by reservation_date + status NOT cancelled)
-    const [activeReservations] = await q(
+    const [activeReservations] = await db.query(
       `SELECT assigned_table_number, reservation_date, status
        FROM website_table_reservations
        WHERE reservation_date = ?
@@ -167,7 +163,7 @@ async function getDiningAvailability(req, res) {
 /* ─── Public: Create Reservation ──────────────────────────────────────────── */
 
 async function createReservation(req, res) {
-  const conn = await q("START TRANSACTION");
+  const conn = await db.query("START TRANSACTION");
   try {
     const {
       customerName,
@@ -183,7 +179,7 @@ async function createReservation(req, res) {
     } = req.body;
 
     if (!customerName || !mobile || !reservationDate || !timeSlot) {
-      await q("ROLLBACK");
+      await db.query("ROLLBACK");
       return res
         .status(400)
         .json({ error: "customerName, mobile, reservationDate, and timeSlot are required" });
@@ -191,7 +187,7 @@ async function createReservation(req, res) {
 
     const code = generateReservationCode();
 
-    await q(
+    await db.query(
       `INSERT INTO website_table_reservations
         (reservation_code, customer_name, mobile, email, reservation_date,
          time_slot, guest_count, table_preference, occasion, special_request,
@@ -213,15 +209,15 @@ async function createReservation(req, res) {
       ]
     );
 
-    const [row] = await q(
+    const [row] = await db.query(
       "SELECT * FROM website_table_reservations WHERE reservation_code = ?",
       [code]
     );
 
-    await q("COMMIT");
+    await db.query("COMMIT");
     res.status(201).json({ success: true, data: mapReservationRow(row) });
   } catch (err) {
-    await q("ROLLBACK").catch(() => {});
+    await db.query("ROLLBACK").catch(() => {});
     console.error("createReservation error:", err);
     res.status(500).json({ error: "Failed to create reservation" });
   }
@@ -232,7 +228,7 @@ async function createReservation(req, res) {
 async function getReservationByCode(req, res) {
   try {
     const { code } = req.params;
-    const [rows] = await q(
+    const [rows] = await db.query(
       "SELECT * FROM website_table_reservations WHERE reservation_code = ? LIMIT 1",
       [code]
     );
@@ -252,7 +248,7 @@ async function cancelReservation(req, res) {
     const { code } = req.params;
     const { reason } = req.body || {};
 
-    const [rows] = await q(
+    const [rows] = await db.query(
       "SELECT * FROM website_table_reservations WHERE reservation_code = ? LIMIT 1",
       [code]
     );
@@ -261,7 +257,7 @@ async function cancelReservation(req, res) {
     if (row.status === "cancelled")
       return res.status(400).json({ error: "Reservation already cancelled" });
 
-    await q(
+    await db.query(
       `UPDATE website_table_reservations
        SET status = 'cancelled', notes = ?, cancelled_at = NOW()
        WHERE id = ?`,
@@ -300,14 +296,14 @@ async function getAdminReservations(req, res) {
 
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-    const [countRow] = await q(
+    const [countRow] = await db.query(
       `SELECT COUNT(*) AS total FROM website_table_reservations ${whereSql}`,
       params
     );
     const total = Number(countRow?.total || 0);
 
     const offset = (Number(page) - 1) * Number(limit);
-    const [rows] = await q(
+    const [rows] = await db.query(
       `SELECT * FROM website_table_reservations
        ${whereSql}
        ORDER BY created_at DESC
@@ -333,14 +329,14 @@ async function confirmReservation(req, res) {
     const { id } = req.params;
     const { confirmedBy } = req.body || {};
 
-    const [rows] = await q(
+    const [rows] = await db.query(
       "SELECT * FROM website_table_reservations WHERE id = ? LIMIT 1",
       [id]
     );
     const row = rows?.[0];
     if (!row) return res.status(404).json({ error: "Reservation not found" });
 
-    await q(
+    await db.query(
       `UPDATE website_table_reservations
        SET status = 'confirmed',
            confirmed_by = ?,
@@ -368,7 +364,7 @@ async function assignTable(req, res) {
       return res.status(400).json({ error: "tableNumber is required" });
     }
 
-    const [rows] = await q(
+    const [rows] = await db.query(
       "SELECT * FROM website_table_reservations WHERE id = ? LIMIT 1",
       [id]
     );
@@ -384,7 +380,7 @@ async function assignTable(req, res) {
     updateFields.push("updated_at = NOW()");
     updateParams.push(id);
 
-    await q(
+    await db.query(
       `UPDATE website_table_reservations SET ${updateFields.join(", ")} WHERE id = ?`,
       updateParams
     );
@@ -402,13 +398,13 @@ async function markSeated(req, res) {
   try {
     const { id } = req.params;
 
-    const [rows] = await q(
+    const [rows] = await db.query(
       "SELECT * FROM website_table_reservations WHERE id = ? LIMIT 1",
       [id]
     );
     if (!rows?.[0]) return res.status(404).json({ error: "Reservation not found" });
 
-    await q(
+    await db.query(
       `UPDATE website_table_reservations SET status = 'seated', updated_at = NOW()
        WHERE id = ?`,
       [id]
@@ -427,13 +423,13 @@ async function markNoShow(req, res) {
   try {
     const { id } = req.params;
 
-    const [rows] = await q(
+    const [rows] = await db.query(
       "SELECT * FROM website_table_reservations WHERE id = ? LIMIT 1",
       [id]
     );
     if (!rows?.[0]) return res.status(404).json({ error: "Reservation not found" });
 
-    await q(
+    await db.query(
       `UPDATE website_table_reservations SET status = 'no-show', updated_at = NOW()
        WHERE id = ?`,
       [id]

@@ -1,10 +1,6 @@
 const db = require("../config/db");
 const { getRequestActor, isWaiterActor, namesMatch } = require("../utils/requestActor");
 
-const q = (sql, params = []) =>
-  new Promise((resolve, reject) =>
-    db.query(sql, params, (err, res) => (err ? reject(err) : resolve(res)))
-  );
 
 const parseItems = (raw) => {
   if (!raw) return [];
@@ -17,14 +13,14 @@ const now = () => new Date();
 // Add status columns if missing
 async function ensureWaiterColumns() {
   try {
-    await q("ALTER TABLE kitchen_orders ADD COLUMN IF NOT EXISTS picked_up_at DATETIME NULL AFTER ready_at");
+    await db.query("ALTER TABLE kitchen_orders ADD COLUMN IF NOT EXISTS picked_up_at DATETIME NULL AFTER ready_at");
   } catch {
-    try { await q("ALTER TABLE kitchen_orders ADD COLUMN picked_up_at DATETIME NULL AFTER ready_at"); } catch {}
+    try { await db.query("ALTER TABLE kitchen_orders ADD COLUMN picked_up_at DATETIME NULL AFTER ready_at"); } catch {}
   }
   try {
-    await q("ALTER TABLE kitchen_orders ADD COLUMN IF NOT EXISTS served_at DATETIME NULL AFTER picked_up_at");
+    await db.query("ALTER TABLE kitchen_orders ADD COLUMN IF NOT EXISTS served_at DATETIME NULL AFTER picked_up_at");
   } catch {
-    try { await q("ALTER TABLE kitchen_orders ADD COLUMN served_at DATETIME NULL AFTER picked_up_at"); } catch {}
+    try { await db.query("ALTER TABLE kitchen_orders ADD COLUMN served_at DATETIME NULL AFTER picked_up_at"); } catch {}
   }
 }
 
@@ -47,7 +43,7 @@ exports.releaseLock = async (req, res) => {
       // Reset picked_up_at so the order becomes available for re-pickup.
       updates.push("picked_up_at = NULL");
       params.push(Number(orderId));
-      await q(
+      await db.query(
         `UPDATE kitchen_orders SET picked_up_at = NULL WHERE id = ?`,
         params,
       );
@@ -57,7 +53,7 @@ exports.releaseLock = async (req, res) => {
     if (tableNumber) {
       // Reset all locks on this table — convenient when the table is closed.
       updates.push("picked_up_at = NULL");
-      await q(
+      await db.query(
         `UPDATE kitchen_orders SET picked_up_at = NULL WHERE table_number = ? AND picked_up_at IS NOT NULL`,
         [String(tableNumber)],
       );
@@ -65,7 +61,7 @@ exports.releaseLock = async (req, res) => {
     }
 
     if (tokenId) {
-      await q(
+      await db.query(
         `UPDATE kitchen_orders SET picked_up_at = NULL WHERE id = ?`,
         [Number(tokenId)],
       );
@@ -92,7 +88,7 @@ exports.getReadyOrders = async (req, res) => {
   try {
     await ensureWaiterColumns();
     const actor = getRequestActor(req);
-    const rows = await q(
+    const rows = await db.query(
       `SELECT * FROM kitchen_orders WHERE status = 'Ready' AND (token_status IS NULL OR token_status != 'Closed') ORDER BY created_at ASC`
     );
     let result = rows;
@@ -120,7 +116,7 @@ exports.pickupOrder = async (req, res) => {
     if (!id) return res.status(400).json({ message: "Order id is required" });
 
     // First, check current state
-    const existing = await q("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const existing = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
     if (!existing.length) {
       return res.status(404).json({ message: "Kitchen order not found" });
     }
@@ -135,7 +131,7 @@ exports.pickupOrder = async (req, res) => {
     }
 
     // Atomic update — only succeeds if still Ready
-    const updated = await q(
+    const updated = await db.query(
       `UPDATE kitchen_orders
        SET status = 'Picked Up', picked_up_at = NOW(), waiter_name = ?
        WHERE id = ? AND status = 'Ready'`,
@@ -152,7 +148,7 @@ exports.pickupOrder = async (req, res) => {
     }
 
     // Fetch the updated row
-    const [fresh] = await q("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const [fresh] = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
     const result = normalizeKitchenOrder(fresh || order);
 
     // Notify via socket
@@ -183,7 +179,7 @@ exports.markServed = async (req, res) => {
     const { id } = req.params;
     if (!id) return res.status(400).json({ message: "Order id is required" });
 
-    const existing = await q("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const existing = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
     if (!existing.length) {
       return res.status(404).json({ message: "Kitchen order not found" });
     }
@@ -205,7 +201,7 @@ exports.markServed = async (req, res) => {
       }
     }
 
-    const updated = await q(
+    const updated = await db.query(
       `UPDATE kitchen_orders
        SET status = 'Served', served_at = NOW(), waiter_name = COALESCE(?, waiter_name)
        WHERE id = ?`,
@@ -216,7 +212,7 @@ exports.markServed = async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    const [fresh] = await q("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const [fresh] = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
     const result = normalizeKitchenOrder(fresh || order);
 
     global.io?.emit("kitchen-order-updated", {
@@ -243,7 +239,7 @@ exports.getLiveBoard = async (req, res) => {
     const actor = getRequestActor(req);
     const currentWaiterName = isWaiterActor(actor) ? actor.name : null;
 
-    const rows = await q(
+    const rows = await db.query(
       `SELECT * FROM kitchen_orders
        WHERE COALESCE(token_status, 'Active') != 'Closed'
        ORDER BY created_at DESC`

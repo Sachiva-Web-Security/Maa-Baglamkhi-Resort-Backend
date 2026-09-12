@@ -1,12 +1,7 @@
 const db = require("../config/db");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-  });
-
 const ensureSchema = async () => {
-  await runQuery(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS reports (
       id INT AUTO_INCREMENT PRIMARY KEY,
       type VARCHAR(60) NOT NULL,
@@ -24,7 +19,7 @@ exports.daywise = async (req, res) => {
 
   try {
     await ensureSchema();
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT DATE(created_at) as date, SUM(total) as total
        FROM payments
        WHERE DATE(created_at) BETWEEN ? AND ?
@@ -41,7 +36,7 @@ exports.daywise = async (req, res) => {
 exports.itemConsumption = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT item_name, SUM(qty) as quantity
        FROM token_items
        GROUP BY item_name`,

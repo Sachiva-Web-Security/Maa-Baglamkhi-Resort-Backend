@@ -1,12 +1,7 @@
 const db = require("../config/db");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-  });
-
 const ensureSchema = async () => {
-  await runQuery(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS hotel_folio_entries (
       id          INT AUTO_INCREMENT PRIMARY KEY,
       booking_id  INT NOT NULL,
@@ -35,7 +30,7 @@ exports.getByBooking = async (req, res) => {
 
   try {
     await ensureSchema();
-    const entries = await runQuery(
+    const entries = await db.query(
       `SELECT * FROM hotel_folio_entries
        WHERE booking_id = ?
        ORDER BY entry_date ASC, id ASC`,
@@ -82,7 +77,7 @@ exports.addEntry = async (req, res) => {
       throw new Error("booking_id, description, and amount are required");
     }
 
-    const result = await runQuery(
+    const result = await db.query(
       `INSERT INTO hotel_folio_entries
          (booking_id, entry_date, entry_type, category, description, amount, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -114,7 +109,7 @@ exports.deleteEntry = async (req, res) => {
 
   try {
     await ensureSchema();
-    await runQuery("DELETE FROM hotel_folio_entries WHERE id = ?", [Number(entryId)]);
+    await db.query("DELETE FROM hotel_folio_entries WHERE id = ?", [Number(entryId)]);
     res.json({ message: "Folio entry deleted" });
   } catch (err) {
     console.error("[folio] deleteEntry error:", err);
@@ -132,7 +127,7 @@ exports.getTotals = async (req, res) => {
 
   try {
     await ensureSchema();
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT
          SUM(CASE WHEN entry_type IN ('Room Charge','Extra Charge','Adjustment')
                   THEN amount ELSE 0 END)  AS totalCharges,

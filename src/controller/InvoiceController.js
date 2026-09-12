@@ -1,14 +1,9 @@
 const db = require("../config/db");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-  });
-
 // ─── Invoice helpers ──────────────────────────────────────────────────────────
 
 const ensureInvoiceSchema = async () => {
-  await runQuery(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS invoices (
       id INT NOT NULL AUTO_INCREMENT,
       invoice_no VARCHAR(120) NOT NULL,
@@ -45,13 +40,13 @@ const ensureInvoiceSchema = async () => {
     ["items_json", "LONGTEXT NULL AFTER notes"],
   ];
   for (const [col, def] of columns) {
-    const [[{ COUNT }]] = await runQuery(
+    const [[{ COUNT }]] = await db.query(
       `SELECT COUNT(*) AS COUNT FROM information_schema.COLUMNS
        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'invoices' AND COLUMN_NAME = ?`,
       [col],
     );
     if (!COUNT) {
-      await runQuery(`ALTER TABLE invoices ADD COLUMN ${col} ${def}`);
+      await db.query(`ALTER TABLE invoices ADD COLUMN ${col} ${def}`);
     }
   }
 };
@@ -88,7 +83,7 @@ exports.createInvoice = async (req, res) => {
     await ensureInvoiceSchema();
     const data = req.body || {};
     const invoiceNo = data.invoiceNo || `INV-${Date.now()}`;
-    const result = await runQuery(
+    const result = await db.query(
       `INSERT INTO invoices
         (invoice_no, date, customer_name, phone, room_no, check_in, check_out,
          price_per_day, food_charge, extra_charge, subtotal, gst, discount,
@@ -132,7 +127,7 @@ exports.createInvoice = async (req, res) => {
 exports.getAllInvoices = async (req, res) => {
   try {
     await ensureInvoiceSchema();
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT i.*, COALESCE(SUM(a.amount), 0) AS paidAmount,
               COALESCE(SUM(a.discount_amount), 0) AS advanceDiscount
        FROM invoices i
@@ -160,7 +155,7 @@ exports.getInvoiceByBookingId = async (req, res) => {
     if (!bookingId) {
       return res.json({});
     }
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT * FROM invoices
        WHERE booking_id = ? OR customer_id = ?
        ORDER BY updated_at DESC, id DESC
@@ -178,7 +173,7 @@ exports.updateInvoice = async (req, res) => {
     await ensureInvoiceSchema();
     const id = Number(req.params.id);
     const data = req.body || {};
-    await runQuery(
+    await db.query(
       `UPDATE invoices SET
         date = ?, customer_name = ?, phone = ?, room_no = ?, check_in = ?, check_out = ?,
         price_per_day = ?, food_charge = ?, extra_charge = ?, subtotal = ?, gst = ?, discount = ?,
@@ -224,7 +219,7 @@ exports.generateCustomerInvoice = async (req, res) => {
     await ensureInvoiceSchema();
 
     // Build base booking info
-    const bookingRows = await runQuery(
+    const bookingRows = await db.query(
       `SELECT
         g.id AS bookingId,
         g.guest_name AS customerName,
@@ -268,7 +263,7 @@ exports.generateCustomerInvoice = async (req, res) => {
 
     // Room items
     const roomNumbers = String(booking.roomNumbers || "").split(",").map((s) => s.trim()).filter(Boolean);
-    const roomRows = await runQuery(
+    const roomRows = await db.query(
       `SELECT
          CAST(room_number AS CHAR) AS roomNumber,
          COALESCE(category_name, 'Room Charge') AS roomType,
@@ -297,7 +292,7 @@ exports.generateCustomerInvoice = async (req, res) => {
     });
 
     // Folio items
-    const folioRows = await runQuery(
+    const folioRows = await db.query(
       `SELECT entry_type, category, description, amount
        FROM hotel_folio_entries
        WHERE booking_id = ?
@@ -328,7 +323,7 @@ exports.generateCustomerInvoice = async (req, res) => {
     const foodItems = [];
     if (roomNumbers.length) {
       const placeholders = roomNumbers.map(() => "?").join(", ");
-      const foodRows = await runQuery(
+      const foodRows = await db.query(
         `SELECT ro.roomNumber, roi.name, roi.price, roi.quantity
          FROM room_orders ro
          INNER JOIN room_order_items roi ON roi.order_id = ro.id
@@ -369,7 +364,7 @@ exports.generateCustomerInvoice = async (req, res) => {
     );
 
     // Check for existing invoice
-    const existingRows = await runQuery(
+    const existingRows = await db.query(
       `SELECT * FROM invoices WHERE booking_id = ? OR customer_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1`,
       [customerId, customerId],
     );
@@ -382,7 +377,7 @@ exports.generateCustomerInvoice = async (req, res) => {
     const paymentMode = existing?.payment_mode || (Number(booking.paidAmount || 0) > 0 ? "Mixed / Recorded" : "Pending");
 
     if (existing) {
-      await runQuery(
+      await db.query(
         `UPDATE invoices SET
           invoice_no = ?, date = ?, customer_name = ?, phone = ?, room_no = ?,
           check_in = ?, check_out = ?, price_per_day = ?, food_charge = ?, extra_charge = ?,
@@ -410,7 +405,7 @@ exports.generateCustomerInvoice = async (req, res) => {
         ],
       );
     } else {
-      await runQuery(
+      await db.query(
         `INSERT INTO invoices
           (invoice_no, date, customer_name, phone, room_no, check_in, check_out,
            price_per_day, food_charge, extra_charge, subtotal, gst, discount,
@@ -483,13 +478,13 @@ exports.updateInvoicePaymentStatus = async (req, res) => {
     await ensureInvoiceSchema();
 
     // Fetch existing invoice to know whether WhatsApp should fire
-    const invoiceRows = await runQuery(
+    const invoiceRows = await db.query(
       `SELECT * FROM invoices WHERE booking_id = ? OR customer_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1`,
       [bookingId, bookingId],
     );
     const invoiceRow = invoiceRows[0] || null;
 
-    await runQuery(
+    await db.query(
       `UPDATE invoices
        SET payment_status = ?, status = ?, payment_mode = COALESCE(?, payment_mode)
        WHERE id = ?`,

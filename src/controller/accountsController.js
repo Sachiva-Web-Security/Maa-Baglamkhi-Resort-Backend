@@ -1,6 +1,5 @@
 const db = require("../config/db");
 
-
 const query = (sql, params = []) =>
   new Promise((resolve, reject) => {
     db.query(sql, params, (error, results) => {

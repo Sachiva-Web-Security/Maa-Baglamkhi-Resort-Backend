@@ -2,11 +2,6 @@ const db = require("../config/db");
 const MenuItemIngredientsModel = require("../models/MenuItemIngredientsModel");
 const InventoryModel = require("../models/InventoryCategoriesModel");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, result) => (err ? reject(err) : resolve(result)));
-  });
-
 const normalizeRecipeRow = (row, index = 0) => ({
   menuItemId: Number(row.menuItemId || row.menu_item_id || 0),
   inventoryItemId: Number(row.inventoryItemId || row.inventory_item_id || 0),
@@ -52,7 +47,7 @@ exports.getInventoryItems = async (req, res) => {
 
 exports.getRecipeCatalogue = async (req, res) => {
   return withRecipeSchema(res, async () => {
-    const [recipeRows] = await runQuery(`
+    const [recipeRows] = await db.query(`
       SELECT mir.id,
              mir.menu_item_id AS menuItemId,
              m.name AS menuItemName,
@@ -75,7 +70,7 @@ exports.getRecipeCatalogue = async (req, res) => {
 
 exports.getRecipeByMenuItem = async (req, res) => {
   return withRecipeSchema(res, async () => {
-    const [rows] = await runQuery(
+    const [rows] = await db.query(
       `
         SELECT mir.id,
                mir.menu_item_id AS menuItemId,
@@ -115,11 +110,11 @@ exports.replaceRecipe = async (req, res) => {
     const connection = await db.promise().getConnection();
     try {
       await connection.beginTransaction();
-      await runQuery("DELETE FROM menu_item_ingredients WHERE menu_item_id = ?", [req.params.menuItemId], connection);
+      await db.query("DELETE FROM menu_item_ingredients WHERE menu_item_id = ?", [req.params.menuItemId], connection);
 
       for (let index = 0; index < recipeRows.length; index += 1) {
         const row = recipeRows[index];
-        await runQuery(
+        await db.query(
           `
             INSERT INTO menu_item_ingredients
               (menu_item_id, inventory_item_id, quantity, unit, wastage_percent, is_optional, notes, sort_order)
@@ -140,7 +135,7 @@ exports.replaceRecipe = async (req, res) => {
       }
 
       await connection.commit();
-      const [nextRows] = await runQuery(
+      const [nextRows] = await db.query(
         `SELECT * FROM menu_item_ingredients WHERE menu_item_id = ? ORDER BY sort_order ASC, id ASC`,
         [req.params.menuItemId]
       );
@@ -164,7 +159,7 @@ exports.updateRecipeRow = async (req, res) => {
       return res.status(400).json({ message: "A valid recipe row payload is required." });
     }
 
-    await runQuery(
+    await db.query(
       `
         UPDATE menu_item_ingredients
         SET inventory_item_id = ?,
@@ -194,7 +189,7 @@ exports.updateRecipeRow = async (req, res) => {
 
 exports.deleteRecipeRow = async (req, res) => {
   return withRecipeSchema(res, async () => {
-    await runQuery("DELETE FROM menu_item_ingredients WHERE id = ?", [req.params.recipeRowId]);
+    await db.query("DELETE FROM menu_item_ingredients WHERE id = ?", [req.params.recipeRowId]);
     res.json({ message: "Recipe row deleted." });
   });
 };
@@ -208,7 +203,7 @@ exports.previewConsumption = async (req, res) => {
   }
 
   return withRecipeSchema(res, async () => {
-    const [rows] = await runQuery(
+    const [rows] = await db.query(
       `
         SELECT mir.id,
                mir.menu_item_id AS menuItemId,
@@ -263,7 +258,7 @@ exports.applyConsumption = async (req, res) => {
     try {
       await connection.beginTransaction();
 
-      const [rows] = await runQuery(
+      const [rows] = await db.query(
         `
           SELECT mir.id,
                  mir.inventory_item_id AS inventoryItemId,
@@ -302,9 +297,9 @@ exports.applyConsumption = async (req, res) => {
           throw error;
         }
 
-        await runQuery("UPDATE inventory SET stock = stock - ? WHERE id = ?", [requiredQuantity, row.inventoryItemId], connection);
+        await db.query("UPDATE inventory SET stock = stock - ? WHERE id = ?", [requiredQuantity, row.inventoryItemId], connection);
 
-        await runQuery(
+        await db.query(
           `
             INSERT INTO inventory_consumption_log
               (menu_item_id, inventory_item_id, recipe_row_id, order_quantity, consumed_quantity, unit, reference_type, reference_id, remarks, consumed_by)
@@ -352,7 +347,7 @@ exports.applyConsumption = async (req, res) => {
 exports.getConsumptionLog = async (req, res) => {
   return withRecipeSchema(res, async () => {
     const limit = Number(req.query.limit || 100);
-    const [rows] = await runQuery(
+    const [rows] = await db.query(
       `
         SELECT icl.id,
                icl.menu_item_id AS menuItemId,

@@ -1,17 +1,6 @@
 const db = require("../config/db");
 const GuestIdentificationsModel = require("../models/GuestIdentificationsModel");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (error, rows) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-
-      resolve(rows);
-    });
-  });
 
 const normalizeDocumentType = (value) => {
   const normalized = String(value || "").trim().toLowerCase();
@@ -33,7 +22,7 @@ exports.uploadByBooking = async (req, res) => {
   }
 
   try {
-    const guestRows = await runQuery(
+    const guestRows = await db.query(
       "SELECT id, mobile, guest_name, booking_code FROM guests WHERE id = ? LIMIT 1",
       [bookingId],
     );

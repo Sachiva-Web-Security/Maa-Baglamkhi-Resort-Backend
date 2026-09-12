@@ -24,11 +24,6 @@ const { printPdfToPrinter, checkPrinterStatus } = require("../services/PrintUtil
 const path = require("path");
 const fs = require("fs");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-  });
-
 /**
  * POST /api/print/queue
  * Queue a print job for background processing.
@@ -160,13 +155,13 @@ exports.getPrinterStatus = async (req, res) => {
 exports.getQueueStatus = async (req, res) => {
   try {
     const [queued, processing, completed, failed] = await Promise.all([
-      runQuery("SELECT COUNT(*) AS cnt FROM print_queue WHERE status = 'queued'"),
-      runQuery("SELECT COUNT(*) AS cnt FROM print_queue WHERE status = 'processing'"),
-      runQuery("SELECT COUNT(*) AS cnt FROM print_queue WHERE status = 'completed'"),
-      runQuery("SELECT COUNT(*) AS cnt FROM print_queue WHERE status = 'failed'"),
+      db.query("SELECT COUNT(*) AS cnt FROM print_queue WHERE status = 'queued'"),
+      db.query("SELECT COUNT(*) AS cnt FROM print_queue WHERE status = 'processing'"),
+      db.query("SELECT COUNT(*) AS cnt FROM print_queue WHERE status = 'completed'"),
+      db.query("SELECT COUNT(*) AS cnt FROM print_queue WHERE status = 'failed'"),
     ]);
 
-    const [recent] = await runQuery(
+    const [recent] = await db.query(
       `SELECT * FROM print_queue ORDER BY priority DESC, created_at DESC LIMIT 20`
     );
 
@@ -192,7 +187,7 @@ exports.cancelQueueJob = async (req, res) => {
   try {
     const { jobId } = req.params;
 
-    const [rows] = await runQuery(
+    const [rows] = await db.query(
       "SELECT * FROM print_queue WHERE job_id = ? LIMIT 1",
       [jobId],
     );
@@ -207,7 +202,7 @@ exports.cancelQueueJob = async (req, res) => {
       });
     }
 
-    await runQuery("DELETE FROM print_queue WHERE job_id = ?", [jobId]);
+    await db.query("DELETE FROM print_queue WHERE job_id = ?", [jobId]);
 
     res.json({ message: "Job cancelled", jobId });
   } catch (err) {

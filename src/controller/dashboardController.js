@@ -1,39 +1,28 @@
 const db = require("../config/db");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-      resolve(rows);
-    });
-  });
-
 const tableExists = async (tableName) => {
-  const rows = await runQuery("SHOW TABLES LIKE ?", [tableName]);
+  const rows = await db.query("SHOW TABLES LIKE ?", [tableName]);
   return Array.isArray(rows) && rows.length > 0;
 };
 
 const columnExists = async (tableName, columnName) => {
-  const rows = await runQuery(`SHOW COLUMNS FROM ${tableName} LIKE ?`, [columnName]);
+  const rows = await db.query(`SHOW COLUMNS FROM ${tableName} LIKE ?`, [columnName]);
   return Array.isArray(rows) && rows.length > 0;
 };
 
 const getCount = async (sql, params = []) => {
-  const rows = await runQuery(sql, params);
+  const rows = await db.query(sql, params);
   return Number(rows?.[0]?.count || 0);
 };
 
 const getTotal = async (sql, params = []) => {
-  const rows = await runQuery(sql, params);
+  const rows = await db.query(sql, params);
   return Number(rows?.[0]?.total || 0);
 };
 
 const detectDateColumn = async (table, candidates) => {
   for (const col of candidates) {
-    const rows = await runQuery(
+    const rows = await db.query(
       `SHOW COLUMNS FROM ${table} WHERE Field = ?`,
       [col]
     );
@@ -71,7 +60,7 @@ const resolveBillSource = async (rangeConditionBuilder) => {
     const source = { tableName, totalColumn, createdColumn };
     if (!fallback) fallback = source;
 
-    const countRows = await runQuery(`
+    const countRows = await db.query(`
       SELECT COUNT(*) AS count
       FROM ${tableName}
       WHERE ${rangeConditionBuilder(createdColumn)}
@@ -115,7 +104,7 @@ const getOccupiedRooms = async () => {
   const sourceTable = await resolveRoomSource();
   if (!sourceTable) return 0;
 
-  const rows = await runQuery(`SELECT COALESCE(status, 'Available') AS status FROM ${sourceTable}`);
+  const rows = await db.query(`SELECT COALESCE(status, 'Available') AS status FROM ${sourceTable}`);
   return rows.reduce(
     (count, row) => count + (classifyRoomStatus(row.status) === "Occupied" ? 1 : 0),
     0,
@@ -325,7 +314,7 @@ const getGuestStayRows = async () => {
     : "";
   const roomSelect = hasRoomTariff ? "COALESCE(rt.rooms, '') AS rooms," : "'' AS rooms,";
 
-  const rows = await runQuery(`
+  const rows = await db.query(`
     SELECT
       g.id,
       g.booking_code,
@@ -417,7 +406,7 @@ const getTotalRevenueGenerated = async () => {
     let params = [];
 
     if (hasInvoices) {
-      const invoiceBookingRows = await runQuery(
+      const invoiceBookingRows = await db.query(
         "SELECT DISTINCT booking_id FROM invoices WHERE booking_id IS NOT NULL AND booking_id > 0",
       );
       const invoiceIds = invoiceBookingRows
@@ -530,7 +519,7 @@ const getMonthlyRevenueChart = async () => {
   const monthMap = new Map(months.map((item) => [item.key, item]));
 
   if (await tableExists("guests") && await tableExists("room_tariff")) {
-    const hotelRows = await runQuery(`
+    const hotelRows = await db.query(`
       SELECT
         DATE_FORMAT(g.check_in, '%Y-%m') AS monthKey,
         COALESCE(SUM(rt.total), 0) AS total
@@ -552,7 +541,7 @@ const getMonthlyRevenueChart = async () => {
       `${createdColumn} >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 5 MONTH)`,
   );
   if (salesSource) {
-    const restaurantRows = await runQuery(`
+    const restaurantRows = await db.query(`
       SELECT
         DATE_FORMAT(${salesSource.createdColumn}, '%Y-%m') AS monthKey,
         COALESCE(SUM(${salesSource.totalColumn}), 0) AS total
@@ -582,7 +571,7 @@ const getRoomOccupancyChart = async () => {
   const sourceTable = await resolveRoomSource();
   if (!sourceTable) return base;
 
-  const rows = await runQuery(`SELECT COALESCE(status, 'Available') AS status FROM ${sourceTable}`);
+  const rows = await db.query(`SELECT COALESCE(status, 'Available') AS status FROM ${sourceTable}`);
   rows.forEach((row) => {
     const bucket = classifyRoomStatus(row.status);
     bucketMap.get(bucket).value += 1;
@@ -608,7 +597,7 @@ const getFoodSalesChart = async () => {
   );
   if (!salesSource) return days;
 
-  const rows = await runQuery(`
+  const rows = await db.query(`
     SELECT
       DATE(${salesSource.createdColumn}) AS dayKey,
       COALESCE(SUM(${salesSource.totalColumn}), 0) AS total

@@ -1,11 +1,6 @@
 const db = require("../config/db");
 const { getRequestActor, isWaiterActor, namesMatch } = require("../utils/requestActor");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) =>
-    db.query(sql, params, (err, res) => (err ? reject(err) : resolve(res)))
-  );
-
 const denyIfNotOwnedByWaiter = (record, actor, responseMessage, res) => {
   if (!isWaiterActor(actor)) return false;
   if (!record?.waiter) return false;
@@ -15,7 +10,7 @@ const denyIfNotOwnedByWaiter = (record, actor, responseMessage, res) => {
 };
 
 const getActiveTokenByTable = async (tableNumber) => {
-  const [rows] = await runQuery(
+  const [rows] = await db.query(
     `SELECT * FROM tokens WHERE table_number = ? AND status = 'active' ORDER BY id DESC LIMIT 1`,
     [tableNumber]
   );
@@ -45,7 +40,7 @@ exports.createToken = async (req, res) => {
     }
 
     if (activeToken?.id) {
-      const [paidBills] = await runQuery(
+      const [paidBills] = await db.query(
         `SELECT id FROM bills WHERE token_id = ? AND (LOWER(COALESCE(invoiceStatus, '')) = 'paid' OR account_transaction_id IS NOT NULL) ORDER BY id DESC LIMIT 1`,
         [activeToken.id]
       );
@@ -59,11 +54,11 @@ exports.createToken = async (req, res) => {
         });
       }
 
-      await runQuery(`UPDATE tokens SET status = 'closed' WHERE id = ? AND status = 'active'`, [activeToken.id]);
+      await db.query(`UPDATE tokens SET status = 'closed' WHERE id = ? AND status = 'active'`, [activeToken.id]);
     }
 
     const nextTokenCode = buildTokenCode();
-    const [result] = await runQuery(
+    const [result] = await db.query(
       `INSERT INTO tokens (token_code, table_number, waiter_name, status) VALUES (?, ?, ?, 'active')`,
       [nextTokenCode, tableNumber, resolvedWaiter]
     );
@@ -98,13 +93,13 @@ exports.addItem = async (req, res) => {
   const tokenId = req.body?.tokenId;
 
   try {
-    const token = await runQuery("SELECT * FROM tokens WHERE id = ? LIMIT 1", [tokenId]).then(rows => rows[0] || null);
+    const token = await db.query("SELECT * FROM tokens WHERE id = ? LIMIT 1", [tokenId]).then(rows => rows[0] || null);
     if (!token) {
       return res.status(404).json({ message: "Token not found" });
     }
     if (denyIfNotOwnedByWaiter(token, actor, "You can add items only to your own token", res)) return;
 
-    await runQuery(
+    await db.query(
       `INSERT INTO token_items (token_id, item_name, qty, rate) VALUES (?, ?, ?, ?)`,
       [tokenId, req.body?.name || "Item", req.body?.qty || 1, req.body?.price || 0]
     );
@@ -120,13 +115,13 @@ exports.getItems = async (req, res) => {
   const tokenId = req.params.tokenId;
 
   try {
-    const token = await runQuery("SELECT * FROM tokens WHERE id = ? LIMIT 1", [tokenId]).then(rows => rows[0] || null);
+    const token = await db.query("SELECT * FROM tokens WHERE id = ? LIMIT 1", [tokenId]).then(rows => rows[0] || null);
     if (!token) {
       return res.json([]);
     }
     if (denyIfNotOwnedByWaiter(token, actor, "You can view items only for your own token", res)) return;
 
-    const data = await runQuery("SELECT * FROM token_items WHERE token_id = ?", [tokenId]);
+    const data = await db.query("SELECT * FROM token_items WHERE token_id = ?", [tokenId]);
     res.json(data);
   } catch (err) {
     res.status(500).json(err);
@@ -137,7 +132,7 @@ exports.updateItem = async (req, res) => {
   const actor = getRequestActor(req);
 
   try {
-    const row = await runQuery(
+    const row = await db.query(
       `SELECT ti.*, t.id AS token_row_id, t.table_number, t.waiter, t.status AS token_status FROM token_items ti INNER JOIN tokens t ON t.id = ti.token_id WHERE ti.id = ? LIMIT 1`,
       [req.body?.id]
     ).then(rows => rows[0] || null);
@@ -146,7 +141,7 @@ exports.updateItem = async (req, res) => {
     }
     if (denyIfNotOwnedByWaiter(row, actor, "You can update only your own token items", res)) return;
 
-    await runQuery(`UPDATE token_items SET qty = ?, rate = ? WHERE id = ?`, [req.body?.qty, req.body?.rate, req.body?.id]);
+    await db.query(`UPDATE token_items SET qty = ?, rate = ? WHERE id = ?`, [req.body?.qty, req.body?.rate, req.body?.id]);
     res.json({ message: "Item updated" });
   } catch (err) {
     res.status(500).json(err);
@@ -158,7 +153,7 @@ exports.deleteItem = async (req, res) => {
   const id = req.params.id;
 
   try {
-    const row = await runQuery(
+    const row = await db.query(
       `SELECT ti.*, t.id AS token_row_id, t.table_number, t.waiter, t.status AS token_status FROM token_items ti INNER JOIN tokens t ON t.id = ti.token_id WHERE ti.id = ? LIMIT 1`,
       [id]
     ).then(rows => rows[0] || null);
@@ -167,7 +162,7 @@ exports.deleteItem = async (req, res) => {
     }
     if (denyIfNotOwnedByWaiter(row, actor, "You can delete only your own token items", res)) return;
 
-    await runQuery(`DELETE FROM token_items WHERE id = ?`, [id]);
+    await db.query(`DELETE FROM token_items WHERE id = ?`, [id]);
     res.json({ message: "Item deleted" });
   } catch (err) {
     res.status(500).json(err);
@@ -182,7 +177,7 @@ exports.closeTokenByTable = async (req, res) => {
     const token = await getActiveTokenByTable(table);
     if (denyIfNotOwnedByWaiter(token, actor, "You can close only your own token", res)) return;
 
-    await runQuery(`UPDATE tokens SET status = 'closed' WHERE table_number = ? AND status = 'active'`, [table]);
+    await db.query(`UPDATE tokens SET status = 'closed' WHERE table_number = ? AND status = 'active'`, [table]);
     res.json({ message: "Token closed" });
   } catch (err) {
     res.status(500).json(err);

@@ -23,6 +23,7 @@ class AuditLogs {
   \`response_status\` INT,
   \`old_value\` JSON,
   \`new_value\` JSON,
+  \`response_body\` JSON,
   \`ip_address\` VARCHAR(64),
   \`user_agent\` VARCHAR(255),
   \`created_at\` DATETIME,

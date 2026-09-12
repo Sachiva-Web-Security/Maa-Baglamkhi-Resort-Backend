@@ -3,7 +3,7 @@
  */
 
 const {
-  runQuery,
+  
   toNumber,
   getHallRateColumn,
   getBookingById,
@@ -108,7 +108,7 @@ const buildFinancialSnapshot = (payload = {}, existingBooking = null) => {
 };
 
 const checkBookingOverlap = async ({ hallId, date, startTime, endTime, excludeId = null }) => {
-  const conflicts = await runQuery(
+  const conflicts = await db.query(
     `
     SELECT id, start_time, end_time
     FROM banquet_bookings
@@ -132,7 +132,7 @@ const getBanquetDashboard = async (req, res) => {
   try {
     const hallRateColumn = await getHallRateColumn();
     const pricingConfig = await getBanquetPricingConfig();
-    const halls = await runQuery(`
+    const halls = await db.query(`
       SELECT
         id,
         name,
@@ -145,7 +145,7 @@ const getBanquetDashboard = async (req, res) => {
       ORDER BY id DESC
     `);
 
-    const bookings = await runQuery(`
+    const bookings = await db.query(`
       SELECT
         b.id,
         b.hall_id,
@@ -301,7 +301,7 @@ const createBanquetBooking = async (req, res) => {
       });
     }
 
-    const hallRows = await runQuery("SELECT id FROM banquet_halls WHERE id = ? LIMIT 1", [hallId]);
+    const hallRows = await db.query("SELECT id FROM banquet_halls WHERE id = ? LIMIT 1", [hallId]);
     if (!hallRows.length) {
       return res.status(400).json({ message: "Invalid hallId" });
     }
@@ -338,7 +338,7 @@ const createBanquetBooking = async (req, res) => {
       paymentReferenceNo,
     });
 
-    const result = await runQuery(
+    const result = await db.query(
       `
       INSERT INTO banquet_bookings (
         hall_id,
@@ -485,7 +485,7 @@ const updateBanquetBooking = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    const hallRows = await runQuery("SELECT id FROM banquet_halls WHERE id = ? LIMIT 1", [hallId]);
+    const hallRows = await db.query("SELECT id FROM banquet_halls WHERE id = ? LIMIT 1", [hallId]);
     if (!hallRows.length) {
       return res.status(400).json({ message: "Invalid hallId" });
     }
@@ -526,7 +526,7 @@ const updateBanquetBooking = async (req, res) => {
       existingBooking
     );
 
-    const result = await runQuery(
+    const result = await db.query(
       `
       UPDATE banquet_bookings
       SET hall_id = ?,
@@ -620,7 +620,7 @@ const cancelBanquetBooking = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await runQuery(
+    const result = await db.query(
       `UPDATE banquet_bookings SET status = 'Cancelled' WHERE id = ?`,
       [id]
     );
@@ -684,7 +684,7 @@ const refundBanquetBooking = async (req, res) => {
             explicitStatus: booking.payment_status,
           });
 
-    await runQuery(
+    await db.query(
       `
       UPDATE banquet_bookings
       SET status = ?,
@@ -736,7 +736,7 @@ const deleteBanquetBooking = async (req, res) => {
       });
     }
 
-    await runQuery("DELETE FROM banquet_bookings WHERE id = ?", [id]);
+    await db.query("DELETE FROM banquet_bookings WHERE id = ?", [id]);
 
     res.status(200).json({ message: "Booking deleted successfully" });
   } catch (error) {
@@ -750,7 +750,7 @@ const completeBanquetBooking = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await runQuery(
+    const result = await db.query(
       `UPDATE banquet_bookings SET status = 'Completed' WHERE id = ?`,
       [id]
     );
@@ -788,7 +788,7 @@ const generateBanquetBill = async (req, res) => {
       explicitStatus: booking.payment_status,
     });
 
-    const result = await runQuery(
+    const result = await db.query(
       `
       UPDATE banquet_bookings
       SET invoice_no = ?, status = 'Billed', billed_at = NOW(), payment_status = ?

@@ -1,10 +1,6 @@
 const db = require("../config/db");
 const PaymentsModel = require("../models/PaymentsModel");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, result) => (err ? reject(err) : resolve(result)));
-  });
 
 exports.createPayment = async (req, res) => {
   const { table, total, method } = req.body || {};
@@ -16,7 +12,7 @@ exports.createPayment = async (req, res) => {
   try {
     await PaymentsModel.ensureSchema?.();
 
-    const [result] = await runQuery(
+    const [result] = await db.query(
       `INSERT INTO payments (booking_id, amount, payment_method_id, payment_type, status, created_at, updated_at)
        VALUES (?, ?, ?, ?, 'completed', NOW(), NOW())`,
       [table, Number(total), Number(method), "payment"]

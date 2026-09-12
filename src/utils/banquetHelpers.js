@@ -5,14 +5,7 @@
  */
 
 const db = require("../config/db");
-
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => {
-      if (err) return reject(err);
-      resolve(rows);
-    });
-  });
+const { runQuery } = require("../utils/poolPromise");
 
 const metaStartToken = "[[BNQ_META]]";
 const metaEndToken = "[[/BNQ_META]]";

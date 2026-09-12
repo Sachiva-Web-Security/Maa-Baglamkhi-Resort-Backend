@@ -2,11 +2,6 @@ const db = require("../config/db");
 const SalaryPaymentsModel = require("../models/SalaryPaymentsModel");
 const AttendanceRecordsModel = require("../models/AttendanceRecordsModel");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-  });
-
 const DAY_STATUS_MULTIPLIER = {
   present: 1,
   absent: 0,
@@ -42,7 +37,7 @@ exports.setEmployeeSalary = async (req, res) => {
       return res.status(400).json({ message: "Salary must be >= 0" });
     }
 
-    const updatedUser = await runQuery(
+    const updatedUser = await db.query(
       "UPDATE users SET salary = ?, designation = ?, updated_at = NOW() WHERE id = ?",
       [Number(salary), designation || null, userId]
     );
@@ -51,7 +46,7 @@ exports.setEmployeeSalary = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    const [userRows] = await runQuery("SELECT * FROM users WHERE id = ? LIMIT 1", [userId]);
+    const [userRows] = await db.query("SELECT * FROM users WHERE id = ? LIMIT 1", [userId]);
     return res.json({ message: "Salary saved", user: userRows[0] || null, ...updatedUser });
   } catch (err) {
     console.error("setEmployeeSalary error:", err);
@@ -93,7 +88,7 @@ exports.getEmployeeSalary = async (req, res) => {
       return res.status(403).json({ message: "Forbidden: can only view your own salary" });
     }
 
-    const [rows] = await runQuery("SELECT * FROM users WHERE id = ? LIMIT 1", [userId]);
+    const [rows] = await db.query("SELECT * FROM users WHERE id = ? LIMIT 1", [userId]);
     const user = rows[0] || null;
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -116,7 +111,7 @@ exports.getMySalary = async (req, res) => {
     if (!id) {
       return res.status(401).json({ message: "Authentication required" });
     }
-    const [rows] = await runQuery("SELECT * FROM users WHERE id = ? LIMIT 1", [id]);
+    const [rows] = await db.query("SELECT * FROM users WHERE id = ? LIMIT 1", [id]);
     const user = rows[0] || null;
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -150,7 +145,7 @@ exports.getMyAttendanceWithSalary = async (req, res) => {
       month = now.getMonth() + 1;
     }
 
-    const [userRows] = await runQuery("SELECT salary, designation FROM users WHERE id = ? LIMIT 1", [id]);
+    const [userRows] = await db.query("SELECT salary, designation FROM users WHERE id = ? LIMIT 1", [id]);
     const user = userRows[0] || null;
     const monthlySalary = Number(user?.salary || 0);
 
@@ -197,7 +192,7 @@ exports.getMyAttendanceWithSalary = async (req, res) => {
 exports.recalculateAttendance = async (req, res) => {
   try {
     const { userId } = req.params;
-    const [userRows] = await runQuery("SELECT salary FROM users WHERE id = ? LIMIT 1", [userId]);
+    const [userRows] = await db.query("SELECT salary FROM users WHERE id = ? LIMIT 1", [userId]);
     const user = userRows[0] || null;
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -210,7 +205,7 @@ exports.recalculateAttendance = async (req, res) => {
         const dateStr = String(r.date || "").slice(0, 7);
         const [y, m] = dateStr.split("-").map(Number);
         const amount = calculateDaySalary(user.salary, r.status, y, m);
-        await runQuery("UPDATE attendance_records SET salary_amount = ? WHERE id = ?", [amount, r.id]);
+        await db.query("UPDATE attendance_records SET salary_amount = ? WHERE id = ?", [amount, r.id]);
         return { id: r.id, amount };
       })
     );

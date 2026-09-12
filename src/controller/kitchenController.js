@@ -4,10 +4,6 @@ const { ensureSchema } = require("../models/kitchen");
 const { _createNotification } = require("../controller/notificationController");
 const { syncRestaurantOrdersToKitchen } = require("../utils/kitchenOrderSync");
 
-const q = (sql, params = []) =>
-  new Promise((resolve, reject) =>
-    db.query(sql, params, (err, res) => (err ? reject(err) : resolve(res)))
-  );
 
 const parseItems = (raw) => {
   if (!raw) return [];
@@ -72,7 +68,7 @@ exports.createOrder = async (req, res) => {
 
   try {
     const createdWaiter = isWaiterActor(actor) ? actor.name || waiter || "Waiter" : waiter || "Waiter";
-    const result = await q(
+    const result = await db.query(
       `INSERT INTO kitchen_orders
         (waiter_name, table_number, items, status, token_status, kot_no, entity_type, prep_time_minutes, expected_ready_at)
         VALUES (?, ?, ?, 'Pending', 'Active', ?, ?, ?, ?)`,
@@ -154,7 +150,7 @@ exports.getOrders = async (req, res) => {
       params.push(actor.name);
     }
     sql += " ORDER BY created_at DESC";
-    const rows = await q(sql, params);
+    const rows = await db.query(sql, params);
     res.json(rows.map(normalizeOrder));
   } catch (err) {
     console.error("getOrders error:", err);
@@ -172,7 +168,7 @@ exports.updateOrderStatus = async (req, res) => {
   const { id } = req.params;
   const { status, prepTimeMinutes, readyMessage } = req.body;
   try {
-    const existingRows = await q("SELECT id FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const existingRows = await db.query("SELECT id FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
     if (!existingRows.length) {
       return res.status(404).json({ message: "Kitchen order not found" });
     }
@@ -193,8 +189,8 @@ exports.updateOrderStatus = async (req, res) => {
     }
     if (!fields.length) return res.status(400).json({ message: "Nothing to update" });
     vals.push(id);
-    await q(`UPDATE kitchen_orders SET ${fields.join(", ")} WHERE id = ?`, vals);
-    const updatedRows = await q("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    await db.query(`UPDATE kitchen_orders SET ${fields.join(", ")} WHERE id = ?`, vals);
+    const updatedRows = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
     const updatedOrder = normalizeOrder(updatedRows[0] || {});
     global.io?.emit("kitchen-order-updated", {
       id: updatedOrder.id,
@@ -231,7 +227,7 @@ exports.saveOrder = async (req, res) => {
 
   const { id } = req.params;
   try {
-    const rows = await q("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const rows = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
     const order = rows[0];
     if (!order) {
       return res.status(404).json({ message: "Kitchen order not found" });
@@ -248,7 +244,7 @@ exports.saveOrder = async (req, res) => {
     const accountDate = new Date().toISOString().slice(0, 10);
     const description = `Kitchen order saved - ${entityType} ${reference} - Order #${order.id}`;
 
-    const accountResult = await q(
+    const accountResult = await db.query(
       `
         INSERT INTO accounts_transactions (date, type, description, amount, payment_mode)
         VALUES (?, 'Income', ?, ?, ?)
@@ -256,7 +252,7 @@ exports.saveOrder = async (req, res) => {
       [accountDate, description, amount, "Kitchen"],
     );
 
-    await q(
+    await db.query(
       "UPDATE kitchen_orders SET status = 'Saved', token_status = 'Closed' WHERE id = ?",
       [id],
     );
@@ -284,7 +280,7 @@ exports.cancelOrder = async (req, res) => {
 
   const { id } = req.params;
   try {
-    const result = await q("UPDATE kitchen_orders SET status = 'Cancelled' WHERE id = ?", [id]);
+    const result = await db.query("UPDATE kitchen_orders SET status = 'Cancelled' WHERE id = ?", [id]);
     if (!result.affectedRows) {
       return res.status(404).json({ message: "Kitchen order not found" });
     }
@@ -303,7 +299,7 @@ exports.removeOrder = async (req, res) => {
 
   const { id } = req.params;
   try {
-    const result = await q("DELETE FROM kitchen_orders WHERE id = ?", [id]);
+    const result = await db.query("DELETE FROM kitchen_orders WHERE id = ?", [id]);
     if (!result.affectedRows) {
       return res.status(404).json({ message: "Kitchen order not found" });
     }

@@ -27,11 +27,6 @@ const db = require("../config/db");
 const BookingsModel = require("../models/BookingsModel");
 const { ensureSchema: ensureGroupBookingSchema, create: createGroupBooking } = require("../models/GroupBookingModel");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-  });
-
 const generateBookingCode = () => {
   const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
   const rand = crypto.randomBytes(2).toString("hex").toUpperCase();
@@ -45,10 +40,10 @@ const updateRoomOperationalState = async ({ roomNumber, guestName, status, check
   const updates = [];
 
   // Update hotel_room_inventory if it exists
-  const tables = await runQuery("SHOW TABLES LIKE 'hotel_room_inventory'").catch(() => []);
+  const tables = await db.query("SHOW TABLES LIKE 'hotel_room_inventory'").catch(() => []);
   if (Array.isArray(tables) && tables.length > 0) {
     updates.push(
-      runQuery(
+      db.query(
         `UPDATE hotel_room_inventory
          SET guest = ?, status = ?, check_in = ?, check_out = ?
          WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)`,
@@ -58,10 +53,10 @@ const updateRoomOperationalState = async ({ roomNumber, guestName, status, check
   }
 
   // Also update legacy rooms table if it exists
-  const legacyTables = await runQuery("SHOW TABLES LIKE 'rooms'").catch(() => []);
+  const legacyTables = await db.query("SHOW TABLES LIKE 'rooms'").catch(() => []);
   if (Array.isArray(legacyTables) && legacyTables.length > 0) {
     updates.push(
-      runQuery(
+      db.query(
         `UPDATE rooms
          SET guest = ?, status = ?, check_in = ?, check_out = ?
          WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)`,
@@ -94,7 +89,7 @@ exports.create = async (req, res) => {
     // ── Step 1: Create master guest record ───────────────────────────────
     const bookingCode = generateBookingCode();
 
-    const guestResult = await runQuery(
+    const guestResult = await db.query(
       `INSERT INTO guests
          (booking_code, mobile, guest_name, guest_email,
           check_in, check_out, arrival, departure,
@@ -118,12 +113,12 @@ exports.create = async (req, res) => {
 
     // ── Step 2: Insert room tariff rows for each room ─────────────────────
     // Ensure room_tariff table has a category_name column
-    const catCol = await runQuery(
+    const catCol = await db.query(
       "SHOW COLUMNS FROM room_tariff LIKE 'category_name'",
     ).catch(() => []);
 
     if (catCol && !catCol.length) {
-      await runQuery(
+      await db.query(
         "ALTER TABLE room_tariff ADD COLUMN category_name VARCHAR(120) DEFAULT NULL",
       ).catch(() => {}); // Non-fatal if column already exists
     }
@@ -137,7 +132,7 @@ exports.create = async (req, res) => {
       const base   = tariff * nights;
       const total  = Number(room.total || base + (base * gst) / 100);
 
-      await runQuery(
+      await db.query(
         `INSERT INTO room_tariff
            (booking_id, room_number, tariff, gst, total, category_name)
          VALUES (?, ?, ?, ?, ?, ?)
@@ -156,7 +151,7 @@ exports.create = async (req, res) => {
       );
 
       // Insert pax row for each room
-      await runQuery(
+      await db.query(
         `INSERT INTO pax (booking_id, room_number, adults, children)
          VALUES (?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
@@ -177,7 +172,7 @@ exports.create = async (req, res) => {
     const paymentMode   = payment?.paymentMode || "Cash";
     const remarks       = payment?.remarks || null;
 
-    await runQuery(
+    await db.query(
       `INSERT INTO advance_payment
          (booking_id, amount, discount_amount, payment_mode, remarks)
        VALUES (?, ?, ?, ?, ?)
@@ -191,7 +186,7 @@ exports.create = async (req, res) => {
 
     // ── Step 4: Save to payment_history ──────────────────────────────────
     if (paidAmount > 0) {
-      await runQuery(
+      await db.query(
         `INSERT INTO payment_history
            (booking_id, amount, discount_amount, payment_mode, remarks)
          VALUES (?, ?, ?, ?, ?)`,

@@ -1,9 +1,5 @@
 const db = require("../config/db");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-  });
 
 const DEFAULT_SETTINGS = {
   adminWhatsappNumber: "",
@@ -14,7 +10,7 @@ const DEFAULT_SETTINGS = {
 };
 
 const ensureSettingsRow = async () => {
-  await runQuery(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS app_settings (
       id INT NOT NULL PRIMARY KEY,
       admin_whatsapp_number VARCHAR(30) DEFAULT NULL,
@@ -25,15 +21,15 @@ const ensureSettingsRow = async () => {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
-  const [existing] = await runQuery("SELECT id FROM app_settings WHERE id = 1");
+  const [existing] = await db.query("SELECT id FROM app_settings WHERE id = 1");
   if (!existing) {
-    await runQuery("INSERT INTO app_settings (id) VALUES (1)");
+    await db.query("INSERT INTO app_settings (id) VALUES (1)");
   }
 };
 
 const getSettings = async () => {
   await ensureSettingsRow();
-  const [rows] = await runQuery("SELECT * FROM app_settings WHERE id = 1 LIMIT 1");
+  const [rows] = await db.query("SELECT * FROM app_settings WHERE id = 1 LIMIT 1");
   const row = rows[0] || {};
   return {
     id: row.id,
@@ -85,7 +81,7 @@ const updateSettings = async (patch = {}) => {
   }
 
   if (setParts.length) {
-    await runQuery(
+    await db.query(
       `UPDATE app_settings SET ${setParts.join(", ")} WHERE id = 1`,
       values,
     );

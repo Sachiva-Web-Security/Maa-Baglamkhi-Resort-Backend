@@ -3,7 +3,7 @@
  */
 
 const {
-  runQuery,
+  
   toNumber,
 } = require("../utils/banquetHelpers");
 
@@ -98,7 +98,7 @@ const normalizeBanquetPricingConfig = (raw = {}) => {
 };
 
 const getBanquetPricingConfig = async () => {
-  const rows = await runQuery(
+  const rows = await db.query(
     `SELECT config_json FROM banquet_pricing_config WHERE id = 1 LIMIT 1`
   );
 
@@ -116,7 +116,7 @@ const getBanquetPricingConfig = async () => {
 const saveBanquetPricingConfig = async (rawConfig = {}) => {
   const config = normalizeBanquetPricingConfig(rawConfig);
 
-  await runQuery(
+  await db.query(
     `INSERT INTO banquet_pricing_config (id, config_json)
      VALUES (1, ?)
      ON DUPLICATE KEY UPDATE config_json = VALUES(config_json)`,

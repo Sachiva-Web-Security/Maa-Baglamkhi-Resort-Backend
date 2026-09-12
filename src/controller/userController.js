@@ -5,10 +5,6 @@ const path = require("path");
 const multer = require("multer");
 const UsersModel = require("../models/UsersModel");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-  });
 
 function sanitizeUser(user) {
   if (!user) return null;
@@ -129,7 +125,7 @@ exports.deleteUser = async (req, res) => {
       userId: req.user?.id || existingUser.id,
     });
 
-    await runQuery("DELETE FROM users WHERE id = ?", [id]);
+    await db.query("DELETE FROM users WHERE id = ?", [id]);
     return res.json({ message: "User deleted successfully" });
   } catch (err) {
     console.error("Error deleting user:", err);
@@ -172,7 +168,7 @@ exports.updateUser = async (req, res) => {
       userId: req.user?.id || existingUser.id,
     });
 
-    await runQuery(
+    await db.query(
       "UPDATE users SET name = ?, email = ?, role_id = ?, password_hash = ?, updated_at = NOW() WHERE id = ?",
       [name, email, role, hashedPassword || existingUser.password_hash, id]
     );
@@ -290,7 +286,7 @@ exports.changePassword = async (req, res) => {
       newValue: { id: user.id, email: user.email, password: "[REDACTED]" },
     });
 
-    await runQuery("UPDATE users SET password_hash = ?, updated_at = NOW() WHERE email = ?", [hashed, targetEmail]);
+    await db.query("UPDATE users SET password_hash = ?, updated_at = NOW() WHERE email = ?", [hashed, targetEmail]);
 
     return res.json({
       message: "Password updated successfully",
@@ -337,7 +333,7 @@ exports.updateMyAvatar = async (req, res) => {
       },
     });
 
-    await runQuery("UPDATE users SET avatar_url = ?, updated_at = NOW() WHERE email = ?", [avatarUrl, email]);
+    await db.query("UPDATE users SET avatar_url = ?, updated_at = NOW() WHERE email = ?", [avatarUrl, email]);
 
     return res.json({
       message: "Avatar updated",
@@ -385,7 +381,7 @@ exports.updateMe = async (req, res) => {
       newValue: nextUser,
     });
 
-    await runQuery("UPDATE users SET name = ?, email = ?, updated_at = NOW() WHERE id = ?", [name, email, id]);
+    await db.query("UPDATE users SET name = ?, email = ?, updated_at = NOW() WHERE id = ?", [name, email, id]);
 
     return res.json({
       message: "Profile updated successfully",

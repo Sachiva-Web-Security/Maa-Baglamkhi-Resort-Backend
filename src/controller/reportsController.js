@@ -1,10 +1,5 @@
 const db = require("../config/db");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-  });
-
 const tableExists = (tableName) => {
   return new Promise((resolve, reject) => {
     db.query("SHOW TABLES LIKE ?", [tableName], (err, rows) => {
@@ -129,7 +124,7 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
       } AS status FROM restaurant_bills`
     : `SELECT id, ${restaurantHasCreatedAt ? "DATE(created_at)" : "NULL"} AS billDate, COALESCE(total, 0) AS amount, paymentMethod AS paymentMode, 'Paid' AS status FROM bills`;
 
-  const restaurantRows = await runQuery(restaurantSql);
+  const restaurantRows = await db.query(restaurantSql);
   restaurantRows.forEach((r) => {
     rows.push({
       id: `restaurant-${r.id}`,
@@ -144,7 +139,7 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
     });
   });
 
-  const hotelRows = await runQuery(
+  const hotelRows = await db.query(
     `SELECT
       g.id,
       DATE(COALESCE(g.check_out, g.check_in)) AS billDate,
@@ -176,7 +171,7 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
   const banquetRateExpr = banquetHallRateColumn
     ? `COALESCE(h.${banquetHallRateColumn}, 0)`
     : "0";
-  const banquetRows = await runQuery(
+  const banquetRows = await db.query(
     `SELECT b.id, DATE(b.date) AS billDate, COALESCE(h.name, CONCAT('Hall #', b.hall_id)) AS hall, b.status,
       COALESCE(
         ((${banquetRateExpr}) * GREATEST(1, CEIL(TIMESTAMPDIFF(MINUTE, b.start_time, b.end_time) / 60)))
@@ -200,7 +195,7 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
     });
   });
 
-  const accountsRows = await runQuery(
+  const accountsRows = await db.query(
     "SELECT id, DATE(date) AS billDate, type, description, amount, payment_mode AS paymentMode FROM accounts_transactions"
   );
   accountsRows.forEach((r) => {
@@ -230,7 +225,7 @@ exports.summary = async (req, res) => {
   try {
     const safeCount = async (sql, params = []) => {
       try {
-        const rows = await runQuery(sql, params);
+        const rows = await db.query(sql, params);
         return rows?.[0]?.c || 0;
       } catch (err) {
         console.warn(`[reports/summary] skipped count for "${sql}": ${err.code || err.message}`);
@@ -427,7 +422,7 @@ exports.getReportData = async (req, res) => {
       return res.json([]);
     }
 
-    const rows = await runQuery(sql, params);
+    const rows = await db.query(sql, params);
     const result = rows.map((row) => ({
       ...row,
       date: toISODate(row.date),

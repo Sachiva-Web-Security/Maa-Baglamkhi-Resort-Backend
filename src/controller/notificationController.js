@@ -1,9 +1,5 @@
 const db = require("../config/db");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-  });
 
 exports.listNotifications = async (req, res) => {
   try {
@@ -14,9 +10,9 @@ exports.listNotifications = async (req, res) => {
 
     let rows;
     if (isAdmin) {
-      rows = await runQuery(`SELECT * FROM notifications ORDER BY created_at DESC LIMIT 200`);
+      rows = await db.query(`SELECT * FROM notifications ORDER BY created_at DESC LIMIT 200`);
     } else {
-      rows = await runQuery(
+      rows = await db.query(
         `SELECT * FROM notifications WHERE user_id = ? OR user_role IN (?) ORDER BY created_at DESC LIMIT 200`,
         [userId, visibleRoles]
       );
@@ -35,9 +31,9 @@ exports.markAsRead = async (req, res) => {
     const visibleRoles = role === "chef" ? ["chef", "kitchen"] : [role];
 
     if (isAdmin) {
-      await runQuery("UPDATE notifications SET is_read = 1, read_at = NOW() WHERE id = ?", [req.params.id]);
+      await db.query("UPDATE notifications SET is_read = 1, read_at = NOW() WHERE id = ?", [req.params.id]);
     } else {
-      await runQuery(
+      await db.query(
         "UPDATE notifications SET is_read = 1, read_at = NOW() WHERE id = ? AND (user_id = ? OR user_role IN (?))",
         [req.params.id, userId, visibleRoles]
       );
@@ -56,9 +52,9 @@ exports.markAllAsRead = async (req, res) => {
     const visibleRoles = role === "chef" ? ["chef", "kitchen"] : [role];
 
     if (isAdmin) {
-      await runQuery("UPDATE notifications SET is_read = 1, read_at = NOW() WHERE is_read = 0");
+      await db.query("UPDATE notifications SET is_read = 1, read_at = NOW() WHERE is_read = 0");
     } else {
-      await runQuery(
+      await db.query(
         "UPDATE notifications SET is_read = 1, read_at = NOW() WHERE is_read = 0 AND (user_id = ? OR user_role IN (?))",
         [userId, visibleRoles]
       );
@@ -72,7 +68,7 @@ exports.markAllAsRead = async (req, res) => {
 exports.createNotification = async (req, res) => {
   try {
     const payload = req.body || {};
-    const [result] = await runQuery(
+    const [result] = await db.query(
       `INSERT INTO notifications (user_id, user_role, type, title, message, data) VALUES (?, ?, ?, ?, ?, ?)`,
       [
         payload.user_id || null,
@@ -93,7 +89,7 @@ exports._createNotification = exports.createNotification;
 
 exports.deleteNotification = async (req, res) => {
   try {
-    await runQuery("DELETE FROM notifications WHERE id = ?", [req.params.id]);
+    await db.query("DELETE FROM notifications WHERE id = ?", [req.params.id]);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ message: "Failed to delete", error: error.message });

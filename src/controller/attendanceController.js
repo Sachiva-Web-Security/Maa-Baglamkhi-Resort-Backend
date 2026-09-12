@@ -2,11 +2,6 @@ const db = require("../config/db");
 const AttendanceRecordsModel = require("../models/AttendanceRecordsModel");
 const UsersModel = require("../models/UsersModel");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, result) => (err ? reject(err) : resolve(result)));
-  });
-
 const SALARY_STATUS_MULTIPLIER = {
   present: 1,
   absent: 0,
@@ -45,7 +40,7 @@ exports.getMyAttendance = async (req, res) => {
   }
 
   return withAttendanceSchema(res, async () => {
-    const [rows] = await runQuery(
+    const [rows] = await db.query(
       "SELECT * FROM attendance_records WHERE user_id = ? ORDER BY date DESC",
       [id]
     );
@@ -59,7 +54,7 @@ exports.getAllAttendance = async (req, res) => {
     const userIds = users.map((u) => u.id);
     const placeholders = userIds.map(() => "?").join(",");
     const records = userIds.length
-      ? await runQuery(
+      ? await db.query(
           `SELECT * FROM attendance_records WHERE user_id IN (${placeholders}) ORDER BY date DESC`,
           userIds
         )
@@ -99,7 +94,7 @@ exports.markMyAttendance = async (req, res) => {
   const timeStr = now.toISOString().slice(11, 19);
 
   return withAttendanceSchema(res, async () => {
-    const existing = await runQuery(
+    const existing = await db.query(
       "SELECT id FROM attendance_records WHERE user_id = ? AND date = ? LIMIT 1",
       [id, dateStr]
     );
@@ -108,7 +103,7 @@ exports.markMyAttendance = async (req, res) => {
       return res.status(409).json({ message: "Attendance already marked for today" });
     }
 
-    const [result] = await runQuery(
+    const [result] = await db.query(
       `INSERT INTO attendance_records (user_id, date, status, check_in, check_out, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
       [id, dateStr, normalized, timeStr, timeStr]
@@ -155,7 +150,7 @@ exports.updateAttendanceRecord = async (req, res) => {
     }
 
     params.push(recordId);
-    const [result] = await runQuery(
+    const [result] = await db.query(
       `UPDATE attendance_records SET ${updates.join(", ")}, updated_at = NOW() WHERE id = ?`,
       params
     );
@@ -179,7 +174,7 @@ exports.calculateMySalary = async (req, res) => {
   const targetYear = Number(year || new Date().getFullYear());
 
   return withAttendanceSchema(res, async () => {
-    const [userRows] = await runQuery("SELECT salary, designation FROM users WHERE id = ? LIMIT 1", [id]);
+    const [userRows] = await db.query("SELECT salary, designation FROM users WHERE id = ? LIMIT 1", [id]);
     const user = userRows[0] || null;
     const monthlySalary = Number(user?.salary || 0);
 

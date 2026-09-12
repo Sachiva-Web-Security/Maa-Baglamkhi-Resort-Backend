@@ -56,6 +56,53 @@ class Rooms {
     const [rows] = await this.pool.execute("SELECT * FROM \`rooms\` ORDER BY \`created_at\` DESC", args)
     return rows
   }
+
+  async getRoomSetup({ checkIn = null, checkOut = null } = {}) {
+    const [categories] = await this.pool.execute(
+      `SELECT id, name, default_price AS defaultPrice, unit_label AS unitLabel
+       FROM \`room_categories\` ORDER BY id`
+    );
+    const [rooms] = await this.pool.execute(
+      `SELECT id, category_id AS categoryId, room_number AS roomNumber,
+              COALESCE(status, 'available') AS status,
+              current_booking_id AS currentBookingId, notes
+       FROM \`rooms\` ORDER BY CAST(room_number AS UNSIGNED), room_number`
+    );
+
+    let occupiedMap = {};
+    if (checkIn && checkOut) {
+      const [occupied] = await this.pool.execute(
+        `SELECT r.room_number AS roomNumber, 'Occupied' AS status
+         FROM \`booking_rooms\` br
+         JOIN \`rooms\` r ON r.id = br.room_id
+         JOIN \`bookings\` b ON b.id = br.booking_id
+         WHERE LOWER(COALESCE(b.status, '')) NOT IN ('checked_out', 'cancelled')
+           AND DATE(?) <= DATE(br.check_out)
+           AND DATE(?) >= DATE(br.check_in)
+         GROUP BY r.room_number`,
+        [checkIn, checkOut]
+      );
+      occupiedMap = Object.fromEntries(
+        occupied.map((row) => [String(row.roomNumber || "").trim(), row])
+      );
+    }
+
+    return categories.map((category) => {
+      const categoryRooms = rooms.filter(
+        (room) => Number(room.categoryId) === Number(category.id)
+      );
+      return {
+        ...category,
+        rooms: categoryRooms.map((room) => room.roomNumber),
+        roomDetails: categoryRooms.map((room) => {
+          const occupied = occupiedMap[String(room.roomNumber || "").trim()];
+          return occupied
+            ? { ...room, status: occupied.status, guest: null, checkIn, checkOut }
+            : { ...room, guest: null, checkIn: null, checkOut: null };
+        }),
+      };
+    });
+  }
 }
 
 module.exports = new (Rooms)()

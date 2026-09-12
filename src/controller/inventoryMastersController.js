@@ -1,10 +1,6 @@
 const db = require("../config/db");
 const { ensureSchema: ensureInventoryCategoriesSchema } = require("../models/InventoryCategoriesModel");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-  });
 
 const SECTIONS = [
   { key: "units", label: "Units", table: "inventory_units" },
@@ -22,7 +18,7 @@ exports.listSections = async (req, res) => {
     await ensureInventoryCategoriesSchema();
     const sections = await Promise.all(
       SECTIONS.map(async (s) => {
-        const [count] = await runQuery(`SELECT COUNT(*) AS cnt FROM \`${s.table}\``);
+        const [count] = await db.query(`SELECT COUNT(*) AS cnt FROM \`${s.table}\``);
         return { ...s, count: count[0]?.cnt || 0 };
       })
     );
@@ -38,7 +34,7 @@ exports.listRecords = async (req, res) => {
 
   try {
     await ensureInventoryCategoriesSchema();
-    const [rows] = await runQuery(`SELECT * FROM \`${section.table}\` ORDER BY \`id\` DESC`);
+    const [rows] = await db.query(`SELECT * FROM \`${section.table}\` ORDER BY \`id\` DESC`);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ message: "Failed to list records", error: err.message });
@@ -51,7 +47,7 @@ exports.getRecord = async (req, res) => {
 
   try {
     await ensureInventoryCategoriesSchema();
-    const [rows] = await runQuery(
+    const [rows] = await db.query(
       `SELECT * FROM \`${section.table}\` WHERE \`id\` = ? LIMIT 1`,
       [req.params.id]
     );
@@ -74,11 +70,11 @@ exports.createRecord = async (req, res) => {
   try {
     await ensureInventoryCategoriesSchema();
     const name = body.name || body.title;
-    const [result] = await runQuery(
+    const [result] = await db.query(
       `INSERT INTO \`${section.table}\` (\`name\`, \`description\`, \`is_active\`) VALUES (?, ?, ?)`,
       [name, body.description || null, 1]
     );
-    const [rows] = await runQuery(`SELECT * FROM \`${section.table}\` WHERE \`id\` = ? LIMIT 1`, [result.insertId]);
+    const [rows] = await db.query(`SELECT * FROM \`${section.table}\` WHERE \`id\` = ? LIMIT 1`, [result.insertId]);
     res.status(201).json({ message: "Record created.", record: rows[0] });
   } catch (err) {
     res.status(500).json({ message: "Failed to create record", error: err.message });
@@ -101,8 +97,8 @@ exports.updateRecord = async (req, res) => {
     if (!fields.length) return res.status(400).json({ message: "Nothing to update." });
     vals.push(req.params.id);
 
-    await runQuery(`UPDATE \`${section.table}\` SET ${fields.join(", ")} WHERE \`id\` = ?`, vals);
-    const [rows] = await runQuery(`SELECT * FROM \`${section.table}\` WHERE \`id\` = ? LIMIT 1`, [req.params.id]);
+    await db.query(`UPDATE \`${section.table}\` SET ${fields.join(", ")} WHERE \`id\` = ?`, vals);
+    const [rows] = await db.query(`SELECT * FROM \`${section.table}\` WHERE \`id\` = ? LIMIT 1`, [req.params.id]);
     res.json({ message: "Record updated.", record: rows[0] });
   } catch (err) {
     res.status(500).json({ message: "Failed to update record", error: err.message });
@@ -115,7 +111,7 @@ exports.deleteRecord = async (req, res) => {
 
   try {
     await ensureInventoryCategoriesSchema();
-    await runQuery(`DELETE FROM \`${section.table}\` WHERE \`id\` = ?`, [req.params.id]);
+    await db.query(`DELETE FROM \`${section.table}\` WHERE \`id\` = ?`, [req.params.id]);
     res.json({ message: "Record deleted." });
   } catch (err) {
     res.status(500).json({ message: "Failed to delete record", error: err.message });

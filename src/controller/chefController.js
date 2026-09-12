@@ -4,10 +4,6 @@ const { ensureSchema: ensureKitchenSchema } = require("../models/KotOrdersModel"
 const notificationController = require("../controller/notificationController");
 const { syncRestaurantOrdersToKitchen } = require("../utils/kitchenOrderSync");
 
-const q = (sql, params = []) =>
-  new Promise((resolve, reject) =>
-    db.query(sql, params, (err, res) => (err ? reject(err) : resolve(res)))
-  );
 
 const parseItems = (raw) => {
   if (!raw) return [];
@@ -49,7 +45,7 @@ const normalizePrepTime = (value) => {
 exports.getKitchenOrders = async (req, res) => {
   try {
     await syncRestaurantOrdersToKitchen();
-    const rows = await q(
+    const rows = await db.query(
       `SELECT * FROM kitchen_orders WHERE COALESCE(token_status, 'Active') != 'Closed' ORDER BY created_at DESC`
     );
     res.json(rows.map(normalizeOrder));
@@ -69,7 +65,7 @@ exports.updateOrderStatus = async (req, res) => {
   const { status, prepTimeMinutes, readyMessage } = req.body;
 
   try {
-    const existingRows = await q("SELECT id FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const existingRows = await db.query("SELECT id FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
     if (!existingRows.length) {
       return res.status(404).json({ message: "Kitchen order not found" });
     }
@@ -90,9 +86,9 @@ exports.updateOrderStatus = async (req, res) => {
     }
     if (!fields.length) return res.status(400).json({ message: "Nothing to update" });
     vals.push(id);
-    await q(`UPDATE kitchen_orders SET ${fields.join(", ")} WHERE id = ?`, vals);
+    await db.query(`UPDATE kitchen_orders SET ${fields.join(", ")} WHERE id = ?`, vals);
 
-    const updatedRows = await q("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const updatedRows = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
     const updatedOrder = normalizeOrder(updatedRows[0] || {});
 
     global.io?.emit("kitchen-order-updated", {

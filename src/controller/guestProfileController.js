@@ -1,15 +1,10 @@
 const db = require("../config/db");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-  });
-
 // ─── Search guest by mobile number or name ────────────────────────────────────
 // Optional `bookingId` query param: if present, load profile anchored to that
 // specific booking (used when opening Guest Profile from a booking row).
 const loadProfileForMobile = async (mobile) => {
-  const bookings = await runQuery(
+  const bookings = await db.query(
     `SELECT
        g.id           AS bookingId,
        g.booking_code AS bookingCode,
@@ -64,7 +59,7 @@ const loadProfileForMobile = async (mobile) => {
   );
 
   // Replaced guestDocumentModel.getDocumentsByMobile with raw SQL
-  const documents = await runQuery(
+  const documents = await db.query(
     `SELECT
        id,
        booking_id,
@@ -92,7 +87,7 @@ exports.search = async (req, res) => {
   try {
     // Path A: explicit bookingId — load that booking's guest directly
     if (bookingId) {
-      const bookingRows = await runQuery(
+      const bookingRows = await db.query(
         `SELECT id, guest_name, mobile, guest_email, booking_status, check_in, check_out
          FROM guests
          WHERE id = ?
@@ -125,7 +120,7 @@ exports.search = async (req, res) => {
       return res.status(400).json({ error: "Query parameter 'q' or 'bookingId' is required" });
     }
 
-    const guestRows = await runQuery(
+    const guestRows = await db.query(
       `SELECT id, guest_name, mobile, guest_email, booking_status, check_in, check_out
        FROM guests
        WHERE mobile LIKE ? OR LOWER(guest_name) LIKE LOWER(?)
@@ -157,7 +152,7 @@ exports.searchList = async (req, res) => {
       return res.json([]);
     }
 
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT id, guest_name, mobile, guest_email, booking_status, check_in, check_out
        FROM guests
        WHERE mobile LIKE ? OR LOWER(guest_name) LIKE LOWER(?)

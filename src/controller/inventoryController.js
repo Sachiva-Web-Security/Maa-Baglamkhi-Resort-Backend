@@ -1,12 +1,7 @@
 const db = require("../config/db");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, results) => (err ? reject(err) : resolve(results)));
-  });
-
 const columnExists = async (tableName, columnName) => {
-  const rows = await runQuery(
+  const rows = await db.query(
     `SELECT COUNT(*) AS count
      FROM information_schema.columns
      WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`,
@@ -16,7 +11,7 @@ const columnExists = async (tableName, columnName) => {
 };
 
 const tableExists = async (tableName) => {
-  const rows = await runQuery(
+  const rows = await db.query(
     `SELECT COUNT(*) AS count
      FROM information_schema.tables
      WHERE table_schema = DATABASE() AND table_name = ?`,
@@ -126,7 +121,7 @@ const syncInventoryExpiryFromInwards = async (connection, itemId) => {
 };
 
 const ensureAccountsMirrorSchema = async () => {
-  await runQuery(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS vendor_payment_records (
       id INT NOT NULL AUTO_INCREMENT,
       vendor_name VARCHAR(255) NOT NULL,
@@ -145,7 +140,7 @@ const ensureAccountsMirrorSchema = async () => {
     )
   `);
 
-  await runQuery(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS purchase_orders (
       id INT NOT NULL AUTO_INCREMENT,
       po_number VARCHAR(100) NOT NULL,
@@ -167,19 +162,19 @@ const ensureAccountsMirrorSchema = async () => {
 
   if (await tableExists("vendor_payment_records")) {
     if (!(await columnExists("vendor_payment_records", "source_module"))) {
-      await runQuery("ALTER TABLE vendor_payment_records ADD COLUMN source_module VARCHAR(80) NULL AFTER notes");
+      await db.query("ALTER TABLE vendor_payment_records ADD COLUMN source_module VARCHAR(80) NULL AFTER notes");
     }
     if (!(await columnExists("vendor_payment_records", "source_id"))) {
-      await runQuery("ALTER TABLE vendor_payment_records ADD COLUMN source_id INT NULL AFTER source_module");
+      await db.query("ALTER TABLE vendor_payment_records ADD COLUMN source_id INT NULL AFTER source_module");
     }
   }
 
   if (await tableExists("purchase_orders")) {
     if (!(await columnExists("purchase_orders", "source_module"))) {
-      await runQuery("ALTER TABLE purchase_orders ADD COLUMN source_module VARCHAR(80) NULL AFTER notes");
+      await db.query("ALTER TABLE purchase_orders ADD COLUMN source_module VARCHAR(80) NULL AFTER notes");
     }
     if (!(await columnExists("purchase_orders", "source_id"))) {
-      await runQuery("ALTER TABLE purchase_orders ADD COLUMN source_id INT NULL AFTER source_module");
+      await db.query("ALTER TABLE purchase_orders ADD COLUMN source_id INT NULL AFTER source_module");
     }
   }
 };
@@ -197,20 +192,20 @@ const syncAccountsVendorPayment = async (paymentId, data) => {
     source_module: "inventory",
     source_id: paymentId,
   };
-  const existing = await runQuery(
+  const existing = await db.query(
     "SELECT id FROM vendor_payment_records WHERE source_module = 'inventory' AND source_id = ? LIMIT 1",
     [paymentId],
   );
   if (existing[0]?.id) {
-    await runQuery("UPDATE vendor_payment_records SET ? WHERE id = ?", [payload, existing[0].id]);
+    await db.query("UPDATE vendor_payment_records SET ? WHERE id = ?", [payload, existing[0].id]);
   } else {
-    await runQuery("INSERT INTO vendor_payment_records SET ?", [payload]);
+    await db.query("INSERT INTO vendor_payment_records SET ?", [payload]);
   }
 };
 
 const deleteAccountsVendorPaymentMirror = async (paymentId) => {
   await ensureAccountsMirrorSchema();
-  await runQuery("DELETE FROM vendor_payment_records WHERE source_module = 'inventory' AND source_id = ?", [paymentId]);
+  await db.query("DELETE FROM vendor_payment_records WHERE source_module = 'inventory' AND source_id = ?", [paymentId]);
 };
 
 const syncAccountsPurchaseOrder = async (poId, data, fallbackOrderDate = null) => {
@@ -227,21 +222,21 @@ const syncAccountsPurchaseOrder = async (poId, data, fallbackOrderDate = null) =
     source_module: "inventory",
     source_id: poId,
   };
-  const existing = await runQuery(
+  const existing = await db.query(
     "SELECT id, order_date FROM purchase_orders WHERE source_module = 'inventory' AND source_id = ? LIMIT 1",
     [poId],
   );
   if (existing[0]?.id) {
     payload.order_date = data.orderDate || existing[0].order_date || payload.order_date;
-    await runQuery("UPDATE purchase_orders SET ? WHERE id = ?", [payload, existing[0].id]);
+    await db.query("UPDATE purchase_orders SET ? WHERE id = ?", [payload, existing[0].id]);
   } else {
-    await runQuery("INSERT INTO purchase_orders SET ?", [payload]);
+    await db.query("INSERT INTO purchase_orders SET ?", [payload]);
   }
 };
 
 const deleteAccountsPurchaseOrderMirror = async (poId) => {
   await ensureAccountsMirrorSchema();
-  await runQuery("DELETE FROM purchase_orders WHERE source_module = 'inventory' AND source_id = ?", [poId]);
+  await db.query("DELETE FROM purchase_orders WHERE source_module = 'inventory' AND source_id = ?", [poId]);
 };
 
 const writeLedgerEntry = async (connection, entry) => {
@@ -270,7 +265,7 @@ const writeLedgerEntry = async (connection, entry) => {
 };
 
 const ensureSchema = async () => {
-  await runQuery(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS inventory (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
@@ -302,11 +297,11 @@ const ensureSchema = async () => {
 
   for (const [columnName, definition] of inventoryColumns) {
     if (!(await columnExists("inventory", columnName))) {
-      await runQuery(`ALTER TABLE inventory ADD COLUMN ${columnName} ${definition}`);
+      await db.query(`ALTER TABLE inventory ADD COLUMN ${columnName} ${definition}`);
     }
   }
 
-  await runQuery(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS inventory_waste_log (
       id INT AUTO_INCREMENT PRIMARY KEY,
       item_id INT NULL,
@@ -322,7 +317,7 @@ const ensureSchema = async () => {
     )
   `);
 
-  await runQuery(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS inventory_purchase_orders (
       id INT AUTO_INCREMENT PRIMARY KEY,
       po_number VARCHAR(120) NOT NULL,
@@ -338,7 +333,7 @@ const ensureSchema = async () => {
     )
   `);
 
-  await runQuery(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS inventory_stock_audit (
       id INT AUTO_INCREMENT PRIMARY KEY,
       item_id INT NULL,
@@ -354,7 +349,7 @@ const ensureSchema = async () => {
     )
   `);
 
-  await runQuery(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS inventory_transfers (
       id INT AUTO_INCREMENT PRIMARY KEY,
       item_id INT NULL,
@@ -371,15 +366,15 @@ const ensureSchema = async () => {
   `);
 
   if (!(await columnExists("inventory_waste_log", "item_id"))) {
-    await runQuery("ALTER TABLE inventory_waste_log ADD COLUMN item_id INT NULL AFTER id");
+    await db.query("ALTER TABLE inventory_waste_log ADD COLUMN item_id INT NULL AFTER id");
   }
 
   if (!(await columnExists("inventory_transfers", "item_id"))) {
-    await runQuery("ALTER TABLE inventory_transfers ADD COLUMN item_id INT NULL AFTER id");
+    await db.query("ALTER TABLE inventory_transfers ADD COLUMN item_id INT NULL AFTER id");
   }
   await ensureAccountsMirrorSchema();
 
-  await runQuery(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS inventory_vendor_inwards (
       id INT AUTO_INCREMENT PRIMARY KEY,
       po_id INT NULL,
@@ -405,13 +400,13 @@ const ensureSchema = async () => {
   `);
 
   if (!(await columnExists("inventory_vendor_inwards", "batch_no"))) {
-    await runQuery("ALTER TABLE inventory_vendor_inwards ADD COLUMN batch_no VARCHAR(120) NULL AFTER invoice_no");
+    await db.query("ALTER TABLE inventory_vendor_inwards ADD COLUMN batch_no VARCHAR(120) NULL AFTER invoice_no");
   }
   if (!(await columnExists("inventory_vendor_inwards", "expiry_date"))) {
-    await runQuery("ALTER TABLE inventory_vendor_inwards ADD COLUMN expiry_date DATE NULL AFTER batch_no");
+    await db.query("ALTER TABLE inventory_vendor_inwards ADD COLUMN expiry_date DATE NULL AFTER batch_no");
   }
 
-  await runQuery(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS inventory_vendor_payments (
       id INT AUTO_INCREMENT PRIMARY KEY,
       vendor_name VARCHAR(255) NOT NULL,
@@ -427,7 +422,7 @@ const ensureSchema = async () => {
     )
   `);
 
-  await runQuery(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS inventory_stock_ledger (
       id INT AUTO_INCREMENT PRIMARY KEY,
       item_id INT NULL,
@@ -448,7 +443,7 @@ const ensureSchema = async () => {
     )
   `);
 
-  await runQuery(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS inventory_chef_issues (
       id INT AUTO_INCREMENT PRIMARY KEY,
       item_id INT NULL,
@@ -533,7 +528,7 @@ exports.createItem = async (req, res) => {
 exports.getItems = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT id, name, category, subcategory, stock, unit, price,
               reorder_point AS reorderPoint,
               DATE_FORMAT(expiry, '%Y-%m-%d') AS expiry,
@@ -551,7 +546,7 @@ exports.getItems = async (req, res) => {
 exports.getItem = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT id, name, category, subcategory, stock, unit, price,
               reorder_point AS reorderPoint,
               DATE_FORMAT(expiry, '%Y-%m-%d') AS expiry,
@@ -643,7 +638,7 @@ exports.updateItem = async (req, res) => {
 exports.deleteItem = async (req, res) => {
   try {
     await ensureSchema();
-    await runQuery("DELETE FROM inventory WHERE id = ?", [req.params.id]);
+    await db.query("DELETE FROM inventory WHERE id = ?", [req.params.id]);
     res.json({ message: "Item deleted successfully." });
   } catch (error) {
     res.status(500).json({ message: "Failed to delete item.", error });
@@ -653,7 +648,7 @@ exports.deleteItem = async (req, res) => {
 exports.getLowStockAlerts = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT id, name, category, stock, unit, reorder_point AS reorderPoint, branch
        FROM inventory
        WHERE stock <= reorder_point
@@ -669,7 +664,7 @@ exports.getExpiringItems = async (req, res) => {
   try {
     await ensureSchema();
     const daysAhead = parseInt(req.query.days, 10) || 30;
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT id, name, category, stock, unit, branch,
               DATE_FORMAT(expiry, '%Y-%m-%d') AS expiry,
               DATEDIFF(expiry, CURDATE()) AS daysToExpiry
@@ -759,7 +754,7 @@ exports.logWaste = async (req, res) => {
 exports.getWasteLogs = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT id, item_id AS itemId, item_name AS itemName, quantity, unit, reason, store, remarks,
               DATE_FORMAT(waste_date, '%Y-%m-%d') AS date, created_by AS createdBy,
               created_at AS createdAt
@@ -897,7 +892,7 @@ exports.createPurchaseOrder = async (req, res) => {
   try {
     await ensureSchema();
     const data = { ...req.body, createdBy: req.user?.username || "system" };
-    const result = await runQuery(
+    const result = await db.query(
       `INSERT INTO inventory_purchase_orders (po_number, vendor, item_name, quantity, unit, rate, expected_date, status, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -922,7 +917,7 @@ exports.createPurchaseOrder = async (req, res) => {
 exports.getPurchaseOrders = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT id, po_number AS poNumber, vendor, item_name AS itemName,
               quantity, unit, rate,
               DATE_FORMAT(expected_date, '%Y-%m-%d') AS expectedDate,
@@ -941,11 +936,11 @@ exports.updatePurchaseOrder = async (req, res) => {
   try {
     await ensureSchema();
     const data = req.body || {};
-    const existingRows = await runQuery(
+    const existingRows = await db.query(
       "SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS createdDate FROM inventory_purchase_orders WHERE id = ? LIMIT 1",
       [req.params.id],
     );
-    await runQuery(
+    await db.query(
       `UPDATE inventory_purchase_orders SET po_number=?, vendor=?, item_name=?, quantity=?, unit=?, rate=?, expected_date=?, status=? WHERE id=?`,
       [data.poNumber, data.vendor, data.itemName, data.quantity, data.unit || null, data.rate, data.expectedDate || null, data.status, req.params.id],
     );
@@ -959,7 +954,7 @@ exports.updatePurchaseOrder = async (req, res) => {
 exports.deletePurchaseOrder = async (req, res) => {
   try {
     await ensureSchema();
-    await runQuery("DELETE FROM inventory_purchase_orders WHERE id = ?", [req.params.id]);
+    await db.query("DELETE FROM inventory_purchase_orders WHERE id = ?", [req.params.id]);
     await deleteAccountsPurchaseOrderMirror(req.params.id);
     res.json({ message: "Purchase order deleted." });
   } catch (error) {
@@ -1059,7 +1054,7 @@ exports.createVendorInward = async (req, res) => {
 exports.getVendorInwards = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT id,
               po_id AS poId,
               po_number AS poNumber,
@@ -1234,7 +1229,7 @@ exports.createVendorPayment = async (req, res) => {
   try {
     await ensureSchema();
     const data = { ...req.body, createdBy: req.user?.username || "system" };
-    const result = await runQuery(
+    const result = await db.query(
       `INSERT INTO inventory_vendor_payments (vendor_name, invoice_ref, payment_date, amount, payment_mode, status, notes, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -1258,7 +1253,7 @@ exports.createVendorPayment = async (req, res) => {
 exports.getVendorPayments = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT id,
               vendor_name AS vendorName,
               invoice_ref AS invoiceRef,
@@ -1282,7 +1277,7 @@ exports.updateVendorPayment = async (req, res) => {
   try {
     await ensureSchema();
     const data = req.body || {};
-    await runQuery(
+    await db.query(
       `UPDATE inventory_vendor_payments SET vendor_name=?, invoice_ref=?, payment_date=?, amount=?, payment_mode=?, status=?, notes=? WHERE id=?`,
       [
         data.vendorName || data.vendor || "",
@@ -1305,7 +1300,7 @@ exports.updateVendorPayment = async (req, res) => {
 exports.deleteVendorPayment = async (req, res) => {
   try {
     await ensureSchema();
-    await runQuery("DELETE FROM inventory_vendor_payments WHERE id = ?", [req.params.id]);
+    await db.query("DELETE FROM inventory_vendor_payments WHERE id = ?", [req.params.id]);
     await deleteAccountsVendorPaymentMirror(req.params.id);
     res.json({ message: "Vendor payment deleted." });
   } catch (error) {
@@ -1316,7 +1311,7 @@ exports.deleteVendorPayment = async (req, res) => {
 exports.getStockLedger = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT *
        FROM (
          SELECT
@@ -1393,15 +1388,15 @@ exports.getStockFlowReport = async (req, res) => {
     const dateTo = normalizeDateOnly(req.query.dateTo);
 
     const [inventoryRows, vendorRows, ledgerRows] = await Promise.all([
-      runQuery(
+      db.query(
         `SELECT id, name, category, stock, unit, price, reorder_point AS reorderPoint, branch FROM inventory ORDER BY name ASC`,
       ),
-      runQuery(
+      db.query(
         `SELECT item_id AS itemId, item_name AS itemName, vendor_name AS vendorName,
                 DATE_FORMAT(received_date, '%Y-%m-%d') AS receivedDate, created_at AS createdAt
          FROM inventory_vendor_inwards ORDER BY received_date DESC, created_at DESC`,
       ),
-      runQuery(
+      db.query(
         `SELECT * FROM (
            SELECT l.item_id AS itemId, l.item_name AS itemName, l.reference_type AS referenceType, l.direction, l.quantity, l.unit, l.balance_after AS balanceAfter, DATE_FORMAT(l.entry_date, '%Y-%m-%d') AS entryDate, l.created_at AS createdAt FROM inventory_stock_ledger l
            UNION ALL
@@ -1522,14 +1517,14 @@ exports.getVendorInsights = async (req, res) => {
   try {
     await ensureSchema();
     const [summaryRows, vendorRows] = await Promise.all([
-      runQuery(
+      db.query(
         `SELECT
           (SELECT COUNT(*) FROM inventory_vendors) AS totalVendors,
           (SELECT COALESCE(SUM(quantity_received), 0) FROM inventory_vendor_inwards) AS totalReceivedQty,
           (SELECT COALESCE(SUM(amount), 0) FROM inventory_vendor_inwards) AS totalReceivedValue,
           (SELECT COALESCE(SUM(amount), 0) FROM inventory_vendor_payments WHERE status <> 'Cancelled') AS totalPaidAmount`,
       ),
-      runQuery(
+      db.query(
         `SELECT base.vendorName, COALESCE(v.status, 'Active') AS status,
                 COALESCE(inwardStats.receiptsCount, 0) AS receiptsCount,
                 COALESCE(inwardStats.totalQty, 0) AS totalQty,
@@ -1799,7 +1794,7 @@ exports.getChefIssues = async (req, res) => {
     }
 
     sql += " ORDER BY issued_at DESC, id DESC";
-    const rows = await runQuery(sql, params);
+    const rows = await db.query(sql, params);
     res.json(rows);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch chef issues.", error });
@@ -1809,7 +1804,7 @@ exports.getChefIssues = async (req, res) => {
 exports.getChefIssueById = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT id, item_id AS itemId, item_name AS itemName,
               quantity_issued AS quantityIssued, quantity_returned AS quantityReturned,
               unit, chef_name AS chefName, chef_id AS chefId,
@@ -1842,7 +1837,7 @@ exports.submitAudit = async (req, res) => {
     for (const entry of entries) {
       const data = { ...entry, auditedBy: req.user?.username || "system" };
       try {
-        await runQuery(
+        await db.query(
           `INSERT INTO inventory_stock_audit (item_id, item_name, system_stock, physical_stock, variance, unit, remarks, audit_date, audited_by)
            VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE(), ?)`,
           [data.itemId, data.itemName, data.systemStock, data.physicalStock, data.variance, data.unit, data.remarks || null, data.auditedBy || "system"],
@@ -1865,7 +1860,7 @@ exports.submitAudit = async (req, res) => {
 exports.getAuditReport = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT id, item_id AS itemId, item_name AS itemName,
               system_stock AS systemStock, physical_stock AS physicalStock,
               variance, unit, remarks,
@@ -1946,7 +1941,7 @@ exports.recordTransfer = async (req, res) => {
 exports.getTransfers = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await runQuery(
+    const rows = await db.query(
       `SELECT id, item_id AS itemId, item_name AS itemName, from_store AS fromStore, to_store AS toStore,
               quantity, unit, approved_by AS approvedBy,
               DATE_FORMAT(transfer_date, '%Y-%m-%d') AS date, notes

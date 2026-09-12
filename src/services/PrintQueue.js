@@ -13,10 +13,6 @@ const db = require("../config/db");
 const { ensureSchema } = require("../models/PrintLogsModel");
 const PrintConfig = require("../PrintConfig");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-  });
 
 const isTestEnv = () => process.env.NODE_ENV === "test";
 
@@ -42,7 +38,7 @@ class PrintQueue {
     const printer = PrintConfig.getPrinter(printerKey);
     const jobId = `JOB-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    await runQuery(
+    await db.query(
       `INSERT INTO print_queue (job_id, print_type, payload, printer_name, priority, max_retries, status)
        VALUES (?, ?, ?, ?, ?, ?, 'queued')`,
       [jobId, printType, JSON.stringify(payload), printer.name, priority, maxRetries],
@@ -90,7 +86,7 @@ class PrintQueue {
     this.processing = true;
 
     try {
-      const jobRows = await runQuery(
+      const jobRows = await db.query(
         `SELECT * FROM print_queue
          WHERE status = 'queued'
          ORDER BY priority DESC, created_at ASC
@@ -119,7 +115,7 @@ class PrintQueue {
     this.logger(`Processing job: ${job.job_id} type=${job.print_type}`);
 
     // Mark as processing
-    await runQuery(
+    await db.query(
       `UPDATE print_queue SET status = 'processing', processed_at = NOW() WHERE id = ?`,
       [job.id],
     );
@@ -138,10 +134,10 @@ class PrintQueue {
       }
 
       // Success
-      await runQuery(`UPDATE print_queue SET status = 'completed' WHERE id = ?`, [job.id]);
+      await db.query(`UPDATE print_queue SET status = 'completed' WHERE id = ?`, [job.id]);
 
       const printNo = `PRN-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${String(Date.now()).slice(-6)}`;
-      await runQuery(
+      await db.query(
         `INSERT INTO print_logs
           (print_no, invoice_no, kot_no, print_type, printer_name, print_count, printed_by, printed_at, status, metadata)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'success', ?)`,
@@ -170,13 +166,13 @@ class PrintQueue {
 
       if (newRetryCount >= (job.max_retries || 3)) {
         // Final failure
-        await runQuery(
+        await db.query(
           `UPDATE print_queue SET status = 'failed', retry_count = ?, error_message = ? WHERE id = ?`,
           [newRetryCount, err.message, job.id],
         );
 
         // Log failure
-        await runQuery(
+        await db.query(
           `INSERT INTO print_logs
             (print_no, invoice_no, kot_no, print_type, printer_name, print_count, printed_by, printed_at, status, error_message, metadata)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'failed', ?, ?)`,
@@ -195,7 +191,7 @@ class PrintQueue {
         );
       } else {
         // Retry — re-queue
-        await runQuery(
+        await db.query(
           `UPDATE print_queue SET status = 'queued', retry_count = ? WHERE id = ?`,
           [newRetryCount, job.id],
         );
@@ -280,13 +276,13 @@ class PrintQueue {
    */
   async flushPendingJobs() {
     try {
-      const rows = await runQuery(
+      const rows = await db.query(
         `SELECT COUNT(*) AS cnt FROM print_queue WHERE status IN ('queued', 'processing')`,
       );
       const count = rows?.[0]?.cnt || 0;
       if (count > 0) {
         this.logger(`Resetting ${count} stale print jobs to queued`);
-        await runQuery(`UPDATE print_queue SET status = 'queued', processed_at = NULL WHERE status = 'processing'`);
+        await db.query(`UPDATE print_queue SET status = 'queued', processed_at = NULL WHERE status = 'processing'`);
       }
     } catch (err) {
       this.logger("Flush failed:", err.message);

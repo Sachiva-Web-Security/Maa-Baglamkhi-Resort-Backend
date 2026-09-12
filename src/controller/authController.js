@@ -113,7 +113,7 @@ exports.login = async (req, res) => {
  * - Creates user in `register` with hashed password.
  */
 exports.register = async (req, res) => {
-  const { name, email, password, role } = req.body || {};
+  const { name, email, password, role_id, role } = req.body || {};
 
   if (!name || !email || !password) {
     return res.status(400).json({ message: "name, email, password required" });
@@ -126,14 +126,15 @@ exports.register = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const normalizedRole = role ? String(role) : "admin";
+    const roleId = Number(role_id || role || 1);
     await db.query(
       "INSERT INTO users (name, email, password_hash, role_id, status) VALUES (?, ?, ?, ?, 'active')",
-      [name, email, hashedPassword, normalizedRole]
+      [name, email, hashedPassword, roleId]
     );
 
     return res.json({ message: "Registered successfully" });
   } catch (hashErr) {
+    console.error("Register error:", hashErr);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
