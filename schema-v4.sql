@@ -853,7 +853,7 @@ CREATE TABLE IF NOT EXISTS `folio_entries` (
   `booking_id` BIGINT UNSIGNED NOT NULL,
   `booking_room_id` BIGINT UNSIGNED,
   `entry_date` DATE NOT NULL,
-  `entry_type` ENUM('room_charge','extra_charge','discount','payment','refund','adjustment','food','beverage','service') DEFAULT 'miscellaneous',
+  `entry_type` ENUM('room_charge','extra_charge','discount','payment','refund','adjustment','food','beverage','service') DEFAULT 'adjustment',
   `category` VARCHAR(100) DEFAULT 'Miscellaneous',
   `description` VARCHAR(255) NOT NULL,
   `amount` DECIMAL(12,2) NOT NULL,
@@ -1030,7 +1030,7 @@ CREATE TABLE IF NOT EXISTS `inventory_units` (
 CREATE TABLE IF NOT EXISTS `inventory_locations` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(120) NOT NULL,
-  `type` ENUM('store','cold_storage','dry_store','bar','kitchen','bar','other') DEFAULT 'store',
+  `type` ENUM('store','cold_storage','dry_store','bar','kitchen','other') DEFAULT 'store',
   `building` VARCHAR(100),
   `floor` VARCHAR(20),
   `is_active` TINYINT(1) DEFAULT 1,

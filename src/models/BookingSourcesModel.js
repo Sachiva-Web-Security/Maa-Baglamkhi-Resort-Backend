@@ -1,4 +1,4 @@
-const pool = require('../config/db')
+const { pool, getConnection } = require('../utils/poolPromise')
 
 class BookingSources {
   constructor() {
@@ -6,7 +6,7 @@ class BookingSources {
   }
 
   async ensureSchema() {
-    const conn = await pool.getConnection()
+    const conn = await getConnection()
     try {
       await conn.beginTransaction()
 
