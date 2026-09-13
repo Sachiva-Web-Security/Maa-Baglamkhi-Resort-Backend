@@ -50,7 +50,7 @@ exports.getMyAttendance = async (req, res) => {
 
 exports.getAllAttendance = async (req, res) => {
   return withAttendanceSchema(res, async () => {
-    const [users] = await UsersModel.findAll();
+    const users = await UsersModel.findAll();
     const userIds = users.map((u) => u.id);
     const placeholders = userIds.map(() => "?").join(",");
     const records = userIds.length
@@ -62,7 +62,7 @@ exports.getAllAttendance = async (req, res) => {
 
     const enrichedRecords = await Promise.all(
       records.map(async (record) => {
-        const [matched] = await UsersModel.findById(record.user_id);
+        const matched = await UsersModel.findById(record.user_id);
         const user = matched[0] || {};
         return {
           ...record,

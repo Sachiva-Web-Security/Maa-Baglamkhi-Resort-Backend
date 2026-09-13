@@ -53,6 +53,22 @@ exports.avatarUpload = multer({
 
 // ================= CREATE USER =================
 
+const ROLE_NAME_TO_ID = {
+  admin: 1,
+  manager: 2,
+  reception: 3,
+  accounts: 4,
+  housekeeping: 5,
+  waiter: 6,
+  kitchen: 7,
+};
+
+const resolveRoleId = (raw) => {
+  if (Number.isInteger(raw)) return raw;
+  const normalized = String(raw || "").trim().toLowerCase();
+  return ROLE_NAME_TO_ID[normalized] ?? Number(normalized) ?? 4;
+};
+
 exports.createUser = async (req, res) => {
   const { name, email, password, role } = req.body || {};
 
@@ -61,18 +77,20 @@ exports.createUser = async (req, res) => {
   }
 
   try {
-    const existing = await UsersModel.findByEmail(email).then(rows => rows[0] || null);
-    if (existing) {
+    const existing = await UsersModel.findByEmail(email);
+    const first = Array.isArray(existing) ? existing[0] : null;
+    if (first) {
       return res.status(400).json({
         message: "Email already exists",
       });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+    const roleId = resolveRoleId(role);
 
     await db.query(
       "INSERT INTO users (name, email, password_hash, role_id, status) VALUES (?, ?, ?, ?, 'active')",
-      [name, email, hashedPassword, String(role).toLowerCase()]
+      [name, email, hashedPassword, roleId]
     );
 
     return res.json({
@@ -81,7 +99,7 @@ exports.createUser = async (req, res) => {
         id: null,
         name,
         email,
-        role: String(role).toLowerCase(),
+        role: String(roleId),
       },
     });
   } catch (hashErr) {
@@ -104,6 +122,26 @@ exports.getUsers = async (req, res) => {
   }
 };
 
+exports.getUserById = async (req, res) => {
+  const { id } = req.params;
+
+  if (!id) {
+    return res.status(400).json({ message: "User id required" });
+  }
+
+  try {
+    const rows = await UsersModel.findById(id);
+    const user = rows[0] || null;
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    res.json(sanitizeUser(user));
+  } catch (err) {
+    console.error("Error fetching user:", err);
+    res.status(500).json({ message: "Error fetching user" });
+  }
+};
+
 exports.deleteUser = async (req, res) => {
   const { id } = req.params;
 
@@ -112,7 +150,7 @@ exports.deleteUser = async (req, res) => {
   }
 
   try {
-    const [rows] = await UsersModel.findById(id);
+    const rows = await UsersModel.findById(id);
     const existingUser = rows[0] || null;
     if (!existingUser) {
       return res.status(404).json({ message: "User not found" });
@@ -146,7 +184,7 @@ exports.updateUser = async (req, res) => {
   }
 
   try {
-    const [rows] = await UsersModel.findById(id);
+    const rows = await UsersModel.findById(id);
     const existingUser = rows[0] || null;
     if (!existingUser) {
       return res.status(404).json({ message: "User not found" });
@@ -191,7 +229,7 @@ exports.getMe = async (req, res) => {
   }
 
   try {
-    const [rows] = await UsersModel.findByEmail(email);
+    const rows = await UsersModel.findByEmail(email);
     const user = rows[0] || null;
 
     if (!user) {
@@ -261,7 +299,7 @@ exports.changePassword = async (req, res) => {
   }
 
   try {
-    const [rows] = await UsersModel.findByEmail(targetEmail);
+    const rows = await UsersModel.findByEmail(targetEmail);
     const user = rows[0] || null;
 
     if (!user) {
@@ -320,7 +358,7 @@ exports.updateMyAvatar = async (req, res) => {
   const avatarUrl = `/uploads/${req.file.filename}`;
 
   try {
-    const [rows] = await UsersModel.findByEmail(email);
+    const rows = await UsersModel.findByEmail(email);
     const existingUser = rows[0] || null;
 
     req.setAuditContext?.({
@@ -362,7 +400,7 @@ exports.updateMe = async (req, res) => {
   }
 
   try {
-    const [rows] = await UsersModel.findById(id);
+    const rows = await UsersModel.findById(id);
     const existingUser = rows[0] || null;
     if (!existingUser) {
       return res.status(404).json({ message: "User not found" });

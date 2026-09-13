@@ -70,6 +70,34 @@ function inferAction(req) {
   return "read";
 }
 
+function inferModule(req) {
+  const path = String(req.originalUrl || req.path || "").split("?")[0];
+  const segments = path.split("/").filter(Boolean);
+
+  if (segments.length >= 2 && segments[0] === "api") {
+    const module = String(segments[1] || "").toLowerCase();
+    if (module) return module;
+  }
+
+  if (path === "/api/health") return "system";
+
+  return "unknown";
+}
+
+function inferModule(req) {
+  const path = String(req.originalUrl || req.path || "").split("?")[0];
+  const segments = path.split("/").filter(Boolean);
+
+  if (segments.length >= 2 && segments[0] === "api") {
+    const module = String(segments[1] || "").toLowerCase();
+    if (module) return module;
+  }
+
+  if (path === "/api/health") return "system";
+
+  return "unknown";
+}
+
 function getClientIp(req) {
   const forwarded = req.headers["x-forwarded-for"];
   if (typeof forwarded === "string" && forwarded.trim()) {
@@ -90,7 +118,7 @@ function shouldSkip(req) {
 }
 
 async function ensureAuditLogSchema() {
-  const [rows] = await db.promise().query(`
+  const [rows] = await db.query(`
     CREATE TABLE IF NOT EXISTS \`${TABLE_NAME}\` (
       \`id\` BIGINT NOT NULL AUTO_INCREMENT,
       \`user_id\` BIGINT NULL,
@@ -118,7 +146,10 @@ async function createAuditLog(entry) {
 
   const payload = {
     user_id: entry.userId ?? null,
+    user_name: entry.userName || null,
+    user_role: entry.userRole || null,
     action: entry.action || "unknown",
+    module: entry.module || "unknown",
     endpoint: entry.endpoint || "",
     http_method: entry.httpMethod || "",
     request_data: safeSerialize(entry.requestData),
@@ -129,15 +160,18 @@ async function createAuditLog(entry) {
     response_body: safeSerialize(entry.responseBody),
   };
 
-  await db.promise().query(
+  await db.query(
     `
       INSERT INTO ${TABLE_NAME}
-        (user_id, action, endpoint, http_method, request_data, response_status, ip_address, old_value, new_value, response_body)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (user_id, user_name, user_role, action, module, endpoint, http_method, request_data, response_status, ip_address, old_value, new_value, response_body)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       payload.user_id,
+      payload.user_name,
+      payload.user_role,
       payload.action,
+      payload.module,
       payload.endpoint,
       payload.http_method,
       payload.request_data,
@@ -168,6 +202,7 @@ function auditLogger(req, res, next) {
 
   req.auditContext = {
     action: inferAction(req),
+    module: inferModule(req),
     userId: null,
     oldValue: null,
     newValue: null,

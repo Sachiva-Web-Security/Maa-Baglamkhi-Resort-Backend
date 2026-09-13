@@ -2,6 +2,7 @@ const router = require("express").Router();
 const {
   createUser,
   getUsers,
+  getUserById,
   deleteUser,
   updateUser,
   getMe,
@@ -23,6 +24,7 @@ router.put("/me/avatar", authMiddleware, avatarUpload.single("avatar"), updateMy
 
 router.post("/", authMiddleware, roleMiddleware(["admin"]), createUser);
 router.get("/", authMiddleware, getUsers);
+router.get("/:id", authMiddleware, getUserById);
 router.delete("/:id", authMiddleware, roleMiddleware(["admin"]), deleteUser);
 router.put("/:id", authMiddleware, roleMiddleware(["admin"]), updateUser);
 

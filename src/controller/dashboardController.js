@@ -75,7 +75,6 @@ const resolveBillSource = async (rangeConditionBuilder) => {
 };
 
 const resolveRoomSource = async () => {
-  if (await tableExists("hotel_room_inventory")) return "hotel_room_inventory";
   if (await tableExists("rooms")) return "rooms";
   return "";
 };
@@ -298,48 +297,52 @@ const getTodayRevenue = async () => {
 };
 
 const getGuestStayRows = async () => {
-  if (!(await tableExists("guests"))) return [];
+  if (await tableExists("guest_profiles") && await tableExists("room_tariff")) {
+    const hasCheckIn = await columnExists("guest_profiles", "check_in");
+    const hasCheckInDate = await columnExists("guest_profiles", "check_in_date");
 
-  const hasRoomTariff = await tableExists("room_tariff");
-  const roomJoin = hasRoomTariff
-    ? `
-      LEFT JOIN (
+    let rows = [];
+    if (hasCheckIn) {
+      rows = await db.query(`
         SELECT
-          booking_id,
-          GROUP_CONCAT(DISTINCT CAST(room_number AS CHAR) ORDER BY room_number SEPARATOR ', ') AS rooms
-        FROM room_tariff
-        GROUP BY booking_id
-      ) rt ON rt.booking_id = g.id
-    `
-    : "";
-  const roomSelect = hasRoomTariff ? "COALESCE(rt.rooms, '') AS rooms," : "'' AS rooms,";
+          id,
+          booking_code,
+          guest_name,
+          check_in,
+          check_out,
+          booking_status,
+          phone AS mobile
+        FROM guest_profiles
+        ORDER BY id DESC
+      `);
+    } else if (hasCheckInDate) {
+      rows = await db.query(`
+        SELECT
+          id,
+          booking_code,
+          guest_name,
+          check_in_date AS check_in,
+          check_out_date AS check_out,
+          booking_status,
+          phone AS mobile
+        FROM guest_profiles
+        ORDER BY id DESC
+      `);
+    }
 
-  const rows = await db.query(`
-    SELECT
-      g.id,
-      g.booking_code,
-      g.guest_name,
-      g.check_in,
-      g.check_out,
-      g.booking_status,
-      ${roomSelect}
-      g.mobile
-    FROM guests g
-    ${roomJoin}
-    ORDER BY g.id DESC
-  `);
+    return rows.map((row) => ({
+      id: row.id,
+      bookingId: row.id,
+      bookingCode: row.booking_code || "",
+      guestName: row.guest_name || "Guest",
+      mobile: row.mobile || "",
+      checkIn: formatDateKey(row.check_in),
+      checkOut: formatDateKey(row.check_out),
+      bookingStatus: row.booking_status || "Confirmed",
+    }));
+  }
 
-  return rows.map((row) => ({
-    id: row.id,
-    bookingId: row.id,
-    bookingCode: row.booking_code || "",
-    guestName: row.guest_name || "Guest",
-    rooms: row.rooms || "",
-    mobile: row.mobile || "",
-    checkIn: formatDateKey(row.check_in),
-    checkOut: formatDateKey(row.check_out),
-    bookingStatus: row.booking_status || "Confirmed",
-  }));
+  return [];
 };
 
 const isInactiveBooking = (booking) => {
@@ -398,9 +401,9 @@ const getTotalRevenueGenerated = async () => {
     }
   }
 
-  // 2. Hotel bookings via guests + room_tariff (only bookings NOT already
+  // 2. Hotel bookings via guest_profiles + room_tariff (only bookings NOT already
   //    covered by an invoice to avoid double-counting)
-  if (await tableExists("guests") && await tableExists("room_tariff")) {
+  if (await tableExists("guest_profiles") && await tableExists("room_tariff")) {
     const hasInvoices = await tableExists("invoices");
     let excludeClause = "";
     let params = [];
@@ -414,7 +417,7 @@ const getTotalRevenueGenerated = async () => {
         .filter(Boolean);
       if (invoiceIds.length > 0) {
         const placeholders = invoiceIds.map(() => "?").join(",");
-        excludeClause = `AND g.id NOT IN (${placeholders})`;
+        excludeClause = `AND gp.id NOT IN (${placeholders})`;
         params = invoiceIds;
       }
     }
@@ -422,8 +425,8 @@ const getTotalRevenueGenerated = async () => {
     total += await getTotal(
       `
       SELECT COALESCE(SUM(rt.total), 0) AS total
-      FROM guests g
-      INNER JOIN room_tariff rt ON rt.booking_id = g.id
+      FROM guest_profiles gp
+      INNER JOIN room_tariff rt ON rt.booking_id = gp.id
       WHERE rt.total IS NOT NULL AND rt.total > 0
       ${excludeClause}
     `,
@@ -518,16 +521,16 @@ const getMonthlyRevenueChart = async () => {
 
   const monthMap = new Map(months.map((item) => [item.key, item]));
 
-  if (await tableExists("guests") && await tableExists("room_tariff")) {
+  if (await tableExists("guest_profiles") && await tableExists("room_tariff")) {
     const hotelRows = await db.query(`
       SELECT
-        DATE_FORMAT(g.check_in, '%Y-%m') AS monthKey,
+        DATE_FORMAT(gp.check_in, '%Y-%m') AS monthKey,
         COALESCE(SUM(rt.total), 0) AS total
-      FROM guests g
-      LEFT JOIN room_tariff rt ON rt.booking_id = g.id
-      WHERE g.check_in >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 5 MONTH)
-        AND LOWER(COALESCE(g.booking_status, 'confirmed')) NOT IN ('cancelled')
-      GROUP BY DATE_FORMAT(g.check_in, '%Y-%m')
+      FROM guest_profiles gp
+      LEFT JOIN room_tariff rt ON rt.booking_id = gp.id
+      WHERE gp.check_in >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 5 MONTH)
+        AND LOWER(COALESCE(gp.booking_status, 'confirmed')) NOT IN ('cancelled')
+      GROUP BY DATE_FORMAT(gp.check_in, '%Y-%m')
     `);
 
     hotelRows.forEach((row) => {

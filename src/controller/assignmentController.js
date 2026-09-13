@@ -2,10 +2,17 @@ const db = require("../config/db");
 const HousekeepingAssignmentsModel = require("../models/HousekeepingAssignmentsModel");
 const { getRequestActor } = require("../utils/requestActor");
 
-const query = (sql, params = []) =>
-  new Promise((resolve, reject) =>
-    db.query(sql, params, (err, results) => (err ? reject(err) : resolve(results)))
-  );
+const query = async (sql, params = []) => {
+  try {
+    const rows = await db.query(sql, params);
+    return rows;
+  } catch (err) {
+    if (err.code === 'ER_NO_SUCH_TABLE') {
+      return [];
+    }
+    throw err;
+  }
+};
 
 exports.bootstrap = async (_req, _res, next) => {
   try {
