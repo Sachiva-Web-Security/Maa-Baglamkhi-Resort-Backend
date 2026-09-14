@@ -1,19 +1,14 @@
 const db = require("../config/db");
 
 const ensureColumn = async (tableName, columnName, definition) => {
-  const [rows] = await db
-    .promise()
-    .query(`SHOW COLUMNS FROM \`${tableName}\` LIKE ?`, [columnName]);
-
+  const [rows] = await db.query(`SHOW COLUMNS FROM \`${tableName}\` LIKE ?`, [columnName]);
   if (!rows.length) {
-    await db.promise().query(
-      `ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${definition}`
-    );
+    await db.query(`ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${definition}`);
   }
 };
 
 const ensureSchema = async () => {
-  await db.promise().query(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS kitchen_orders (
       id INT AUTO_INCREMENT PRIMARY KEY,
       table_number VARCHAR(50) NOT NULL,
@@ -37,32 +32,34 @@ const ensureSchema = async () => {
   await ensureColumn("kitchen_orders", "kot_no", "VARCHAR(100) DEFAULT NULL");
   await ensureColumn("kitchen_orders", "expected_ready_at", "DATETIME NULL");
   await ensureColumn("kitchen_orders", "ready_at", "DATETIME NULL");
-  await ensureColumn("kitchen_orders", "ready_message", "VARCHAR(255) NULL");
+  await ensureColumn("kitchen_orders", "ready_message", "VARCHAR(255) DEFAULT NULL");
 };
 
-const createOrder = (data, callback) => {
+const createOrder = async (data) => {
   const sql = "INSERT INTO kitchen_orders SET ?";
-  db.query(sql, data, callback);
+  const [result] = await db.query(sql, data);
+  return result;
 };
 
-const getOrders = (callback) => {
-  const sql = "SELECT * FROM kitchen_orders ORDER BY id DESC";
-  db.query(sql, callback);
+const getOrders = async () => {
+  const [rows] = await db.query("SELECT * FROM kitchen_orders ORDER BY id DESC");
+  return rows;
 };
 
-const getOrderById = (id, callback) => {
-  const sql = "SELECT * FROM kitchen_orders WHERE id=? LIMIT 1";
-  db.query(sql, [id], callback);
+const getOrderById = async (id) => {
+  const [rows] = await db.query("SELECT * FROM kitchen_orders WHERE id=? LIMIT 1", [id]);
+  return rows[0] || null;
 };
 
-const updateOrder = (id, data, callback) => {
+const updateOrder = async (id, data) => {
   const sql = "UPDATE kitchen_orders SET ? WHERE id=?";
-  db.query(sql, [data, id], callback);
+  const [result] = await db.query(sql, [data, id]);
+  return result;
 };
 
-const cancelOrder = (id, callback) => {
-  const sql = "DELETE FROM kitchen_orders WHERE id=?";
-  db.query(sql, [id], callback);
+const cancelOrder = async (id) => {
+  const [result] = await db.query("DELETE FROM kitchen_orders WHERE id=?", [id]);
+  return result;
 };
 
 module.exports = {

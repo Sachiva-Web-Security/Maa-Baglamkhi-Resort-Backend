@@ -1,28 +1,28 @@
 const db = require("../config/db");
 
 const tableExists = async (tableName) => {
-  const rows = await db.query("SHOW TABLES LIKE ?", [tableName]);
+  const [rows] = await db.query("SHOW TABLES LIKE ?", [tableName]);
   return Array.isArray(rows) && rows.length > 0;
 };
 
 const columnExists = async (tableName, columnName) => {
-  const rows = await db.query(`SHOW COLUMNS FROM ${tableName} LIKE ?`, [columnName]);
+  const [rows] = await db.query(`SHOW COLUMNS FROM ${tableName} LIKE ?`, [columnName]);
   return Array.isArray(rows) && rows.length > 0;
 };
 
 const getCount = async (sql, params = []) => {
-  const rows = await db.query(sql, params);
+  const [rows] = await db.query(sql, params);
   return Number(rows?.[0]?.count || 0);
 };
 
 const getTotal = async (sql, params = []) => {
-  const rows = await db.query(sql, params);
+  const [rows] = await db.query(sql, params);
   return Number(rows?.[0]?.total || 0);
 };
 
 const detectDateColumn = async (table, candidates) => {
   for (const col of candidates) {
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SHOW COLUMNS FROM ${table} WHERE Field = ?`,
       [col]
     );
@@ -65,8 +65,8 @@ const resolveBillSource = async (rangeConditionBuilder) => {
       FROM ${tableName}
       WHERE ${rangeConditionBuilder(createdColumn)}
     `);
-
-    if (Number(countRows?.[0]?.count || 0) > 0) {
+    const [countData] = countRows;
+    if (Number(countData?.count || 0) > 0) {
       return source;
     }
   }
@@ -103,7 +103,7 @@ const getOccupiedRooms = async () => {
   const sourceTable = await resolveRoomSource();
   if (!sourceTable) return 0;
 
-  const rows = await db.query(`SELECT COALESCE(status, 'Available') AS status FROM ${sourceTable}`);
+  const [rows] = await db.query(`SELECT COALESCE(status, 'Available') AS status FROM ${sourceTable}`);
   return rows.reduce(
     (count, row) => count + (classifyRoomStatus(row.status) === "Occupied" ? 1 : 0),
     0,
@@ -297,17 +297,55 @@ const getTodayRevenue = async () => {
 };
 
 const getGuestStayRows = async () => {
+  if (await tableExists("bookings")) {
+    const hasBookingCode = await columnExists("bookings", "booking_code");
+    const hasCheckIn = await columnExists("bookings", "check_in");
+    const hasCheckInDate = await columnExists("bookings", "check_in_date");
+    const hasCheckOut = await columnExists("bookings", "check_out");
+    const hasStatus = await columnExists("bookings", "status");
+    const hasGuestName = await columnExists("bookings", "guest_name");
+
+    if (hasCheckIn || hasCheckInDate) {
+      const codeExpr = hasBookingCode ? "b.booking_code" : "b.id";
+      const checkInExpr = hasCheckIn ? "b.check_in" : "b.check_in_date";
+      const checkOutExpr = hasCheckOut ? "b.check_out" : "b.check_in_date";
+      const guestNameExpr = hasGuestName ? "b.guest_name" : "CONCAT('Booking ', b.id)";
+
+      const [rows] = await db.query(`
+        SELECT
+          b.id,
+          ${codeExpr} AS booking_code,
+          ${guestNameExpr} AS guest_name,
+          ${checkInExpr} AS check_in,
+          ${checkOutExpr} AS check_out,
+          b.status AS booking_status
+        FROM bookings b
+        ORDER BY b.id DESC
+      `);
+
+      return rows.map((row) => ({
+        id: row.id,
+        bookingId: row.id,
+        bookingCode: row.booking_code || "",
+        guestName: row.guest_name || "Guest",
+        mobile: "",
+        checkIn: formatDateKey(row.check_in),
+        checkOut: formatDateKey(row.check_out),
+        bookingStatus: row.booking_status || "Confirmed",
+      }));
+    }
+  }
+
   if (await tableExists("guest_profiles") && await tableExists("room_tariff")) {
     const hasCheckIn = await columnExists("guest_profiles", "check_in");
     const hasCheckInDate = await columnExists("guest_profiles", "check_in_date");
 
-    let rows = [];
     if (hasCheckIn) {
-      rows = await db.query(`
+      const [rows] = await db.query(`
         SELECT
           id,
-          booking_code,
-          guest_name,
+          id AS booking_code,
+          CONCAT(first_name, ' ', COALESCE(last_name, '')) AS guest_name,
           check_in,
           check_out,
           booking_status,
@@ -315,31 +353,18 @@ const getGuestStayRows = async () => {
         FROM guest_profiles
         ORDER BY id DESC
       `);
-    } else if (hasCheckInDate) {
-      rows = await db.query(`
-        SELECT
-          id,
-          booking_code,
-          guest_name,
-          check_in_date AS check_in,
-          check_out_date AS check_out,
-          booking_status,
-          phone AS mobile
-        FROM guest_profiles
-        ORDER BY id DESC
-      `);
-    }
 
-    return rows.map((row) => ({
-      id: row.id,
-      bookingId: row.id,
-      bookingCode: row.booking_code || "",
-      guestName: row.guest_name || "Guest",
-      mobile: row.mobile || "",
-      checkIn: formatDateKey(row.check_in),
-      checkOut: formatDateKey(row.check_out),
-      bookingStatus: row.booking_status || "Confirmed",
-    }));
+      return rows.map((row) => ({
+        id: row.id,
+        bookingId: row.id,
+        bookingCode: row.booking_code || "",
+        guestName: row.guest_name || "Guest",
+        mobile: row.mobile || "",
+        checkIn: formatDateKey(row.check_in),
+        checkOut: formatDateKey(row.check_out),
+        bookingStatus: row.booking_status || "Confirmed",
+      }));
+    }
   }
 
   return [];
@@ -409,9 +434,9 @@ const getTotalRevenueGenerated = async () => {
     let params = [];
 
     if (hasInvoices) {
-      const invoiceBookingRows = await db.query(
-        "SELECT DISTINCT booking_id FROM invoices WHERE booking_id IS NOT NULL AND booking_id > 0",
-      );
+      const [invoiceBookingRows] = await db.query(
+      "SELECT DISTINCT booking_id FROM invoices WHERE booking_id IS NOT NULL AND booking_id > 0",
+    );
       const invoiceIds = invoiceBookingRows
         .map((r) => Number(r.booking_id))
         .filter(Boolean);
@@ -522,7 +547,7 @@ const getMonthlyRevenueChart = async () => {
   const monthMap = new Map(months.map((item) => [item.key, item]));
 
   if (await tableExists("guest_profiles") && await tableExists("room_tariff")) {
-    const hotelRows = await db.query(`
+    const [hotelRows] = await db.query(`
       SELECT
         DATE_FORMAT(gp.check_in, '%Y-%m') AS monthKey,
         COALESCE(SUM(rt.total), 0) AS total
@@ -544,7 +569,7 @@ const getMonthlyRevenueChart = async () => {
       `${createdColumn} >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 5 MONTH)`,
   );
   if (salesSource) {
-    const restaurantRows = await db.query(`
+    const [restaurantRows] = await db.query(`
       SELECT
         DATE_FORMAT(${salesSource.createdColumn}, '%Y-%m') AS monthKey,
         COALESCE(SUM(${salesSource.totalColumn}), 0) AS total
@@ -574,7 +599,7 @@ const getRoomOccupancyChart = async () => {
   const sourceTable = await resolveRoomSource();
   if (!sourceTable) return base;
 
-  const rows = await db.query(`SELECT COALESCE(status, 'Available') AS status FROM ${sourceTable}`);
+  const [rows] = await db.query(`SELECT COALESCE(status, 'Available') AS status FROM ${sourceTable}`);
   rows.forEach((row) => {
     const bucket = classifyRoomStatus(row.status);
     bucketMap.get(bucket).value += 1;
@@ -600,7 +625,7 @@ const getFoodSalesChart = async () => {
   );
   if (!salesSource) return days;
 
-  const rows = await db.query(`
+  const [rows] = await db.query(`
     SELECT
       DATE(${salesSource.createdColumn}) AS dayKey,
       COALESCE(SUM(${salesSource.totalColumn}), 0) AS total

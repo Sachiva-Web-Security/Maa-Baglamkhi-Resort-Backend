@@ -10,9 +10,9 @@ exports.listNotifications = async (req, res) => {
 
     let rows;
     if (isAdmin) {
-      rows = await db.query(`SELECT * FROM notifications ORDER BY created_at DESC LIMIT 200`);
+      [rows] = await db.query(`SELECT * FROM notifications ORDER BY created_at DESC LIMIT 200`);
     } else {
-      rows = await db.query(
+      [rows] = await db.query(
         `SELECT * FROM notifications WHERE user_id = ? OR user_role IN (?) ORDER BY created_at DESC LIMIT 200`,
         [userId, visibleRoles]
       );

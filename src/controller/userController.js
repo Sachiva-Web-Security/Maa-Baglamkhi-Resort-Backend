@@ -199,16 +199,21 @@ exports.updateUser = async (req, res) => {
       role,
     };
 
+    const roleId = resolveRoleId(role);
+
     req.setAuditContext?.({
       action: "update_user",
       oldValue: sanitizeUser(existingUser),
-      newValue: nextUser,
+      newValue: {
+        ...nextUser,
+        role: String(roleId),
+      },
       userId: req.user?.id || existingUser.id,
     });
 
     await db.query(
       "UPDATE users SET name = ?, email = ?, role_id = ?, password_hash = ?, updated_at = NOW() WHERE id = ?",
-      [name, email, role, hashedPassword || existingUser.password_hash, id]
+      [name, email, roleId, hashedPassword || existingUser.password_hash, id]
     );
 
     return res.json({
