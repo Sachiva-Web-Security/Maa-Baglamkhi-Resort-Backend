@@ -41,7 +41,7 @@ const INR = "₹";
  */
 const getBookingRowById = async (id) => {
   try {
-    const rows = await db.query(
+    const [rows] = await db.query(
       "SELECT * FROM banquet_bookings WHERE id = ? LIMIT 1",
       [id],
     );
@@ -53,12 +53,10 @@ const getBookingRowById = async (id) => {
 
 const getHallName = async (hallId) => {
   try {
-    const hallRateColumn =
-      (await db.query("SHOW COLUMNS FROM banquet_halls LIKE 'rate_per_hour'")).length > 0
-        ? "rate_per_hour"
-        : "ratePerHour";
+    const [hallColumns] = await db.query("SHOW COLUMNS FROM banquet_halls LIKE 'rate_per_hour'");
+    const hallRateColumn = hallColumns.length > 0 ? "rate_per_hour" : "ratePerHour";
 
-    const rows = await db.query(
+    const [rows] = await db.query(
       "SELECT name FROM banquet_halls WHERE id = ? LIMIT 1",
       [hallId],
     );
@@ -202,7 +200,7 @@ exports.sendBanquetInvoiceWhatsApp = async (req, res) => {
     let adminNumber = req.body?.adminNumber || "";
     if (!adminNumber) {
       try {
-        const adminRow = await db.query(
+        const [adminRow] = await db.query(
           "SELECT id, name, email, phone FROM register WHERE LOWER(role) = 'admin' AND phone IS NOT NULL AND TRIM(phone) <> '' ORDER BY id ASC LIMIT 1"
         );
         adminNumber = adminRow?.[0]?.phone || "";

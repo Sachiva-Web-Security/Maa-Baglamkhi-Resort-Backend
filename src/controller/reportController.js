@@ -19,8 +19,8 @@ exports.daywise = async (req, res) => {
 
   try {
     await ensureSchema();
-    const rows = await db.query(
-      `SELECT DATE(created_at) as date, SUM(total) as total
+    const [rows] = await db.query(
+      `SELECT DATE(created_at) as date, SUM(amount) as total
        FROM payments
        WHERE DATE(created_at) BETWEEN ? AND ?
        GROUP BY DATE(created_at)`,
@@ -36,10 +36,10 @@ exports.daywise = async (req, res) => {
 exports.itemConsumption = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await db.query(
-      `SELECT item_name, SUM(qty) as quantity
-       FROM token_items
-       GROUP BY item_name`,
+    const [rows] = await db.query(
+      `SELECT name AS item_name, SUM(quantity) AS quantity
+       FROM order_items
+       GROUP BY name`,
     );
     res.json(rows);
   } catch (err) {

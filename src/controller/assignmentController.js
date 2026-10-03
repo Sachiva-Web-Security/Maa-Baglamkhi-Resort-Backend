@@ -4,7 +4,7 @@ const { getRequestActor } = require("../utils/requestActor");
 
 const query = async (sql, params = []) => {
   try {
-    const rows = await db.query(sql, params);
+    const [rows] = await db.query(sql, params);
     return rows;
   } catch (err) {
     if (err.code === 'ER_NO_SUCH_TABLE') {

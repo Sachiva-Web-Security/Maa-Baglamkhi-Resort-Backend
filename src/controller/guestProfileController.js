@@ -1,24 +1,19 @@
 const db = require("../config/db");
 
-// ─── Search guest by mobile number or name ────────────────────────────────────
-// Optional `bookingId` query param: if present, load profile anchored to that
-// specific booking (used when opening Guest Profile from a booking row).
 const loadProfileForMobile = async (mobile) => {
-  const bookings = await db.query(
+  const [bookings] = await db.query(
     `SELECT
-       g.id           AS bookingId,
-       g.booking_code AS bookingCode,
-       g.check_in,
-       g.check_out,
-       g.booking_status,
-       g.arrival,
-       g.departure,
+       b.id           AS bookingId,
+       b.booking_code AS bookingCode,
+       b.check_in,
+       b.check_out,
+       b.status AS booking_status,
        COALESCE(ap.amount, 0)                           AS paidAmount,
        COALESCE(ap.discount_amount, 0)                  AS discountAmount,
        COALESCE(ap.refund_amount, 0)                    AS refundAmount,
-       COALESCE(SUM(rt.total), 0)                       AS totalAmount,
+       COALESCE(SUM(rt.amount), 0)                      AS totalAmount,
        (
-         COALESCE(SUM(rt.total), 0) -
+         COALESCE(SUM(rt.amount), 0) -
          (
            (COALESCE(ap.amount, 0) - COALESCE(ap.refund_amount, 0))
            + COALESCE(ap.discount_amount, 0)
@@ -28,19 +23,15 @@ const loadProfileForMobile = async (mobile) => {
          DISTINCT rt.room_number
          ORDER BY rt.room_number
          SEPARATOR ', '
-       )                                                AS rooms,
-       c.company_name
-     FROM guests g
-     LEFT JOIN advance_payment ap ON ap.booking_id = g.id
-     LEFT JOIN room_tariff rt     ON rt.booking_id = g.id
-     LEFT JOIN companies c        ON c.booking_id  = g.id
-     WHERE g.mobile = ?
+       )                                                AS rooms
+     FROM bookings b
+     LEFT JOIN payments ap ON ap.booking_id = b.id
+     LEFT JOIN room_tariff rt     ON rt.booking_id = b.id
+     WHERE b.mobile = ?
      GROUP BY
-       g.id, g.booking_code, g.check_in, g.check_out, g.booking_status,
-       g.arrival, g.departure,
-       ap.amount, ap.discount_amount, ap.refund_amount,
-       c.company_name
-     ORDER BY g.id DESC`,
+       b.id, b.booking_code, b.check_in, b.check_out, b.status,
+       ap.amount, ap.discount_amount, ap.refund_amount
+     ORDER BY b.id DESC`,
     [mobile],
   );
 
@@ -58,26 +49,7 @@ const loadProfileForMobile = async (mobile) => {
     { totalStays: 0, totalRevenue: 0, totalNights: 0 },
   );
 
-  // Replaced guestDocumentModel.getDocumentsByMobile with raw SQL
-  const documents = await db.query(
-    `SELECT
-       id,
-       booking_id,
-       mobile,
-       guest_name,
-       document_type,
-       file_url,
-       terms_accepted,
-       notes,
-       uploaded_by,
-       uploaded_at
-     FROM guest_documents
-     WHERE mobile = ?
-     ORDER BY uploaded_at DESC, id DESC`,
-    [mobile],
-  );
-
-  return { bookings, stats, documents, latestDocument: documents[0] || null };
+  return { bookings, stats, latestDocument: null };
 };
 
 exports.search = async (req, res) => {
@@ -85,11 +57,10 @@ exports.search = async (req, res) => {
   const bookingId = Number(req.query.bookingId || 0);
 
   try {
-    // Path A: explicit bookingId — load that booking's guest directly
     if (bookingId) {
-      const bookingRows = await db.query(
-        `SELECT id, guest_name, mobile, guest_email, booking_status, check_in, check_out
-         FROM guests
+      const [bookingRows] = await db.query(
+        `SELECT id, guest_name, mobile, guest_email, status, check_in, check_out
+         FROM bookings
          WHERE id = ?
          LIMIT 1`,
         [bookingId],
@@ -115,14 +86,13 @@ exports.search = async (req, res) => {
       return res.json({ guest, ...profile });
     }
 
-    // Path B: free-text search
     if (!query) {
       return res.status(400).json({ error: "Query parameter 'q' or 'bookingId' is required" });
     }
 
-    const guestRows = await db.query(
-      `SELECT id, guest_name, mobile, guest_email, booking_status, check_in, check_out
-       FROM guests
+    const [guestRows] = await db.query(
+      `SELECT id, guest_name, mobile, guest_email, status, check_in, check_out
+       FROM bookings
        WHERE mobile LIKE ? OR LOWER(guest_name) LIKE LOWER(?)
        ORDER BY id DESC
        LIMIT 1`,
@@ -152,9 +122,9 @@ exports.searchList = async (req, res) => {
       return res.json([]);
     }
 
-    const rows = await db.query(
-      `SELECT id, guest_name, mobile, guest_email, booking_status, check_in, check_out
-       FROM guests
+    const [rows] = await db.query(
+      `SELECT id, guest_name, mobile, guest_email, status, check_in, check_out
+       FROM bookings
        WHERE mobile LIKE ? OR LOWER(guest_name) LIKE LOWER(?)
        ORDER BY id DESC
        LIMIT 20`,

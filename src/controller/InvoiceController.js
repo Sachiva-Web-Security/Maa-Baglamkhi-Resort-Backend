@@ -40,11 +40,12 @@ const ensureInvoiceSchema = async () => {
     ["items_json", "LONGTEXT NULL AFTER notes"],
   ];
   for (const [col, def] of columns) {
-    const [[{ COUNT }]] = await db.query(
+    const [countRows] = await db.query(
       `SELECT COUNT(*) AS COUNT FROM information_schema.COLUMNS
        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'invoices' AND COLUMN_NAME = ?`,
       [col],
     );
+    const COUNT = countRows[0]?.COUNT || 0;
     if (!COUNT) {
       await db.query(`ALTER TABLE invoices ADD COLUMN ${col} ${def}`);
     }
@@ -83,7 +84,7 @@ exports.createInvoice = async (req, res) => {
     await ensureInvoiceSchema();
     const data = req.body || {};
     const invoiceNo = data.invoiceNo || `INV-${Date.now()}`;
-    const result = await db.query(
+    const [result] = await db.query(
       `INSERT INTO invoices
         (invoice_no, date, customer_name, phone, room_no, check_in, check_out,
          price_per_day, food_charge, extra_charge, subtotal, gst, discount,
@@ -127,7 +128,7 @@ exports.createInvoice = async (req, res) => {
 exports.getAllInvoices = async (req, res) => {
   try {
     await ensureInvoiceSchema();
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT i.*, COALESCE(SUM(a.amount), 0) AS paidAmount,
               COALESCE(SUM(a.discount_amount), 0) AS advanceDiscount
        FROM invoices i
@@ -155,7 +156,7 @@ exports.getInvoiceByBookingId = async (req, res) => {
     if (!bookingId) {
       return res.json({});
     }
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT * FROM invoices
        WHERE booking_id = ? OR customer_id = ?
        ORDER BY updated_at DESC, id DESC
@@ -219,28 +220,28 @@ exports.generateCustomerInvoice = async (req, res) => {
     await ensureInvoiceSchema();
 
     // Build base booking info
-    const bookingRows = await db.query(
+    const [bookingRows] = await db.query(
       `SELECT
-        g.id AS bookingId,
-        g.guest_name AS customerName,
-        g.mobile AS phone,
-        g.check_in AS checkIn,
-        g.check_out AS checkOut,
-        g.booking_status AS bookingStatus,
+        b.id AS bookingId,
+        b.guest_name AS customerName,
+        b.mobile AS phone,
+        b.check_in AS checkIn,
+        b.check_out AS checkOut,
+        b.booking_status AS bookingStatus,
         ob.booking_type AS bookingType,
         COALESCE(a.amount, 0) AS paidAmount,
         COALESCE(a.discount_amount, 0) AS advanceDiscount,
         GROUP_CONCAT(DISTINCT CAST(rt.room_number AS CHAR) ORDER BY rt.room_number SEPARATOR ', ') AS roomNumbers,
         c.company_name AS companyName,
         c.gstin AS companyGst
-      FROM guests g
-      LEFT JOIN other_booking ob ON ob.guest_id = g.id
-      LEFT JOIN advance_payment a ON a.booking_id = g.id
-      LEFT JOIN room_tariff rt ON rt.booking_id = g.id
-      LEFT JOIN companies c ON c.booking_id = g.id
-      WHERE g.id = ?
-      GROUP BY g.id, g.guest_name, g.mobile, g.check_in, g.check_out,
-        g.booking_status, ob.booking_type, a.amount, a.discount_amount,
+      FROM bookings b
+      LEFT JOIN other_booking ob ON ob.guest_id = b.id
+      LEFT JOIN advance_payment a ON a.booking_id = b.id
+      LEFT JOIN room_tariff rt ON rt.booking_id = b.id
+      LEFT JOIN companies c ON c.booking_id = b.id
+      WHERE b.id = ?
+      GROUP BY b.id, b.guest_name, b.mobile, b.check_in, b.check_out,
+        b.booking_status, ob.booking_type, a.amount, a.discount_amount,
         c.company_name, c.gstin
       LIMIT 1`,
       [customerId],
@@ -263,7 +264,7 @@ exports.generateCustomerInvoice = async (req, res) => {
 
     // Room items
     const roomNumbers = String(booking.roomNumbers || "").split(",").map((s) => s.trim()).filter(Boolean);
-    const roomRows = await db.query(
+    const [roomRows] = await db.query(
       `SELECT
          CAST(room_number AS CHAR) AS roomNumber,
          COALESCE(category_name, 'Room Charge') AS roomType,
@@ -292,7 +293,7 @@ exports.generateCustomerInvoice = async (req, res) => {
     });
 
     // Folio items
-    const folioRows = await db.query(
+    const [folioRows] = await db.query(
       `SELECT entry_type, category, description, amount
        FROM hotel_folio_entries
        WHERE booking_id = ?
@@ -323,7 +324,7 @@ exports.generateCustomerInvoice = async (req, res) => {
     const foodItems = [];
     if (roomNumbers.length) {
       const placeholders = roomNumbers.map(() => "?").join(", ");
-      const foodRows = await db.query(
+      const [foodRows] = await db.query(
         `SELECT ro.roomNumber, roi.name, roi.price, roi.quantity
          FROM room_orders ro
          INNER JOIN room_order_items roi ON roi.order_id = ro.id
@@ -364,7 +365,7 @@ exports.generateCustomerInvoice = async (req, res) => {
     );
 
     // Check for existing invoice
-    const existingRows = await db.query(
+    const [existingRows] = await db.query(
       `SELECT * FROM invoices WHERE booking_id = ? OR customer_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1`,
       [customerId, customerId],
     );
@@ -478,7 +479,7 @@ exports.updateInvoicePaymentStatus = async (req, res) => {
     await ensureInvoiceSchema();
 
     // Fetch existing invoice to know whether WhatsApp should fire
-    const invoiceRows = await db.query(
+    const [invoiceRows] = await db.query(
       `SELECT * FROM invoices WHERE booking_id = ? OR customer_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1`,
       [bookingId, bookingId],
     );

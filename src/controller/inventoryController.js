@@ -1,7 +1,7 @@
 const db = require("../config/db");
 
 const columnExists = async (tableName, columnName) => {
-  const rows = await db.query(
+  const [rows] = await db.query(
     `SELECT COUNT(*) AS count
      FROM information_schema.columns
      WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`,
@@ -11,7 +11,7 @@ const columnExists = async (tableName, columnName) => {
 };
 
 const tableExists = async (tableName) => {
-  const rows = await db.query(
+  const [rows] = await db.query(
     `SELECT COUNT(*) AS count
      FROM information_schema.tables
      WHERE table_schema = DATABASE() AND table_name = ?`,
@@ -192,7 +192,7 @@ const syncAccountsVendorPayment = async (paymentId, data) => {
     source_module: "inventory",
     source_id: paymentId,
   };
-  const existing = await db.query(
+  const [existing] = await db.query(
     "SELECT id FROM vendor_payment_records WHERE source_module = 'inventory' AND source_id = ? LIMIT 1",
     [paymentId],
   );
@@ -222,7 +222,7 @@ const syncAccountsPurchaseOrder = async (poId, data, fallbackOrderDate = null) =
     source_module: "inventory",
     source_id: poId,
   };
-  const existing = await db.query(
+  const [existing] = await db.query(
     "SELECT id, order_date FROM purchase_orders WHERE source_module = 'inventory' AND source_id = ? LIMIT 1",
     [poId],
   );
@@ -528,7 +528,7 @@ exports.createItem = async (req, res) => {
 exports.getItems = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT id, name, category, subcategory, stock, unit, price,
               reorder_point AS reorderPoint,
               DATE_FORMAT(expiry, '%Y-%m-%d') AS expiry,
@@ -546,7 +546,7 @@ exports.getItems = async (req, res) => {
 exports.getItem = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT id, name, category, subcategory, stock, unit, price,
               reorder_point AS reorderPoint,
               DATE_FORMAT(expiry, '%Y-%m-%d') AS expiry,
@@ -648,7 +648,7 @@ exports.deleteItem = async (req, res) => {
 exports.getLowStockAlerts = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT id, name, category, stock, unit, reorder_point AS reorderPoint, branch
        FROM inventory
        WHERE stock <= reorder_point
@@ -664,7 +664,7 @@ exports.getExpiringItems = async (req, res) => {
   try {
     await ensureSchema();
     const daysAhead = parseInt(req.query.days, 10) || 30;
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT id, name, category, stock, unit, branch,
               DATE_FORMAT(expiry, '%Y-%m-%d') AS expiry,
               DATEDIFF(expiry, CURDATE()) AS daysToExpiry
@@ -754,7 +754,7 @@ exports.logWaste = async (req, res) => {
 exports.getWasteLogs = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT id, item_id AS itemId, item_name AS itemName, quantity, unit, reason, store, remarks,
               DATE_FORMAT(waste_date, '%Y-%m-%d') AS date, created_by AS createdBy,
               created_at AS createdAt
@@ -917,7 +917,7 @@ exports.createPurchaseOrder = async (req, res) => {
 exports.getPurchaseOrders = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT id, po_number AS poNumber, vendor, item_name AS itemName,
               quantity, unit, rate,
               DATE_FORMAT(expected_date, '%Y-%m-%d') AS expectedDate,
@@ -1054,7 +1054,7 @@ exports.createVendorInward = async (req, res) => {
 exports.getVendorInwards = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT id,
               po_id AS poId,
               po_number AS poNumber,
@@ -1253,7 +1253,7 @@ exports.createVendorPayment = async (req, res) => {
 exports.getVendorPayments = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT id,
               vendor_name AS vendorName,
               invoice_ref AS invoiceRef,
@@ -1311,7 +1311,7 @@ exports.deleteVendorPayment = async (req, res) => {
 exports.getStockLedger = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT *
        FROM (
          SELECT
@@ -1794,7 +1794,7 @@ exports.getChefIssues = async (req, res) => {
     }
 
     sql += " ORDER BY issued_at DESC, id DESC";
-    const rows = await db.query(sql, params);
+    const [rows] = await db.query(sql, params);
     res.json(rows);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch chef issues.", error });
@@ -1804,7 +1804,7 @@ exports.getChefIssues = async (req, res) => {
 exports.getChefIssueById = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT id, item_id AS itemId, item_name AS itemName,
               quantity_issued AS quantityIssued, quantity_returned AS quantityReturned,
               unit, chef_name AS chefName, chef_id AS chefId,
@@ -1860,7 +1860,7 @@ exports.submitAudit = async (req, res) => {
 exports.getAuditReport = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT id, item_id AS itemId, item_name AS itemName,
               system_stock AS systemStock, physical_stock AS physicalStock,
               variance, unit, remarks,
@@ -1941,7 +1941,7 @@ exports.recordTransfer = async (req, res) => {
 exports.getTransfers = async (req, res) => {
   try {
     await ensureSchema();
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT id, item_id AS itemId, item_name AS itemName, from_store AS fromStore, to_store AS toStore,
               quantity, unit, approved_by AS approvedBy,
               DATE_FORMAT(transfer_date, '%Y-%m-%d') AS date, notes

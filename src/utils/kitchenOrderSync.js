@@ -48,12 +48,12 @@ const syncRestaurantOrdersToKitchen = async () => {
   const pendingOrders = await q(`
     SELECT
       o.id,
-      o.tableNumber,
-      COALESCE(NULLIF(o.waiter_name, ''), NULLIF(t.waiter, ''), 'Waiter') AS waiter_name,
+      o.table_number,
+      COALESCE(NULLIF(o.waiter_name, ''), NULLIF(t.waiter_name, ''), 'Waiter') AS waiter_name,
       o.created_at
     FROM orders o
     LEFT JOIN tokens t
-      ON t.tableNumber = o.tableNumber
+      ON t.table_number = o.table_number
      AND t.status = 'active'
     WHERE LOWER(COALESCE(o.status, 'pending')) = 'pending'
     ORDER BY o.id ASC
@@ -80,12 +80,12 @@ const syncRestaurantOrdersToKitchen = async () => {
   const activeTokens = await q(`
     SELECT
       t.id,
-      t.tableNumber,
-      COALESCE(NULLIF(t.waiter, ''), 'Waiter') AS waiter_name,
+      t.table_number,
+      COALESCE(NULLIF(t.waiter_name, ''), 'Waiter') AS waiter_name,
       t.created_at
     FROM tokens t
     LEFT JOIN orders o
-      ON o.tableNumber = t.tableNumber
+      ON o.table_number = t.table_number
      AND LOWER(COALESCE(o.status, 'pending')) = 'pending'
     WHERE LOWER(COALESCE(t.status, 'active')) = 'active'
       AND o.id IS NULL

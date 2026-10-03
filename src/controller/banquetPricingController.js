@@ -98,7 +98,7 @@ const normalizeBanquetPricingConfig = (raw = {}) => {
 };
 
 const getBanquetPricingConfig = async () => {
-  const rows = await db.query(
+  const [rows] = await db.query(
     `SELECT config_json FROM banquet_pricing_config WHERE id = 1 LIMIT 1`
   );
 

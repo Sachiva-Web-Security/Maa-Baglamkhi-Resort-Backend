@@ -44,8 +44,8 @@ const normalizePrepTime = (value) => {
 
 exports.getKitchenOrders = async (req, res) => {
   try {
-    await syncRestaurantOrdersToKitchen();
-    const rows = await db.query(
+    // await syncRestaurantOrdersToKitchen();
+    const [rows] = await db.query(
       `SELECT * FROM kitchen_orders WHERE COALESCE(token_status, 'Active') != 'Closed' ORDER BY created_at DESC`
     );
     res.json(rows.map(normalizeOrder));
@@ -65,7 +65,7 @@ exports.updateOrderStatus = async (req, res) => {
   const { status, prepTimeMinutes, readyMessage } = req.body;
 
   try {
-    const existingRows = await db.query("SELECT id FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const [existingRows] = await db.query("SELECT id FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
     if (!existingRows.length) {
       return res.status(404).json({ message: "Kitchen order not found" });
     }
@@ -88,7 +88,7 @@ exports.updateOrderStatus = async (req, res) => {
     vals.push(id);
     await db.query(`UPDATE kitchen_orders SET ${fields.join(", ")} WHERE id = ?`, vals);
 
-    const updatedRows = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const [updatedRows] = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
     const updatedOrder = normalizeOrder(updatedRows[0] || {});
 
     global.io?.emit("kitchen-order-updated", {

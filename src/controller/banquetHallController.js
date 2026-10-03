@@ -2,8 +2,8 @@
  * CRUD for banquet halls.
  */
 
+const db = require("../config/db");
 const {
-  
   getHallRateColumn,
   getHallById,
 } = require("../utils/banquetHelpers");
@@ -24,7 +24,7 @@ const addBanquetHall = async (req, res) => {
       });
     }
 
-    const result = await db.query(
+    const [result] = await db.query(
       `INSERT INTO banquet_halls (name, capacity, ${hallRateColumn}, is_ac, image, status)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [
@@ -37,7 +37,7 @@ const addBanquetHall = async (req, res) => {
       ]
     );
 
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT id, name, capacity, ${hallRateColumn} AS ratePerHour, is_ac, image, status
        FROM banquet_halls WHERE id = ?`,
       [result.insertId]
@@ -70,7 +70,7 @@ const updateBanquetHall = async (req, res) => {
       });
     }
 
-    const result = await db.query(
+    const [result] = await db.query(
       `UPDATE banquet_halls
        SET name = ?,
            capacity = ?,
@@ -106,7 +106,7 @@ const deleteBanquetHall = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const activeBookings = await db.query(
+    const [activeBookings] = await db.query(
       `SELECT id FROM banquet_bookings
        WHERE hall_id = ?
          AND status IN ('Confirmed', 'Completed', 'Billed')
@@ -120,7 +120,7 @@ const deleteBanquetHall = async (req, res) => {
       });
     }
 
-    const result = await db.query("DELETE FROM banquet_halls WHERE id = ?", [id]);
+    const [result] = await db.query("DELETE FROM banquet_halls WHERE id = ?", [id]);
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: "Hall not found" });

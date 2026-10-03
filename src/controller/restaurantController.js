@@ -54,7 +54,7 @@ const normalizeTableRow = (tableRow) => ({
 
 const tableExistsInLegacyTable = async (number) => {
   try {
-    const rows = await db.query("SELECT id, number FROM tables WHERE number = ? LIMIT 1", [String(number)]);
+    const [rows] = await db.query("SELECT id, number FROM tables WHERE number = ? LIMIT 1", [String(number)]);
     return rows[0] || null;
   } catch {
     return null;
@@ -66,7 +66,7 @@ const getMergedTableRows = async () => {
   const merged = [];
 
   try {
-    const restaurantRows = await db.query("SELECT * FROM restaurant_tables ORDER BY CAST(number AS UNSIGNED), number ASC");
+    const [restaurantRows] = await db.query("SELECT * FROM restaurant_tables ORDER BY CAST(number AS UNSIGNED), number ASC");
     for (const row of restaurantRows) {
       const key = String(row.number || row.table_number || "").trim().toLowerCase();
       if (key && !seen.has(key)) {
@@ -79,7 +79,7 @@ const getMergedTableRows = async () => {
   }
 
   try {
-    const legacyRows = await db.query("SELECT * FROM tables ORDER BY CAST(number AS UNSIGNED), number ASC");
+    const [legacyRows] = await db.query("SELECT * FROM tables ORDER BY CAST(number AS UNSIGNED), number ASC");
     for (const row of legacyRows) {
       const key = String(row.number || "").trim().toLowerCase();
       if (key && !seen.has(key)) {
@@ -119,7 +119,7 @@ exports.addTable = async (req, res) => {
       return res.status(400).json({ message: "Table already exists" });
     }
 
-    const result = await db.query(
+    const [result] = await db.query(
       "INSERT INTO restaurant_tables (number, status, guestCount, floor_name, section_name, seat_count, status_color) VALUES (?, 'available', ?, ?, ?, ?, ?)",
       [
         String(number),
@@ -277,7 +277,7 @@ exports.addMenuItem = async (req, res) => {
       imageUrl = req.body.imageUrl;
     }
 
-    const result = await db.query(
+    const [result] = await db.query(
       "INSERT INTO menu_items (name, price, category_id, table_number, image_url, description, food_type, availability_status, tax) VALUES (?,?,?,?,?,?,?,?,?)",
       [name, price, category, tableNumber, imageUrl, description, foodType, status, tax]
     );
@@ -434,11 +434,11 @@ exports.getOrders = async (req, res) => {
       params.push(actor.name);
     }
 
-    const rows = await db.query(
+    const [rows] = await db.query(
       `
         SELECT
           o.id,
-          o.tableNumber,
+          o.table_number,
           o.waiter_name AS waiterName,
           o.status,
           o.created_at,
@@ -469,7 +469,7 @@ exports.getOrder = async (req, res) => {
       params.push(actor.name);
     }
     sql += " ORDER BY id DESC LIMIT 1";
-    const rows = await db.query(sql, params);
+    const [rows] = await db.query(sql, params);
     res.json(rows[0] || {});
   } catch (err) {
     res.status(500).json({ message: "Failed to load order", error: err.message });
@@ -479,7 +479,7 @@ exports.getOrder = async (req, res) => {
 exports.getOrderItems = async (req, res) => {
   const { orderId } = req.params;
   try {
-    const rows = await db.query("SELECT * FROM order_items WHERE order_id=?", [orderId]);
+    const [rows] = await db.query("SELECT * FROM order_items WHERE order_id=?", [orderId]);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ message: "Failed to load order items", error: err.message });
@@ -1411,14 +1411,13 @@ exports.createBill = async (req, res) => {
 
 exports.getBills = async (req, res) => {
   try {
-    const rows = await db.query(
+    const [rows] = await db.query(
       `
         SELECT
           b.id,
-          b.tableNumber,
+          b.table_number,
           b.token_id AS tokenId,
-          t.token_code AS tokenCode,
-          b.entityType,
+          b.entity_type,
           b.waiter_name,
           b.customerName,
           b.phone,
@@ -1458,10 +1457,10 @@ exports.getBillById = async (req, res) => {
       `
         SELECT
           b.id,
-          b.tableNumber,
+          b.table_number,
           b.token_id AS tokenId,
           t.token_code AS tokenCode,
-          b.entityType,
+          b.entity_type,
           b.waiter_name,
           b.customerName,
           b.phone,
@@ -1621,7 +1620,7 @@ exports.addItemActionRequest = async (req, res) => {
 
 exports.getItemActionRequests = async (req, res) => {
   try {
-    const rows = await db.query(
+    const [rows] = await db.query(
       `
         SELECT *
         FROM restaurant_item_action_requests
@@ -1725,7 +1724,7 @@ exports.createSplitBill = async (req, res) => {
 
 exports.getWaiterPerformance = async (req, res) => {
   try {
-    const rows = await db.query(
+    const [rows] = await db.query(
       `
         SELECT
           COALESCE(NULLIF(TRIM(waiter_name), ''), 'Waiter') AS waiterName,

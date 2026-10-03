@@ -1,21 +1,13 @@
 const db = require("../config/db");
 
-const tableExists = (tableName) => {
-  return new Promise((resolve, reject) => {
-    db.query("SHOW TABLES LIKE ?", [tableName], (err, rows) => {
-      if (err) return reject(err);
-      resolve(Array.isArray(rows) && rows.length > 0);
-    });
-  });
+const tableExists = async (tableName) => {
+  const [rows] = await db.query("SHOW TABLES LIKE ?", [tableName]);
+  return Array.isArray(rows) && rows.length > 0;
 };
 
-const columnExists = (tableName, columnName) => {
-  return new Promise((resolve, reject) => {
-    db.query(`SHOW COLUMNS FROM \`${tableName}\` LIKE ?`, [columnName], (err, rows) => {
-      if (err) return reject(err);
-      resolve(Array.isArray(rows) && rows.length > 0);
-    });
-  });
+const columnExists = async (tableName, columnName) => {
+  const [rows] = await db.query(`SHOW COLUMNS FROM \`${tableName}\` LIKE ?`, [columnName]);
+  return Array.isArray(rows) && rows.length > 0;
 };
 
 let banquetHallRateColumnPromise = null;
@@ -124,7 +116,7 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
       } AS status FROM restaurant_bills`
     : `SELECT id, ${restaurantHasCreatedAt ? "DATE(created_at)" : "NULL"} AS billDate, COALESCE(total, 0) AS amount, paymentMethod AS paymentMode, 'Paid' AS status FROM bills`;
 
-  const restaurantRows = await db.query(restaurantSql);
+  const [restaurantRows] = await db.query(restaurantSql);
   restaurantRows.forEach((r) => {
     rows.push({
       id: `restaurant-${r.id}`,
@@ -139,17 +131,17 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
     });
   });
 
-  const hotelRows = await db.query(
+  const [hotelRows] = await db.query(
     `SELECT
-      g.id,
-      DATE(COALESCE(g.check_out, g.check_in)) AS billDate,
-      g.guest_name,
-      g.booking_status,
+      b.id,
+      DATE(COALESCE(b.check_out, b.check_in)) AS billDate,
+      b.guest_name,
+      b.booking_status,
       GROUP_CONCAT(rt.room_number ORDER BY rt.room_number) AS rooms,
-      COALESCE(SUM(rt.total), 0) AS amount
-     FROM guests g
-     LEFT JOIN room_tariff rt ON g.id = rt.booking_id
-     GROUP BY g.id, g.guest_name, g.booking_status, g.check_in, g.check_out`
+      COALESCE(SUM(rt.amount), 0) AS amount
+     FROM bookings b
+     LEFT JOIN room_tariff rt ON b.id = rt.booking_id
+     GROUP BY b.id, b.guest_name, b.booking_status, b.check_in, b.check_out`
   );
   hotelRows
     .filter((r) => Number(r.amount) > 0)
@@ -171,7 +163,7 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
   const banquetRateExpr = banquetHallRateColumn
     ? `COALESCE(h.${banquetHallRateColumn}, 0)`
     : "0";
-  const banquetRows = await db.query(
+  const [banquetRows] = await db.query(
     `SELECT b.id, DATE(b.date) AS billDate, COALESCE(h.name, CONCAT('Hall #', b.hall_id)) AS hall, b.status,
       COALESCE(
         ((${banquetRateExpr}) * GREATEST(1, CEIL(TIMESTAMPDIFF(MINUTE, b.start_time, b.end_time) / 60)))
@@ -195,7 +187,7 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
     });
   });
 
-  const accountsRows = await db.query(
+  const [accountsRows] = await db.query(
     "SELECT id, DATE(date) AS billDate, type, description, amount, payment_mode AS paymentMode FROM accounts_transactions"
   );
   accountsRows.forEach((r) => {
@@ -225,7 +217,7 @@ exports.summary = async (req, res) => {
   try {
     const safeCount = async (sql, params = []) => {
       try {
-        const rows = await db.query(sql, params);
+        const [rows] = await db.query(sql, params);
         return rows?.[0]?.c || 0;
       } catch (err) {
         console.warn(`[reports/summary] skipped count for "${sql}": ${err.code || err.message}`);
@@ -252,7 +244,7 @@ exports.summary = async (req, res) => {
       attendanceTable,
     ] = await Promise.all([
       pickTable(["hotel_room_inventory", "housekeeping", "rooms"]),
-      pickTable(["guests", "hotel_bookings"]),
+      pickTable(["bookings", "hotel_bookings"]),
       pickTable(["restaurant_bills", "bills"]),
       pickTable(["attendance", "attendance_records"]),
     ]);
@@ -322,28 +314,28 @@ exports.getReportData = async (req, res) => {
       const roomTypeExpr = `COALESCE(${roomTypeExprParts.join(", ")})`;
 
       sql = `SELECT
-        CONCAT(g.id, '-', rt.id) as id,
-        DATE(g.check_in) as date,
+        CONCAT(b.id, '-', rt.id) as id,
+        DATE(b.check_in) as date,
         CAST(rt.room_number AS CHAR) as roomNumber,
         ${roomTypeExpr} as roomType,
-        g.booking_status as status,
-        g.guest_name as guest,
-        DATE(g.check_out) as checkOut,
+        b.booking_status as status,
+        b.guest_name as guest,
+        DATE(b.check_out) as checkOut,
         COALESCE(rt.total, 0) as revenue,
         'N/A' as paymentMode
-        FROM guests g
-        LEFT JOIN room_tariff rt ON g.id = rt.booking_id
+        FROM bookings b
+        LEFT JOIN room_tariff rt ON b.id = rt.booking_id
         ${hasHotelInventory ? "LEFT JOIN hotel_room_inventory hri ON CAST(hri.room_number AS CHAR) = CAST(rt.room_number AS CHAR)" : ""}
         ${hasRoomCategories ? "LEFT JOIN hotel_room_categories hrc ON hrc.id = hri.category_id" : ""}
         ${hasLegacyRooms ? "LEFT JOIN rooms r ON CAST(r.room_number AS CHAR) = CAST(rt.room_number AS CHAR)" : ""}
         WHERE rt.room_number IS NOT NULL`;
-      addDateFilter("g.check_in");
-      if (status && status !== "All") { sql += " AND g.booking_status = ?"; params.push(status); }
+      addDateFilter("b.check_in");
+      if (status && status !== "All") { sql += " AND b.booking_status = ?"; params.push(status); }
       if (roomType && roomType !== "All") {
         sql += ` AND ${roomTypeExpr} = ?`;
         params.push(roomType);
       }
-      sql += " ORDER BY g.id DESC, rt.room_number";
+      sql += " ORDER BY b.id DESC, rt.room_number";
 
     } else if (type === "banquet") {
       const banquetHallRateColumn = await getBanquetHallRateColumn();
@@ -422,7 +414,7 @@ exports.getReportData = async (req, res) => {
       return res.json([]);
     }
 
-    const rows = await db.query(sql, params);
+    const [rows] = await db.query(sql, params);
     const result = rows.map((row) => ({
       ...row,
       date: toISODate(row.date),

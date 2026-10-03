@@ -68,7 +68,7 @@ exports.createOrder = async (req, res) => {
 
   try {
     const createdWaiter = isWaiterActor(actor) ? actor.name || waiter || "Waiter" : waiter || "Waiter";
-    const result = await db.query(
+    const [result] = await db.query(
       `INSERT INTO kitchen_orders
         (waiter_name, table_number, items, status, token_status, kot_no, entity_type, prep_time_minutes, expected_ready_at)
         VALUES (?, ?, ?, 'Pending', 'Active', ?, ?, ?, ?)`,
@@ -139,7 +139,7 @@ exports.getOrders = async (req, res) => {
   const actor = getRequestActor(req);
   try {
     try {
-      await syncRestaurantOrdersToKitchen();
+      // await syncRestaurantOrdersToKitchen();
     } catch (syncErr) {
       console.error("kitchen sync error (non-fatal):", syncErr.message);
     }
@@ -150,7 +150,7 @@ exports.getOrders = async (req, res) => {
       params.push(actor.name);
     }
     sql += " ORDER BY created_at DESC";
-    const rows = await db.query(sql, params);
+    const [rows] = await db.query(sql, params);
     res.json(rows.map(normalizeOrder));
   } catch (err) {
     console.error("getOrders error:", err);
@@ -168,7 +168,7 @@ exports.updateOrderStatus = async (req, res) => {
   const { id } = req.params;
   const { status, prepTimeMinutes, readyMessage } = req.body;
   try {
-    const existingRows = await db.query("SELECT id FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const [existingRows] = await db.query("SELECT id FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
     if (!existingRows.length) {
       return res.status(404).json({ message: "Kitchen order not found" });
     }
@@ -190,7 +190,7 @@ exports.updateOrderStatus = async (req, res) => {
     if (!fields.length) return res.status(400).json({ message: "Nothing to update" });
     vals.push(id);
     await db.query(`UPDATE kitchen_orders SET ${fields.join(", ")} WHERE id = ?`, vals);
-    const updatedRows = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const [updatedRows] = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
     const updatedOrder = normalizeOrder(updatedRows[0] || {});
     global.io?.emit("kitchen-order-updated", {
       id: updatedOrder.id,
@@ -227,7 +227,7 @@ exports.saveOrder = async (req, res) => {
 
   const { id } = req.params;
   try {
-    const rows = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const [rows] = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
     const order = rows[0];
     if (!order) {
       return res.status(404).json({ message: "Kitchen order not found" });

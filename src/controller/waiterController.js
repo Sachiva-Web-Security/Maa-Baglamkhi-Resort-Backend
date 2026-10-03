@@ -88,7 +88,7 @@ exports.getReadyOrders = async (req, res) => {
   try {
     await ensureWaiterColumns();
     const actor = getRequestActor(req);
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT * FROM kitchen_orders WHERE status = 'Ready' AND (token_status IS NULL OR token_status != 'Closed') ORDER BY created_at ASC`
     );
     let result = rows;
@@ -116,7 +116,7 @@ exports.pickupOrder = async (req, res) => {
     if (!id) return res.status(400).json({ message: "Order id is required" });
 
     // First, check current state
-    const existing = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const [existing] = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
     if (!existing.length) {
       return res.status(404).json({ message: "Kitchen order not found" });
     }
@@ -179,7 +179,7 @@ exports.markServed = async (req, res) => {
     const { id } = req.params;
     if (!id) return res.status(400).json({ message: "Order id is required" });
 
-    const existing = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    const [existing] = await db.query("SELECT * FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
     if (!existing.length) {
       return res.status(404).json({ message: "Kitchen order not found" });
     }
@@ -239,7 +239,7 @@ exports.getLiveBoard = async (req, res) => {
     const actor = getRequestActor(req);
     const currentWaiterName = isWaiterActor(actor) ? actor.name : null;
 
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT * FROM kitchen_orders
        WHERE COALESCE(token_status, 'Active') != 'Closed'
        ORDER BY created_at DESC`

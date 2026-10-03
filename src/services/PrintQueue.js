@@ -86,19 +86,19 @@ class PrintQueue {
     this.processing = true;
 
     try {
-      const jobRows = await db.query(
+      const [rows] = await db.query(
         `SELECT * FROM print_queue
          WHERE status = 'queued'
          ORDER BY priority DESC, created_at ASC
          LIMIT 1`,
       );
 
-      if (!jobRows || !jobRows.length) {
+      if (!rows || !rows.length) {
         this.processing = false;
         return;
       }
 
-      const job = jobRows[0];
+      const job = rows[0];
       await this.processJob(job);
     } catch (err) {
       this.logger("Failed to fetch next job:", err.message);
@@ -276,7 +276,7 @@ class PrintQueue {
    */
   async flushPendingJobs() {
     try {
-      const rows = await db.query(
+      const [rows] = await db.query(
         `SELECT COUNT(*) AS cnt FROM print_queue WHERE status IN ('queued', 'processing')`,
       );
       const count = rows?.[0]?.cnt || 0;

@@ -15,7 +15,7 @@ const ensureSchema = async () => {
       amount      DECIMAL(10,2) NOT NULL DEFAULT 0,
       created_by  VARCHAR(100) DEFAULT 'Front Desk',
       created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (booking_id) REFERENCES guests(id) ON DELETE CASCADE
+      FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE
     )
   `);
 };
@@ -30,7 +30,7 @@ exports.getByBooking = async (req, res) => {
 
   try {
     await ensureSchema();
-    const entries = await db.query(
+    const [entries] = await db.query(
       `SELECT * FROM hotel_folio_entries
        WHERE booking_id = ?
        ORDER BY entry_date ASC, id ASC`,
@@ -77,7 +77,7 @@ exports.addEntry = async (req, res) => {
       throw new Error("booking_id, description, and amount are required");
     }
 
-    const result = await db.query(
+    const [result] = await db.query(
       `INSERT INTO hotel_folio_entries
          (booking_id, entry_date, entry_type, category, description, amount, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -127,7 +127,7 @@ exports.getTotals = async (req, res) => {
 
   try {
     await ensureSchema();
-    const rows = await db.query(
+    const [rows] = await db.query(
       `SELECT
          SUM(CASE WHEN entry_type IN ('Room Charge','Extra Charge','Adjustment')
                   THEN amount ELSE 0 END)  AS totalCharges,
