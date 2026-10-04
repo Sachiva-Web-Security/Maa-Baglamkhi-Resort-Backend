@@ -37,7 +37,7 @@ exports.setEmployeeSalary = async (req, res) => {
       return res.status(400).json({ message: "Salary must be >= 0" });
     }
 
-    const updatedUser = await db.query(
+    const [updatedUser] = await db.query(
       "UPDATE users SET salary = ?, designation = ?, updated_at = NOW() WHERE id = ?",
       [Number(salary), designation || null, userId]
     );

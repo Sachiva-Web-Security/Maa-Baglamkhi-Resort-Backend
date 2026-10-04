@@ -2,8 +2,8 @@
  * Pricing configuration for banquet bookings.
  */
 
+const db = require("../config/db");
 const {
-  
   toNumber,
 } = require("../utils/banquetHelpers");
 
@@ -98,16 +98,20 @@ const normalizeBanquetPricingConfig = (raw = {}) => {
 };
 
 const getBanquetPricingConfig = async () => {
-  const [rows] = await db.query(
-    `SELECT config_json FROM banquet_pricing_config WHERE id = 1 LIMIT 1`
-  );
-
-  if (!rows[0]?.config_json) {
-    return DEFAULT_BANQUET_PRICING_CONFIG;
-  }
-
   try {
-    return normalizeBanquetPricingConfig(JSON.parse(rows[0].config_json));
+    const [rows] = await db.query(
+      `SELECT config_json FROM banquet_pricing_config WHERE id = 1 LIMIT 1`
+    );
+
+    if (!rows[0]?.config_json) {
+      return DEFAULT_BANQUET_PRICING_CONFIG;
+    }
+
+    try {
+      return normalizeBanquetPricingConfig(JSON.parse(rows[0].config_json));
+    } catch {
+      return DEFAULT_BANQUET_PRICING_CONFIG;
+    }
   } catch {
     return DEFAULT_BANQUET_PRICING_CONFIG;
   }

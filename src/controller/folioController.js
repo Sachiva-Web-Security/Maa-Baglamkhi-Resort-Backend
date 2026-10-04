@@ -4,7 +4,7 @@ const ensureSchema = async () => {
   await db.query(`
     CREATE TABLE IF NOT EXISTS hotel_folio_entries (
       id          INT AUTO_INCREMENT PRIMARY KEY,
-      booking_id  INT NOT NULL,
+      booking_id  BIGINT UNSIGNED NOT NULL,
       entry_date  DATE NOT NULL,
       entry_type  ENUM(
                     'Room Charge','Extra Charge',

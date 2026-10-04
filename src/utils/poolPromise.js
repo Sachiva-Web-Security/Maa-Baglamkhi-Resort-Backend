@@ -19,12 +19,6 @@ const pool = mysql.createPool({
  */
 const getConnection = () => pool.getConnection();
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    pool.query(sql, params, (err, rows) => {
-      if (err) return reject(err);
-      resolve(rows);
-    });
-  });
+const runQuery = (sql, params = []) => pool.query(sql, params);
 
 module.exports = { pool, getConnection, runQuery };

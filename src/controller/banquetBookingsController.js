@@ -2,6 +2,7 @@
  * Booking CRUD and dashboard for the banquet module.
  */
 
+const db = require("../config/db");
 const {
   
   toNumber,
@@ -108,7 +109,7 @@ const buildFinancialSnapshot = (payload = {}, existingBooking = null) => {
 };
 
 const checkBookingOverlap = async ({ hallId, date, startTime, endTime, excludeId = null }) => {
-  const conflicts = await db.query(
+  const [conflicts] = await db.query(
     `
     SELECT id, start_time, end_time
     FROM banquet_bookings
@@ -132,31 +133,31 @@ const getBanquetDashboard = async (req, res) => {
   try {
     const hallRateColumn = await getHallRateColumn();
     const pricingConfig = await getBanquetPricingConfig();
-    const halls = await db.query(`
+    const [halls] = await db.query(`
       SELECT
         id,
         name,
-        capacity,
+        COALESCE(NULLIF(capacity_max, 0), capacity_min, 200) AS capacity,
         ${hallRateColumn} AS ratePerHour,
         is_ac,
-        image,
+        image_url AS image,
         status
       FROM banquet_halls
       ORDER BY id DESC
     `);
 
-    const bookings = await db.query(`
+    const [bookings] = await db.query(`
       SELECT
         b.id,
         b.hall_id,
         h.name AS hallName,
         b.customer_name,
         b.phone,
-        b.guest_email,
+        b.email AS guest_email,
         b.event_title,
         b.event_type,
-        b.guests,
-        b.menu_package_id,
+        b.guest_count AS guests,
+        b.menu_package AS menu_package_id,
         b.meal_section,
         b.custom_menu_items,
         b.lighting_system,
@@ -166,25 +167,18 @@ const getBanquetDashboard = async (req, res) => {
         b.hall_charge,
         b.meal_charge,
         b.decoration_fee,
-        b.notes,
-        b.date,
+        b.event_date AS date,
         b.start_time,
         b.end_time,
         b.discount,
         b.gst_percent,
-        b.subtotal_amount,
+        b.subtotal AS subtotal_amount,
         b.gst_amount,
-        b.grand_total,
+        b.total AS grand_total,
         b.invoice_no,
         b.status,
         b.advance,
-        b.refund_amount,
-        b.net_received,
-        b.balance_due,
-        b.payment_mode,
-        b.payment_status,
-        b.payment_reference_no,
-        b.billed_at,
+        b.balance AS balance_due,
         ${hallRateColumn} AS hallRatePerHour
       FROM banquet_bookings b
       JOIN banquet_halls h ON b.hall_id = h.id
@@ -212,7 +206,6 @@ const getBanquetDashboard = async (req, res) => {
       mealCharge: Number(b.meal_charge || 0),
       hallRatePerHour: Number(b.hallRatePerHour || 0),
       decorationFee: Number(b.decoration_fee || 0),
-      notes: b.notes,
       date: b.date,
       startTime: b.start_time,
       endTime: b.end_time,
@@ -224,13 +217,7 @@ const getBanquetDashboard = async (req, res) => {
       invoiceNo: b.invoice_no,
       status: b.status,
       advance: Number(b.advance || 0),
-      refundAmount: Number(b.refund_amount || 0),
-      netReceived: Number(b.net_received || 0),
       balanceDue: Number(b.balance_due || 0),
-      paymentMode: b.payment_mode || null,
-      paymentStatus: b.payment_status || "Pending",
-      paymentReferenceNo: b.payment_reference_no || null,
-      billedAt: b.billed_at || null,
       pricingConfig,
     }));
 
@@ -301,7 +288,7 @@ const createBanquetBooking = async (req, res) => {
       });
     }
 
-    const hallRows = await db.query("SELECT id FROM banquet_halls WHERE id = ? LIMIT 1", [hallId]);
+    const [hallRows] = await db.query("SELECT id FROM banquet_halls WHERE id = ? LIMIT 1", [hallId]);
     if (!hallRows.length) {
       return res.status(400).json({ message: "Invalid hallId" });
     }
@@ -338,7 +325,7 @@ const createBanquetBooking = async (req, res) => {
       paymentReferenceNo,
     });
 
-    const result = await db.query(
+    const [result] = await db.query(
       `
       INSERT INTO banquet_bookings (
         hall_id,
@@ -485,7 +472,7 @@ const updateBanquetBooking = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    const hallRows = await db.query("SELECT id FROM banquet_halls WHERE id = ? LIMIT 1", [hallId]);
+    const [hallRows] = await db.query("SELECT id FROM banquet_halls WHERE id = ? LIMIT 1", [hallId]);
     if (!hallRows.length) {
       return res.status(400).json({ message: "Invalid hallId" });
     }
@@ -526,7 +513,7 @@ const updateBanquetBooking = async (req, res) => {
       existingBooking
     );
 
-    const result = await db.query(
+    const [result] = await db.query(
       `
       UPDATE banquet_bookings
       SET hall_id = ?,
@@ -620,7 +607,7 @@ const cancelBanquetBooking = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await db.query(
+    const [result] = await db.query(
       `UPDATE banquet_bookings SET status = 'Cancelled' WHERE id = ?`,
       [id]
     );
@@ -750,7 +737,7 @@ const completeBanquetBooking = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await db.query(
+    const [result] = await db.query(
       `UPDATE banquet_bookings SET status = 'Completed' WHERE id = ?`,
       [id]
     );
@@ -788,7 +775,7 @@ const generateBanquetBill = async (req, res) => {
       explicitStatus: booking.payment_status,
     });
 
-    const result = await db.query(
+    const [result] = await db.query(
       `
       UPDATE banquet_bookings
       SET invoice_no = ?, status = 'Billed', billed_at = NOW(), payment_status = ?

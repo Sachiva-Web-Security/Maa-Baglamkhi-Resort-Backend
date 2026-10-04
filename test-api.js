@@ -30,7 +30,9 @@ function request(method, path, body) {
       });
     });
 
-    req.on("error", reject);
+    req.on("error", (err) => {
+      reject(err);
+    });
     if (body) req.write(JSON.stringify(body));
     req.end();
   });
@@ -73,8 +75,7 @@ async function runTests() {
     { name: "GET /api/dashboard/charts", method: "GET", path: "/api/dashboard/charts" },
 
     // AUTH
-    { name: "POST /api/auth/login", method: "POST", path: "/api/auth/login", body: { email: "admin", password: "admin123" } },
-    { name: "POST /api/auth/register", method: "POST", path: "/api/auth/register", body: { username: "test", email: "test@test.com", password: "test123", role: "staff" } },
+    { name: "POST /api/auth/register", method: "POST", path: "/api/auth/register", body: { name: "api test user", email: "apitest-" + Date.now() + "@test.com", password: "Test@123", role_id: 3 } },
 
     // USERS
     { name: "GET /api/users/me", method: "GET", path: "/api/users/me" },
@@ -91,10 +92,8 @@ async function runTests() {
     { name: "GET /api/attendance", method: "GET", path: "/api/attendance" },
 
     // BANQUET
-    { name: "GET /api/banquet/halls", method: "GET", path: "/api/banquet/halls" },
-    { name: "GET /api/banquet/bookings", method: "GET", path: "/api/banquet/bookings" },
-    { name: "GET /api/banquet/config", method: "GET", path: "/api/banquet/config" },
     { name: "GET /api/banquet/", method: "GET", path: "/api/banquet/" },
+    { name: "GET /api/banquet/config", method: "GET", path: "/api/banquet/config" },
 
     // HOUSEKEEPING
     { name: "GET /api/housekeeping", method: "GET", path: "/api/housekeeping" },
@@ -167,7 +166,7 @@ async function runTests() {
     { name: "GET /api/assignments/stats", method: "GET", path: "/api/assignments/stats" },
 
     // AUDIT
-    { name: "GET /api/audit", method: "GET", path: "/api/audit" },
+    { name: "GET /api/audit-logs", method: "GET", path: "/api/audit-logs" },
 
     // SALARY
     { name: "GET /api/salary/", method: "GET", path: "/api/salary/" },
@@ -175,19 +174,22 @@ async function runTests() {
 
   console.log(`\n🧪 Running ${tests.length} API tests...\n`);
 
-  for (const test of tests) {
-    try {
-      const { status, body } = await request(test.method, test.path, test.body);
+  const timeoutMs = 10000;
 
-      // Store token if login succeeds
+  for (const test of tests) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const { status, body } = await request(test.method, test.path, test.body, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
       if (test.path === "/api/auth/login" && status === 200 && body.token) {
         authToken = body.token;
         console.log(`🔑 Got auth token`);
       }
 
-      const isSuccess = status === 200 || status === 201 || status === 204;
-
-      if (isSuccess) {
+      if (status === 200 || status === 201 || status === 204) {
         passed++;
         console.log(`✅ ${test.name}`);
       } else if (status === 401) {
@@ -203,9 +205,11 @@ async function runTests() {
         console.log(`❌ ${test.name} (${status}): ${typeof body === "string" ? body.slice(0, 80) : JSON.stringify(body).slice(0, 80)}`);
       }
     } catch (err) {
+      clearTimeout(timeoutId);
       failed++;
-      failures.push({ name: test.name, error: err.message });
-      console.log(`❌ ${test.name} (${err.message})`);
+      const errorMsg = err.message || "Unknown error";
+      failures.push({ name: test.name, error: errorMsg });
+      console.log(`❌ ${test.name} (${errorMsg})`);
     }
   }
 

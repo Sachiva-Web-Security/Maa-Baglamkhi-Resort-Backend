@@ -204,7 +204,7 @@ exports.deleteTable = async (req, res) => {
     const tableNumber = String(tableRow.number || "").trim();
 
     const [activeTokens] = await db.query(
-      "SELECT id FROM tokens WHERE tableNumber = ? AND status = 'active' LIMIT 1",
+      "SELECT id FROM tokens WHERE table_number = ? AND status = 'active' LIMIT 1",
       [tableNumber],
     );
     if (activeTokens?.length) {
@@ -214,7 +214,7 @@ exports.deleteTable = async (req, res) => {
     }
 
     const [pendingOrders] = await db.query(
-      "SELECT id FROM orders WHERE tableNumber = ? AND status = 'pending' LIMIT 1",
+      "SELECT id FROM orders WHERE table_number = ? AND status = 'pending' LIMIT 1",
       [tableNumber],
     );
     if (pendingOrders?.length) {
@@ -224,7 +224,7 @@ exports.deleteTable = async (req, res) => {
     }
 
     const [pendingBills] = await db.query(
-      "SELECT id FROM bills WHERE tableNumber = ? AND COALESCE(invoiceStatus, 'Saved') <> 'Paid' LIMIT 1",
+      "SELECT id FROM bills WHERE table_number = ? AND COALESCE(invoice_status, 'Saved') <> 'Paid' LIMIT 1",
       [tableNumber],
     );
     if (pendingBills?.length) {
@@ -262,7 +262,6 @@ exports.addMenuItem = async (req, res) => {
     const name = req.body.name;
     const price = Number(req.body.price);
     const category = req.body.category || "Others";
-    const tableNumber = req.body.tableNumber || null;
     const tax = Number(req.body.tax || 5);
     const description = req.body.description || null;
     const foodType = req.body.foodType || "Veg";
@@ -278,8 +277,8 @@ exports.addMenuItem = async (req, res) => {
     }
 
     const [result] = await db.query(
-      "INSERT INTO menu_items (name, price, category_id, table_number, image_url, description, food_type, availability_status, tax) VALUES (?,?,?,?,?,?,?,?,?)",
-      [name, price, category, tableNumber, imageUrl, description, foodType, status, tax]
+      "INSERT INTO menu_items (name, price, category_id, image_url, description, food_type, availability_status, tax) VALUES (?,?,?,?,?,?,?,?)",
+      [name, price, category, imageUrl, description, foodType, status, tax]
     );
     res.json({ id: result.insertId, name, price, category, imageUrl, message: "Menu item added" });
   } catch (err) {
@@ -289,24 +288,8 @@ exports.addMenuItem = async (req, res) => {
 };
 
 exports.getMenuItems = async (req, res) => {
-  const { tableNumber } = req.query;
   try {
-    const rows = tableNumber
-      ? await db.query(
-          `
-            SELECT *
-            FROM menu_items
-            WHERE table_number = ?
-               OR table_number IS NULL
-               OR TRIM(table_number) = ''
-            ORDER BY
-              CASE WHEN table_number = ? THEN 0 ELSE 1 END,
-              category_id,
-              name
-          `,
-          [String(tableNumber), String(tableNumber)],
-        )
-      : await db.query("SELECT * FROM menu_items ORDER BY category_id, name");
+    const rows = await db.query("SELECT * FROM menu_items ORDER BY category_id, name");
 
     res.json(rows.map(withEffectivePrice));
   } catch (err) {
@@ -400,7 +383,7 @@ exports.addOrderItem = async (req, res) => {
 
     if (!order) {
       const result = await db.query(
-        "INSERT INTO orders (tableNumber, waiter_name, status) VALUES (?, ?, 'pending')",
+        "INSERT INTO orders (table_number, waiter_name, status) VALUES (?, ?, 'pending')",
         [tableNumber, waiterName || null],
       );
       order = { id: result.insertId };
@@ -443,11 +426,11 @@ exports.getOrders = async (req, res) => {
           o.status,
           o.created_at,
           COUNT(oi.id) AS itemCount,
-          COALESCE(SUM(COALESCE(oi.price, 0) * COALESCE(oi.quantity, 0)), 0) AS totalAmount
+          COALESCE(SUM(COALESCE(oi.unit_price, 0) * COALESCE(oi.quantity, 0)), 0) AS totalAmount
         FROM orders o
         LEFT JOIN order_items oi ON oi.order_id = o.id
         ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
-        GROUP BY o.id, o.tableNumber, o.waiter_name, o.status, o.created_at
+        GROUP BY o.id, o.table_number, o.waiter_name, o.status, o.created_at
         ORDER BY o.id DESC
       `,
       params,
@@ -463,7 +446,7 @@ exports.getOrder = async (req, res) => {
   const { tableNumber } = req.params;
   try {
     const params = [tableNumber];
-    let sql = "SELECT * FROM orders WHERE tableNumber=? AND status='pending'";
+    let sql = "SELECT * FROM orders WHERE table_number=? AND status='pending'";
     if (isWaiterActor(actor) && actor.name) {
       sql += " AND LOWER(COALESCE(waiter_name, '')) = LOWER(?)";
       params.push(actor.name);
@@ -509,7 +492,7 @@ exports.updateOrder = async (req, res) => {
     }
 
     if (tableNumber !== undefined) {
-      fields.push("tableNumber = ?");
+      fields.push("table_number = ?");
       values.push(tableNumber);
     }
 
@@ -549,7 +532,7 @@ exports.payOrder = async (req, res) => {
   const { tableNumber } = req.params;
   try {
     const params = [tableNumber];
-    let sql = "UPDATE orders SET status='paid' WHERE tableNumber=? AND status='pending'";
+    let sql = "UPDATE orders SET status='paid' WHERE table_number=? AND status='pending'";
     if (isWaiterActor(actor) && actor.name) {
       sql += " AND LOWER(COALESCE(waiter_name, '')) = LOWER(?)";
       params.push(actor.name);
@@ -576,15 +559,15 @@ const createRestaurantBill = async (data) => {
           UPDATE bills
           SET token_id=?,
               waiter_name=?,
-              customerName=?,
+              customer_name=?,
               phone=?,
               subtotal=?,
-              serviceCharge=?,
-              gst=?,
+              service_charge=?,
+              tax_amount=?,
               total=?,
-              discountAmount=?,
-              paymentMethod=?,
-              invoiceStatus=?,
+              discount_amount=?,
+              payment_method=?,
+              payment_status=?,
               split_no=?,
               split_count=?
           WHERE id=?
@@ -600,7 +583,7 @@ const createRestaurantBill = async (data) => {
           Number(data.total || 0),
           Number(data.discountAmount || 0),
           data.paymentMethod || null,
-          data.invoiceStatus || "Saved",
+          data.paymentStatus || data.invoiceStatus || "Saved",
           data.splitNo || null,
           data.splitCount || null,
           reusableBill.id,
@@ -619,14 +602,14 @@ const createRestaurantBill = async (data) => {
     // Release token_id from any settled bill that would block the INSERT
     if (data.tokenId) {
       await conn.query(
-        `UPDATE bills SET token_id = NULL WHERE token_id = ? AND COALESCE(invoiceStatus, 'Saved') IN ('Paid', 'Posted To Room')`,
+        `UPDATE bills SET token_id = NULL WHERE token_id = ? AND COALESCE(payment_status, 'Saved') IN ('Paid', 'Posted To Room')`,
         [Number(data.tokenId)],
       );
     }
 
     const sql = `
       INSERT INTO bills
-      (tableNumber, token_id, entityType, waiter_name, customerName, phone, subtotal, serviceCharge, gst, total, discountAmount, paymentMethod, invoiceStatus, split_no, split_count)
+      (table_number, token_id, entity_type, waiter_name, customer_name, phone, subtotal, service_charge, tax_amount, total, discount_amount, payment_method, payment_status, split_no, split_count)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `;
 
@@ -681,8 +664,7 @@ const findReusableOpenBill = async (conn, data) => {
         FROM bills
         WHERE token_id=?
           AND entityType=?
-          AND COALESCE(invoiceStatus, 'Saved') NOT IN ('Paid', 'Posted To Room')
-          AND account_transaction_id IS NULL
+          AND invoiceStatus, 'Saved') NOT IN ('Paid', 'Posted To Room')
         ORDER BY id DESC
         LIMIT 1
       `,
@@ -698,8 +680,7 @@ const findReusableOpenBill = async (conn, data) => {
       FROM bills
       WHERE tableNumber=?
         AND entityType=?
-        AND COALESCE(invoiceStatus, 'Saved') NOT IN ('Paid', 'Posted To Room')
-        AND account_transaction_id IS NULL
+        AND invoiceStatus, 'Saved') NOT IN ('Paid', 'Posted To Room')
       ORDER BY id DESC
       LIMIT 1
     `,
@@ -737,9 +718,9 @@ const findReusableLegacyBillRow = async (conn, billRow) => {
       FROM restaurant_bills
       WHERE modern_bill_id IS NULL
         AND (
-          (? IS NOT NULL AND tokenId = ? AND COALESCE(entityType, 'Table') = ?)
+          (? IS NOT NULL AND tokenId = ? AND entityType, 'Table') = ?)
           OR
-          (? IS NOT NULL AND tableNumber = ? AND COALESCE(entityType, 'Table') = ?)
+          (? IS NOT NULL AND tableNumber = ? AND entityType, 'Table') = ?)
         )
       ORDER BY created_at DESC, id DESC
     `,
@@ -839,8 +820,6 @@ const syncLegacyRestaurantBill = async (conn, modernBillId) => {
     billRow.paymentMethod || null,
     billRow.invoiceStatus || "Saved",
     billRow.paid_at || null,
-    billRow.payment_id || null,
-    billRow.account_transaction_id || null,
     Number(billRow.postedToRoom || 0),
     billRow.postedRoomNumber || null,
     billRow.roomBookingId || null,
@@ -872,8 +851,6 @@ const syncLegacyRestaurantBill = async (conn, modernBillId) => {
           paymentMethod = ?,
           invoiceStatus = ?,
           paid_at = ?,
-          payment_id = ?,
-          account_transaction_id = ?,
           posted_to_room = ?,
           posted_room_number = ?,
           room_booking_id = ?,
@@ -909,8 +886,6 @@ const syncLegacyRestaurantBill = async (conn, modernBillId) => {
           paymentMethod = ?,
           invoiceStatus = ?,
           paid_at = ?,
-          payment_id = ?,
-          account_transaction_id = ?,
           posted_to_room = ?,
           posted_room_number = ?,
           room_booking_id = ?,
@@ -982,8 +957,7 @@ const processBillPayment = async (data) => {
             FROM bills
             WHERE token_id=?
               AND entityType=?
-              AND COALESCE(invoiceStatus, 'Saved') NOT IN ('Paid', 'Posted To Room')
-              AND account_transaction_id IS NULL
+              AND invoiceStatus, 'Saved') NOT IN ('Paid', 'Posted To Room')
             ORDER BY id DESC
             LIMIT 1
           `,
@@ -1001,8 +975,7 @@ const processBillPayment = async (data) => {
             FROM bills
             WHERE tableNumber=?
               AND entityType=?
-              AND COALESCE(invoiceStatus, 'Saved') NOT IN ('Paid', 'Posted To Room')
-              AND account_transaction_id IS NULL
+              AND invoiceStatus, 'Saved') NOT IN ('Paid', 'Posted To Room')
             ORDER BY id DESC
             LIMIT 1
           `,
@@ -1024,7 +997,7 @@ const processBillPayment = async (data) => {
         throw error;
       }
 
-      if (isSettledInvoiceStatus(billRow.invoiceStatus) || billRow.account_transaction_id) {
+      if (isSettledInvoiceStatus(billRow.invoiceStatus)) {
         const error = new Error("Bill already paid");
         error.statusCode = 409;
         throw error;
@@ -1033,25 +1006,25 @@ const processBillPayment = async (data) => {
       await conn.query(
         `
           UPDATE bills
-          SET customerName=?,
+          SET customer_name=?,
               phone=?,
               subtotal=?,
-              serviceCharge=?,
-              gst=?,
+              service_charge=?,
+              tax_amount=?,
               total=?,
-              discountAmount=?,
-              paymentMethod=?
+              discount_amount=?,
+              payment_method=?
           WHERE id=?
         `,
         [
-          data.customerName || billRow.customerName || null,
+          data.customerName || billRow.customer_name || null,
           data.phone || billRow.phone || null,
           Number(data.subtotal ?? billRow.subtotal ?? 0),
-          Number(data.serviceCharge ?? billRow.serviceCharge ?? 0),
-          Number(data.gst ?? billRow.gst ?? 0),
+          Number(data.serviceCharge ?? billRow.service_charge ?? 0),
+          Number(data.gst ?? billRow.tax_amount ?? 0),
           Number(data.total ?? billRow.total ?? 0),
-          Number(data.discountAmount ?? billRow.discountAmount ?? 0),
-          data.paymentMethod || billRow.paymentMethod || null,
+          Number(data.discountAmount ?? billRow.discount_amount ?? 0),
+          data.paymentMethod || billRow.payment_method || null,
           billId,
         ],
       );
@@ -1419,20 +1392,18 @@ exports.getBills = async (req, res) => {
           b.token_id AS tokenId,
           b.entity_type,
           b.waiter_name,
-          b.customerName,
+          b.customer_name,
           b.phone,
           b.subtotal,
-          b.serviceCharge,
-          b.gst,
+          b.service_charge,
+          b.tax_amount AS gst,
           b.total,
-          b.discountAmount,
-          b.paymentMethod,
-          b.invoiceStatus,
+          b.discount_amount,
+          b.payment_method,
+          b.payment_status AS invoiceStatus,
           b.split_no,
           b.split_count,
           b.paid_at,
-          b.payment_id,
-          b.account_transaction_id,
           b.created_at
         FROM bills b
         LEFT JOIN tokens t ON t.id = b.token_id
@@ -1462,20 +1433,18 @@ exports.getBillById = async (req, res) => {
           t.token_code AS tokenCode,
           b.entity_type,
           b.waiter_name,
-          b.customerName,
+          b.customer_name,
           b.phone,
           b.subtotal,
-          b.serviceCharge,
-          b.gst,
+          b.service_charge,
+          b.tax_amount AS gst,
           b.total,
-          b.discountAmount,
-          b.paymentMethod,
-          b.invoiceStatus,
+          b.discount_amount,
+          b.payment_method,
+          b.payment_status AS invoiceStatus,
           b.split_no,
           b.split_count,
           b.paid_at,
-          b.payment_id,
-          b.account_transaction_id,
           b.created_at
         FROM bills b
         LEFT JOIN tokens t ON t.id = b.token_id

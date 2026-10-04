@@ -1,12 +1,9 @@
 const db = require("../config/db");
 
-const runQuery = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => {
-      if (err) return reject(err);
-      resolve(rows);
-    });
-  });
+const runQuery = async (sql, params = []) => {
+  const [rows] = await db.query(sql, params);
+  return rows;
+};
 
 const tableExists = async (tableName) => {
   const rows = await runQuery("SHOW TABLES LIKE ?", [tableName]);

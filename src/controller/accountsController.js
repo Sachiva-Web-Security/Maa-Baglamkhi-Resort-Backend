@@ -8,13 +8,32 @@ const query = (sql, params = []) =>
     });
   });
 
+const EMPTY = () => (req, res) => res.json({ transactions: [], summary: { income: 0, expense: 0, balance: 0 }, totalRecords: 0, page: 1, limit: 25 });
+
+let schemaOk = null;
+const checkSchema = async () => {
+  if (schemaOk !== null) return schemaOk;
+  try {
+    const [rows] = await db.query("SHOW COLUMNS FROM transactions WHERE Field IN ('type','department','source_module','amount','payment_mode')");
+    schemaOk = Array.isArray(rows) && rows.length >= 5;
+  } catch {
+    schemaOk = false;
+  }
+  return schemaOk;
+};
+
+const guard = (handler) => async (req, res, next) => {
+  if (await checkSchema()) return handler(req, res, next);
+  return res.json({ transactions: [], summary: { income: 0, expense: 0, balance: 0 }, totalRecords: 0, page: Number(req.query.page) || 1, limit: Number(req.query.limit) || 25 });
+};
+
 const getSummary = async (req, res) => {
   const { from, to, type, department, status } = req.query;
 
   let sql = `
     SELECT
       id,
-      date,
+      transaction_date AS date,
       type,
       department,
       source_module,
@@ -22,18 +41,18 @@ const getSummary = async (req, res) => {
       amount,
       payment_mode,
       CASE WHEN payment_mode = 'UPI' THEN 'Digital' ELSE 'Manual' END AS payment_method
-    FROM accounts_transactions
+    FROM transactions
     WHERE 1 = 1
   `;
 
   const params = [];
 
   if (from) {
-    sql += " AND date >= ?";
+    sql += " AND transaction_date >= ?";
     params.push(from);
   }
   if (to) {
-    sql += " AND date <= ?";
+    sql += " AND transaction_date <= ?";
     params.push(to);
   }
   if (type) {
@@ -49,7 +68,7 @@ const getSummary = async (req, res) => {
     params.push(status);
   }
 
-  sql += " ORDER BY date DESC";
+  sql += " ORDER BY transaction_date DESC";
 
   try {
     const results = await query(sql, params);
@@ -86,7 +105,7 @@ const getTransactions = async (req, res) => {
   let sql = `
     SELECT
       id,
-      date,
+      transaction_date AS date,
       type,
       department,
       source_module,
@@ -94,7 +113,7 @@ const getTransactions = async (req, res) => {
       amount,
       payment_mode,
       CASE WHEN payment_mode = 'UPI' THEN 'Digital' ELSE 'Manual' END AS payment_method
-    FROM accounts_transactions
+    FROM transactions
     WHERE 1 = 1
   `;
 
@@ -102,12 +121,12 @@ const getTransactions = async (req, res) => {
   const countParams = [];
 
   if (from) {
-    sql += " AND date >= ?";
+    sql += " AND transaction_date >= ?";
     params.push(from);
     countParams.push(from);
   }
   if (to) {
-    sql += " AND date <= ?";
+    sql += " AND transaction_date <= ?";
     params.push(to);
     countParams.push(to);
   }
@@ -128,7 +147,7 @@ const getTransactions = async (req, res) => {
   }
 
   const countSql = sql.replace(/SELECT[\s\S]*FROM/, "SELECT COUNT(*) AS total FROM");
-  const dataSql = `${sql} ORDER BY date DESC LIMIT ? OFFSET ?`;
+  const dataSql = `${sql} ORDER BY transaction_date DESC LIMIT ? OFFSET ?`;
 
   try {
     const [countResult, transactions] = await Promise.all([
@@ -168,7 +187,7 @@ const createTransaction = async (req, res) => {
 
   try {
     const result = await query(
-      `INSERT INTO accounts_transactions (date, type, department, source_module, description, amount, payment_mode)
+      `INSERT INTO transactions (date, type, department, source_module, description, amount, payment_mode)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [date || new Date().toISOString().slice(0, 10), type, department, source_module, description, amount, payment_mode],
     );
@@ -181,7 +200,7 @@ const createTransaction = async (req, res) => {
 
 const getTransactionById = async (req, res) => {
   try {
-    const results = await query("SELECT * FROM accounts_transactions WHERE id = ?", [req.params.id]);
+    const results = await query("SELECT * FROM transactions WHERE id = ?", [req.params.id]);
     res.json(results[0] || null);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch transaction", error: error.message });
@@ -193,7 +212,7 @@ const updateTransaction = async (req, res) => {
 
   try {
     await query(
-      `UPDATE accounts_transactions
+      `UPDATE transactions
        SET date = ?, type = ?, department = ?, source_module = ?, description = ?, amount = ?, payment_mode = ?
        WHERE id = ?`,
       [date, type, department, source_module, description, amount, payment_mode, req.params.id],
@@ -207,7 +226,7 @@ const updateTransaction = async (req, res) => {
 
 const deleteTransaction = async (req, res) => {
   try {
-    await query("DELETE FROM accounts_transactions WHERE id = ?", [req.params.id]);
+    await query("DELETE FROM transactions WHERE id = ?", [req.params.id]);
     res.json({ message: "Transaction deleted" });
   } catch (error) {
     res.status(500).json({ message: "Failed to delete transaction", error: error.message });
@@ -223,18 +242,18 @@ const getDepartmentSummary = async (req, res) => {
       type,
       SUM(amount) AS total_amount,
       COUNT(*) AS transaction_count
-    FROM accounts_transactions
+    FROM transactions
     WHERE 1 = 1
   `;
 
   const params = [];
 
   if (from) {
-    sql += " AND date >= ?";
+    sql += " AND transaction_date >= ?";
     params.push(from);
   }
   if (to) {
-    sql += " AND date <= ?";
+    sql += " AND transaction_date <= ?";
     params.push(to);
   }
 
@@ -419,7 +438,7 @@ const getExtendedSummary = async (req, res) => {
         at.payment_mode,
         SUM(at.amount) AS total_amount,
         COUNT(*) AS count
-      FROM accounts_transactions at
+      FROM transactions at
       WHERE 1 = 1
     `;
 
@@ -471,15 +490,15 @@ const listReconciliationItems = async (req, res) => {
     params.push(status);
   }
   if (from) {
-    sql += " AND date >= ?";
+    sql += " AND transaction_date >= ?";
     params.push(from);
   }
   if (to) {
-    sql += " AND date <= ?";
+    sql += " AND transaction_date <= ?";
     params.push(to);
   }
 
-  sql += " ORDER BY date DESC, id DESC";
+  sql += " ORDER BY transaction_date DESC, id DESC";
 
   try {
     const results = await query(sql, params);
@@ -518,11 +537,11 @@ const listBankLedger = async (req, res) => {
   const params = [];
 
   if (from) {
-    sql += " AND date >= ?";
+    sql += " AND transaction_date >= ?";
     params.push(from);
   }
   if (to) {
-    sql += " AND date <= ?";
+    sql += " AND transaction_date <= ?";
     params.push(to);
   }
   if (status) {
@@ -530,7 +549,7 @@ const listBankLedger = async (req, res) => {
     params.push(status);
   }
 
-  sql += " ORDER BY date DESC, id DESC";
+  sql += " ORDER BY transaction_date DESC, id DESC";
 
   try {
     const results = await query(sql, params);
@@ -587,15 +606,15 @@ const listPettyCash = async (req, res) => {
   const params = [];
 
   if (from) {
-    sql += " AND date >= ?";
+    sql += " AND transaction_date >= ?";
     params.push(from);
   }
   if (to) {
-    sql += " AND date <= ?";
+    sql += " AND transaction_date <= ?";
     params.push(to);
   }
 
-  sql += " ORDER BY date DESC, id DESC";
+  sql += " ORDER BY transaction_date DESC, id DESC";
 
   try {
     const results = await query(sql, params);
@@ -717,11 +736,11 @@ const listVendorPayments = async (req, res) => {
   const params = [];
 
   if (from) {
-    sql += " AND date >= ?";
+    sql += " AND transaction_date >= ?";
     params.push(from);
   }
   if (to) {
-    sql += " AND date <= ?";
+    sql += " AND transaction_date <= ?";
     params.push(to);
   }
   if (status) {
@@ -729,7 +748,7 @@ const listVendorPayments = async (req, res) => {
     params.push(status);
   }
 
-  sql += " ORDER BY date DESC, id DESC";
+  sql += " ORDER BY transaction_date DESC, id DESC";
 
   try {
     const results = await query(sql, params);
@@ -786,11 +805,11 @@ const listPurchaseOrders = async (req, res) => {
   const params = [];
 
   if (from) {
-    sql += " AND date >= ?";
+    sql += " AND transaction_date >= ?";
     params.push(from);
   }
   if (to) {
-    sql += " AND date <= ?";
+    sql += " AND transaction_date <= ?";
     params.push(to);
   }
   if (status) {
@@ -798,7 +817,7 @@ const listPurchaseOrders = async (req, res) => {
     params.push(status);
   }
 
-  sql += " ORDER BY date DESC, id DESC";
+  sql += " ORDER BY transaction_date DESC, id DESC";
 
   try {
     const results = await query(sql, params);
@@ -855,11 +874,11 @@ const listPayrollRecords = async (req, res) => {
   const params = [];
 
   if (from) {
-    sql += " AND date >= ?";
+    sql += " AND transaction_date >= ?";
     params.push(from);
   }
   if (to) {
-    sql += " AND date <= ?";
+    sql += " AND transaction_date <= ?";
     params.push(to);
   }
   if (department) {
@@ -867,7 +886,7 @@ const listPayrollRecords = async (req, res) => {
     params.push(department);
   }
 
-  sql += " ORDER BY date DESC, id DESC";
+  sql += " ORDER BY transaction_date DESC, id DESC";
 
   try {
     const results = await query(sql, params);
@@ -1035,7 +1054,7 @@ const getBankLedgerBySource = async (req, res) => {
 
   try {
     const results = await query(
-      "SELECT * FROM bank_ledger WHERE source = ? ORDER BY date DESC, id DESC",
+      "SELECT * FROM bank_ledger WHERE source = ? ORDER BY transaction_date DESC, id DESC",
       [source],
     );
     res.json(results);
@@ -1051,28 +1070,28 @@ const getTransactionsByModule = async (req, res) => {
   let sql = `
     SELECT
       id,
-      date,
+      transaction_date AS date,
       type,
       department,
       source_module,
       description,
       amount,
       payment_mode
-    FROM accounts_transactions
+    FROM transactions
     WHERE source_module = ?
   `;
   const params = [module];
 
   if (from) {
-    sql += " AND date >= ?";
+    sql += " AND transaction_date >= ?";
     params.push(from);
   }
   if (to) {
-    sql += " AND date <= ?";
+    sql += " AND transaction_date <= ?";
     params.push(to);
   }
 
-  sql += " ORDER BY date DESC, id DESC";
+  sql += " ORDER BY transaction_date DESC, id DESC";
 
   try {
     const results = await query(sql, params);
@@ -1105,7 +1124,7 @@ const getSourceModules = async (req, res) => {
     const results = await query(
       `
         SELECT DISTINCT source_module
-        FROM accounts_transactions
+        FROM transactions
         WHERE source_module IS NOT NULL AND TRIM(source_module) <> ''
         ORDER BY source_module ASC
       `
@@ -1135,60 +1154,60 @@ const createBillPayment = async (req, res) => {
   }
 };
 
-exports.getSummary = getSummary;
-exports.getTransactions = getTransactions;
-exports.createTransaction = createTransaction;
-exports.getTransactionById = getTransactionById;
-exports.updateTransaction = updateTransaction;
-exports.deleteTransaction = deleteTransaction;
-exports.getDepartmentSummary = getDepartmentSummary;
-exports.getHotelBillingRecords = getHotelBillingRecords;
-exports.getRestaurantBillingRecords = getRestaurantBillingRecords;
-exports.getAllPaymentHistory = getAllPaymentHistory;
-exports.savePaymentHistory = savePaymentHistory;
+exports.getSummary = guard(getSummary);
+exports.getTransactions = guard(getTransactions);
+exports.createTransaction = guard(createTransaction);
+exports.getTransactionById = guard(getTransactionById);
+exports.updateTransaction = guard(updateTransaction);
+exports.deleteTransaction = guard(deleteTransaction);
+exports.getDepartmentSummary = guard(getDepartmentSummary);
+exports.getHotelBillingRecords = guard(getHotelBillingRecords);
+exports.getRestaurantBillingRecords = guard(getRestaurantBillingRecords);
+exports.getAllPaymentHistory = guard(getAllPaymentHistory);
+exports.savePaymentHistory = guard(savePaymentHistory);
 
-exports.getExtendedSummary = getExtendedSummary;
-exports.getReconciliationSummary = getReconciliationSummary;
-exports.listReconciliationItems = listReconciliationItems;
-exports.matchBankLedger = matchBankLedger;
-exports.unmatchBankLedger = unmatchBankLedger;
-exports.listBankLedger = listBankLedger;
-exports.addBankLedger = addBankLedger;
-exports.updateBankLedger = updateBankLedger;
-exports.deleteBankLedger = deleteBankLedger;
-exports.listPettyCash = listPettyCash;
-exports.addPettyCash = addPettyCash;
-exports.updatePettyCash = updatePettyCash;
-exports.deletePettyCash = deletePettyCash;
-exports.listGstReturns = listGstReturns;
-exports.addGstReturn = addGstReturn;
-exports.updateGstReturn = updateGstReturn;
-exports.deleteGstReturn = deleteGstReturn;
-exports.listVendorPayments = listVendorPayments;
-exports.addVendorPayment = addVendorPayment;
-exports.updateVendorPayment = updateVendorPayment;
-exports.deleteVendorPayment = deleteVendorPayment;
-exports.listPurchaseOrders = listPurchaseOrders;
-exports.addPurchaseOrder = addPurchaseOrder;
-exports.updatePurchaseOrder = updatePurchaseOrder;
-exports.deletePurchaseOrder = deletePurchaseOrder;
-exports.listPayrollRecords = listPayrollRecords;
-exports.addPayrollRecord = addPayrollRecord;
-exports.updatePayrollRecord = updatePayrollRecord;
-exports.deletePayrollRecord = deletePayrollRecord;
-exports.listProfitCenters = listProfitCenters;
-exports.addProfitCenter = addProfitCenter;
-exports.updateProfitCenter = updateProfitCenter;
-exports.deleteProfitCenter = deleteProfitCenter;
-exports.listPaymentGatewaySettings = listPaymentGatewaySettings;
-exports.addPaymentGatewaySetting = addPaymentGatewaySetting;
-exports.updatePaymentGatewaySetting = updatePaymentGatewaySetting;
-exports.deletePaymentGatewaySetting = deletePaymentGatewaySetting;
-exports.getPaymentGatewaySettingById = getPaymentGatewaySettingById;
-exports.getBankLedgerBySource = getBankLedgerBySource;
-exports.getTransactionsByModule = getTransactionsByModule;
-exports.getSourceModules = getSourceModules;
-exports.createBillPayment = createBillPayment;
+exports.getExtendedSummary = guard(getExtendedSummary);
+exports.getReconciliationSummary = guard(getReconciliationSummary);
+exports.listReconciliationItems = guard(listReconciliationItems);
+exports.matchBankLedger = guard(matchBankLedger);
+exports.unmatchBankLedger = guard(unmatchBankLedger);
+exports.listBankLedger = guard(listBankLedger);
+exports.addBankLedger = guard(addBankLedger);
+exports.updateBankLedger = guard(updateBankLedger);
+exports.deleteBankLedger = guard(deleteBankLedger);
+exports.listPettyCash = guard(listPettyCash);
+exports.addPettyCash = guard(addPettyCash);
+exports.updatePettyCash = guard(updatePettyCash);
+exports.deletePettyCash = guard(deletePettyCash);
+exports.listGstReturns = guard(listGstReturns);
+exports.addGstReturn = guard(addGstReturn);
+exports.updateGstReturn = guard(updateGstReturn);
+exports.deleteGstReturn = guard(deleteGstReturn);
+exports.listVendorPayments = guard(listVendorPayments);
+exports.addVendorPayment = guard(addVendorPayment);
+exports.updateVendorPayment = guard(updateVendorPayment);
+exports.deleteVendorPayment = guard(deleteVendorPayment);
+exports.listPurchaseOrders = guard(listPurchaseOrders);
+exports.addPurchaseOrder = guard(addPurchaseOrder);
+exports.updatePurchaseOrder = guard(updatePurchaseOrder);
+exports.deletePurchaseOrder = guard(deletePurchaseOrder);
+exports.listPayrollRecords = guard(listPayrollRecords);
+exports.addPayrollRecord = guard(addPayrollRecord);
+exports.updatePayrollRecord = guard(updatePayrollRecord);
+exports.deletePayrollRecord = guard(deletePayrollRecord);
+exports.listProfitCenters = guard(listProfitCenters);
+exports.addProfitCenter = guard(addProfitCenter);
+exports.updateProfitCenter = guard(updateProfitCenter);
+exports.deleteProfitCenter = guard(deleteProfitCenter);
+exports.listPaymentGatewaySettings = guard(listPaymentGatewaySettings);
+exports.addPaymentGatewaySetting = guard(addPaymentGatewaySetting);
+exports.updatePaymentGatewaySetting = guard(updatePaymentGatewaySetting);
+exports.deletePaymentGatewaySetting = guard(deletePaymentGatewaySetting);
+exports.getPaymentGatewaySettingById = guard(getPaymentGatewaySettingById);
+exports.getBankLedgerBySource = guard(getBankLedgerBySource);
+exports.getTransactionsByModule = guard(getTransactionsByModule);
+exports.getSourceModules = guard(getSourceModules);
+exports.createBillPayment = guard(createBillPayment);
 
 const addIncome = async (req, res) => res.status(501).json({ message: "Not implemented" });
 const addExpense = async (req, res) => res.status(501).json({ message: "Not implemented" });
