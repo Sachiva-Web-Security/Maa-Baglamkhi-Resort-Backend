@@ -631,8 +631,12 @@ exports.getItem = async (req, res) => {
 
 exports.updateItem = async (req, res) => {
   try {
-    await ensureSchema();
     const data = { ...req.body, createdBy: req.user?.username || "system" };
+    if (!data.name && !data.category && !data.stock && !data.price) {
+      return res.status(400).json({ message: "Nothing to update." });
+    }
+
+    await ensureSchema();
     const connection = await getConnection();
     try {
       await beginTransaction(connection);
@@ -749,8 +753,12 @@ exports.getExpiringItems = async (req, res) => {
 
 exports.logWaste = async (req, res) => {
   try {
-    await ensureSchema();
     const data = { ...req.body, createdBy: req.user?.username || "system" };
+    if (!data.itemName || normalizeNumber(data.quantity) <= 0) {
+      return res.status(400).json({ message: "itemName and quantity > 0 are required." });
+    }
+
+    await ensureSchema();
     const connection = await getConnection();
     try {
       await beginTransaction(connection);
@@ -837,6 +845,11 @@ exports.getWasteLogs = async (req, res) => {
 
 exports.updateWasteLog = async (req, res) => {
   try {
+    const body = req.body || {};
+    if (!body.itemName && !body.quantity && !body.reason) {
+      return res.status(400).json({ message: "Nothing to update." });
+    }
+
     await ensureSchema();
     const connection = await getConnection();
     try {
@@ -958,8 +971,11 @@ exports.deleteWasteLog = async (req, res) => {
 
 exports.createPurchaseOrder = async (req, res) => {
   try {
-    await ensureSchema();
     const data = { ...req.body, createdBy: req.user?.username || "system" };
+    if (!data.poNumber || !data.vendor || !data.itemName || !data.quantity) {
+      return res.status(400).json({ message: "poNumber, vendor, itemName and quantity are required." });
+    }
+    await ensureSchema();
     const result = await db.query(
       `INSERT INTO inventory_purchase_orders (po_number, vendor, item_name, quantity, unit, rate, expected_date, status, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1002,8 +1018,11 @@ exports.getPurchaseOrders = async (req, res) => {
 
 exports.updatePurchaseOrder = async (req, res) => {
   try {
-    await ensureSchema();
     const data = req.body || {};
+    if (!data.poNumber && !data.vendor && !data.itemName) {
+      return res.status(400).json({ message: "Nothing to update." });
+    }
+    await ensureSchema();
     const existingRows = await db.query(
       "SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS createdDate FROM inventory_purchase_orders WHERE id = ? LIMIT 1",
       [req.params.id],
@@ -1032,8 +1051,12 @@ exports.deletePurchaseOrder = async (req, res) => {
 
 exports.createVendorInward = async (req, res) => {
   try {
-    await ensureSchema();
     const data = { ...req.body, createdBy: req.user?.username || "system" };
+    if (!data.itemName || normalizeNumber(data.quantityReceived) <= 0) {
+      return res.status(400).json({ message: "itemName and quantityReceived > 0 are required." });
+    }
+
+    await ensureSchema();
     const connection = await getConnection();
     try {
       await beginTransaction(connection);
@@ -1153,8 +1176,12 @@ exports.getVendorInwards = async (req, res) => {
 
 exports.updateVendorInward = async (req, res) => {
   try {
-    await ensureSchema();
     const data = { ...req.body, createdBy: req.user?.username || "system" };
+    if (!data.itemName && !data.quantityReceived && !data.vendorName) {
+      return res.status(400).json({ message: "Nothing to update." });
+    }
+
+    await ensureSchema();
     const connection = await getConnection();
     try {
       await beginTransaction(connection);
@@ -1295,8 +1322,12 @@ exports.deleteVendorInward = async (req, res) => {
 
 exports.createVendorPayment = async (req, res) => {
   try {
-    await ensureSchema();
     const data = { ...req.body, createdBy: req.user?.username || "system" };
+    if (!data.vendorName || !data.amount) {
+      return res.status(400).json({ message: "vendorName and amount are required." });
+    }
+
+    await ensureSchema();
     const result = await db.query(
       `INSERT INTO inventory_vendor_payments (vendor_name, invoice_ref, payment_date, amount, payment_mode, status, notes, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1343,8 +1374,12 @@ exports.getVendorPayments = async (req, res) => {
 
 exports.updateVendorPayment = async (req, res) => {
   try {
-    await ensureSchema();
     const data = req.body || {};
+    if (!data.vendorName && !data.amount) {
+      return res.status(400).json({ message: "Nothing to update." });
+    }
+
+    await ensureSchema();
     await db.query(
       `UPDATE inventory_vendor_payments SET vendor_name=?, invoice_ref=?, payment_date=?, amount=?, payment_mode=?, status=?, notes=? WHERE id=?`,
       [
@@ -1676,8 +1711,12 @@ exports.getVendorInsights = async (req, res) => {
 
 exports.createChefIssue = async (req, res) => {
   try {
-    await ensureSchema();
     const data = { ...req.body, createdBy: req.user?.name || req.user?.email || "system" };
+    if (!data.itemName || normalizeNumber(data.quantityIssued) <= 0) {
+      return res.status(400).json({ message: "itemName and quantityIssued > 0 are required." });
+    }
+
+    await ensureSchema();
     const connection = await getConnection();
     try {
       await beginTransaction(connection);
@@ -1761,8 +1800,12 @@ exports.createChefIssue = async (req, res) => {
 
 exports.returnChefIssue = async (req, res) => {
   try {
-    await ensureSchema();
     const data = req.body || {};
+    if (normalizeNumber(data.quantityReturned) <= 0) {
+      return res.status(400).json({ message: "quantityReturned > 0 is required." });
+    }
+
+    await ensureSchema();
     const connection = await getConnection();
     try {
       await beginTransaction(connection);
@@ -1976,6 +2019,11 @@ exports.getAuditReport = async (req, res) => {
 
 exports.recordTransfer = async (req, res) => {
   try {
+    const body = req.body || {};
+    if (!body.itemName || !body.fromStore || !body.toStore || normalizeNumber(body.quantity) <= 0) {
+      return res.status(400).json({ message: "itemName, fromStore, toStore and quantity > 0 are required." });
+    }
+
     await ensureSchema();
     const connection = await getConnection();
     try {
@@ -2055,6 +2103,11 @@ exports.getTransfers = async (req, res) => {
 
 exports.updateTransfer = async (req, res) => {
   try {
+    const body = req.body || {};
+    if (!body.itemName && !body.fromStore && !body.toStore) {
+      return res.status(400).json({ message: "Nothing to update." });
+    }
+
     await ensureSchema();
     const connection = await getConnection();
     try {

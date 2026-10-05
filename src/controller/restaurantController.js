@@ -634,7 +634,7 @@ const createRestaurantBill = async (data) => {
     `;
 
     const [result] = await conn.query(sql, [
-      data.table,
+      data.table || data.tableNumber || "Room Charge",
       data.tokenId ? Number(data.tokenId) : null,
       data.entityType || "Table",
       buildResolvedWaiterName(data),

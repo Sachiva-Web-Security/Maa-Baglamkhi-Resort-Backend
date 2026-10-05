@@ -92,19 +92,24 @@ exports.addItem = async (req, res) => {
   const actor = getRequestActor(req);
   const tokenId = req.body?.tokenId;
 
+  if (!tokenId) {
+    return res.status(400).json({ message: "tokenId is required" });
+  }
+
   try {
-    const token = await db.query("SELECT * FROM tokens WHERE id = ? LIMIT 1", [tokenId]).then(rows => rows[0] || null);
+    const [tokenRows] = await db.query("SELECT * FROM tokens WHERE id = ? LIMIT 1", [tokenId]);
+    const token = tokenRows[0] || null;
     if (!token) {
       return res.status(404).json({ message: "Token not found" });
     }
     if (denyIfNotOwnedByWaiter(token, actor, "You can add items only to your own token", res)) return;
 
-    await db.query(
+    const [result] = await db.query(
       `INSERT INTO token_items (token_id, item_name, qty, rate) VALUES (?, ?, ?, ?)`,
       [tokenId, req.body?.name || "Item", req.body?.qty || 1, req.body?.price || 0]
     );
 
-    res.json({ message: "Item added" });
+    res.json({ message: "Item added", id: result.insertId });
   } catch (err) {
     res.status(500).json(err);
   }
@@ -115,14 +120,15 @@ exports.getItems = async (req, res) => {
   const tokenId = req.params.tokenId;
 
   try {
-    const token = await db.query("SELECT * FROM tokens WHERE id = ? LIMIT 1", [tokenId]).then(rows => rows[0] || null);
+    const [tokenRows] = await db.query("SELECT * FROM tokens WHERE id = ? LIMIT 1", [tokenId]);
+    const token = tokenRows[0] || null;
     if (!token) {
       return res.json([]);
     }
     if (denyIfNotOwnedByWaiter(token, actor, "You can view items only for your own token", res)) return;
 
-    const data = await db.query("SELECT * FROM token_items WHERE token_id = ?", [tokenId]);
-    res.json(data);
+    const [items] = await db.query("SELECT * FROM token_items WHERE token_id = ?", [tokenId]);
+    res.json(items);
   } catch (err) {
     res.status(500).json(err);
   }
@@ -132,10 +138,11 @@ exports.updateItem = async (req, res) => {
   const actor = getRequestActor(req);
 
   try {
-    const row = await db.query(
+    const [rows] = await db.query(
       `SELECT ti.*, t.id AS token_row_id, t.table_number, t.waiter_name, t.status AS token_status FROM token_items ti INNER JOIN tokens t ON t.id = ti.token_id WHERE ti.id = ? LIMIT 1`,
       [req.body?.id]
-    ).then(rows => rows[0] || null);
+    );
+    const row = rows[0] || null;
     if (!row) {
       return res.status(404).json({ message: "Token item not found" });
     }
@@ -153,10 +160,11 @@ exports.deleteItem = async (req, res) => {
   const id = req.params.id;
 
   try {
-    const row = await db.query(
+    const [rows] = await db.query(
       `SELECT ti.*, t.id AS token_row_id, t.table_number, t.waiter_name, t.status AS token_status FROM token_items ti INNER JOIN tokens t ON t.id = ti.token_id WHERE ti.id = ? LIMIT 1`,
       [id]
-    ).then(rows => rows[0] || null);
+    );
+    const row = rows[0] || null;
     if (!row) {
       return res.status(404).json({ message: "Token item not found" });
     }

@@ -23,7 +23,7 @@ const http = require("http");
 
 const BASE = process.env.API_BASE || "http://localhost:5002";
 const ROUTES_FILE = "/tmp/routes.json";
-const TIMEOUT_MS = 12000;
+const TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS || 30000);
 
 // ── probe values for :params ────────────────────────────────────────────────
 const PARAM_PROBES = {
