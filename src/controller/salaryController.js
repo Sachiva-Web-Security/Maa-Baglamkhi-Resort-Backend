@@ -145,11 +145,31 @@ exports.getMyAttendanceWithSalary = async (req, res) => {
       month = now.getMonth() + 1;
     }
 
-    const [userRows] = await db.query("SELECT salary, designation FROM users WHERE id = ? LIMIT 1", [id]);
-    const user = userRows[0] || null;
-    const monthlySalary = Number(user?.salary || 0);
+    // v4 has no users.salary / users.designation columns. Salary lives on
+    // employees.base_salary and designation is employees.designation_id ->
+    // designations.name. attendance_records keys off employee_id (employees.id),
+    // not users.id, so resolve the employee row for this user first.
+    const [employeeRows] = await db.query(
+      `SELECT e.id AS employee_id, e.base_salary, e.employee_code,
+              d.name AS designation
+       FROM employees e
+       LEFT JOIN designations d ON d.id = e.designation_id
+       WHERE e.user_id = ? AND e.is_active = 1
+       ORDER BY e.id
+       LIMIT 1`,
+      [id]
+    );
+    const employee = Array.isArray(employeeRows) ? employeeRows[0] || null : null;
+    const monthlySalary = Number(employee?.base_salary || 0);
 
-    const records = await AttendanceRecordsModel.findByEmployeeAndMonth(id, month, year);
+    let records = [];
+    if (employee) {
+      records = await AttendanceRecordsModel.findByEmployeeAndMonth(
+        employee.employee_id,
+        month,
+        year
+      );
+    }
 
     const attendanceRecords = records.map((r) => {
       const status = String(r.status || "").toLowerCase();
@@ -168,19 +188,23 @@ exports.getMyAttendanceWithSalary = async (req, res) => {
 
     const totalPaid = attendanceRecords.reduce((sum, r) => sum + r.daySalary, 0);
 
+    // A user without an employee record (or with no attendance yet) is a valid
+    // state: return well-formed zeroed totals and an empty records array.
     return res.json({
       employee: {
         id,
+        employeeId: employee?.employee_id || null,
+        employeeCode: employee?.employee_code || null,
         salary: monthlySalary,
-        designation: user?.designation || null,
+        designation: employee?.designation || null,
       },
       month: `${year}-${String(month).padStart(2, "0")}`,
       attendanceRecords,
       totalPaid: Number(totalPaid.toFixed(2)),
     });
   } catch (err) {
-    console.error("getMyAttendanceWithSalary error:", err);
-    return res.status(500).json({ message: "Failed to fetch attendance" });
+    console.error("getMyAttendanceWithSalary error:", err.message || err);
+    return res.status(500).json({ message: "Failed to fetch attendance", error: err.message });
   }
 };
 
@@ -192,27 +216,31 @@ exports.getMyAttendanceWithSalary = async (req, res) => {
 exports.recalculateAttendance = async (req, res) => {
   try {
     const { userId } = req.params;
-    const [userRows] = await db.query("SELECT salary FROM users WHERE id = ? LIMIT 1", [userId]);
-    const user = userRows[0] || null;
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
+    // v4: salary is on employees.base_salary and attendance is keyed by
+    // employee_id, so resolve the employee row for this user first.
+    const [employeeRows] = await db.query(
+      "SELECT id, base_salary FROM employees WHERE user_id = ? ORDER BY id LIMIT 1",
+      [userId]
+    );
+    const employee = Array.isArray(employeeRows) ? employeeRows[0] || null : null;
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
     }
 
-    const records = await AttendanceRecordsModel.findByEmployeeAndMonth(userId);
+    const records = await AttendanceRecordsModel.findByEmployeeAndMonth(employee.id);
 
-    const updates = await Promise.all(
-      records.map(async (r) => {
-        const dateStr = String(r.date || "").slice(0, 7);
-        const [y, m] = dateStr.split("-").map(Number);
-        const amount = calculateDaySalary(user.salary, r.status, y, m);
-        await db.query("UPDATE attendance_records SET salary_amount = ? WHERE id = ?", [amount, r.id]);
-        return { id: r.id, amount };
-      })
-    );
+    // attendance_records in v4 has no salary_amount column; derive the computed
+    // amount per record and return it rather than persisting a non-existent field.
+    const updates = records.map((r) => {
+      const dateStr = String(r.date || "").slice(0, 7);
+      const [y, m] = dateStr.split("-").map(Number);
+      const amount = calculateDaySalary(employee.base_salary, r.status, y, m);
+      return { id: r.id, amount };
+    });
 
     return res.json({ message: "Attendance recalculated", updates });
   } catch (err) {
-    console.error("recalculateAttendance error:", err);
-    return res.status(500).json({ message: "Failed to recalculate" });
+    console.error("recalculateAttendance error:", err.message || err);
+    return res.status(500).json({ message: "Failed to recalculate", error: err.message });
   }
 };

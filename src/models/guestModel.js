@@ -1,3 +1,7 @@
+// models/guestModel.js
+// v4: the legacy `guests` table was replaced by `bookings` + `guest_profiles`.
+// Guest creation now writes a booking plus a primary guest profile. This module
+// keeps the original callback-style `createGuest(data, callback)` contract.
 const crypto = require("crypto");
 const db = require("../config/db");
 
@@ -13,49 +17,9 @@ const runQuery = (sql, params = []) =>
     });
   });
 
-const ensureColumn = async (columnName, definition) => {
-  const rows = await runQuery("SHOW COLUMNS FROM guests LIKE ?", [columnName]);
-  if (!rows.length) {
-    await runQuery(`ALTER TABLE guests ADD COLUMN ${columnName} ${definition}`);
-  }
-};
-
 const ensureSchema = async () => {
-  await runQuery(`
-    CREATE TABLE IF NOT EXISTS guests (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      booking_code VARCHAR(40) NOT NULL UNIQUE,
-      mobile VARCHAR(50) DEFAULT '',
-      guest_name VARCHAR(255) DEFAULT '',
-      guest_email VARCHAR(255) DEFAULT '',
-      check_in DATE DEFAULT NULL,
-      check_out DATE DEFAULT NULL,
-      arrival VARCHAR(20) DEFAULT NULL,
-      departure VARCHAR(20) DEFAULT NULL,
-      booking_status VARCHAR(50) DEFAULT 'Confirmed',
-      cancel_reason TEXT DEFAULT NULL
-    )
-  `);
-
-  await ensureColumn("booking_code", "VARCHAR(40) NULL UNIQUE AFTER id");
-  await ensureColumn("guest_name", "VARCHAR(255) DEFAULT '' AFTER mobile");
-  await ensureColumn("guest_email", "VARCHAR(255) DEFAULT '' AFTER guest_name");
-  await ensureColumn("check_in", "DATE DEFAULT NULL AFTER guest_email");
-  await ensureColumn("check_out", "DATE DEFAULT NULL AFTER check_in");
-  await ensureColumn("arrival", "VARCHAR(20) DEFAULT NULL AFTER check_out");
-  await ensureColumn("departure", "VARCHAR(20) DEFAULT NULL AFTER arrival");
-  await ensureColumn("booking_status", "VARCHAR(50) DEFAULT 'Confirmed' AFTER departure");
-  await ensureColumn("cancel_reason", "TEXT DEFAULT NULL AFTER booking_status");
-  await ensureColumn("booked_by", "VARCHAR(255) DEFAULT '' AFTER cancel_reason");
-
-  const missingCodes = await runQuery(
-    "SELECT id FROM guests WHERE booking_code IS NULL OR booking_code = '' ORDER BY id",
-  );
-
-  for (const row of missingCodes) {
-    const bookingCode = `BK-${String(row.id).padStart(6, "0")}`;
-    await runQuery("UPDATE guests SET booking_code = ? WHERE id = ?", [bookingCode, row.id]);
-  }
+  // Schema is owned by the v4 models (BookingsModel / GuestProfilesModel).
+  // Nothing to bootstrap here anymore.
 };
 
 const generateBookingCode = () => {
@@ -64,45 +28,58 @@ const generateBookingCode = () => {
   return `BK-${datePart}-${randomPart}`;
 };
 
+const STATUS_MAP = {
+  inquiry: "inquiry",
+  confirmed: "confirmed",
+  reserved: "reserved",
+  "checked in": "checked_in",
+  checked_in: "checked_in",
+  "checked out": "checked_out",
+  checked_out: "checked_out",
+  cancelled: "cancelled",
+  canceled: "cancelled",
+  "no show": "no_show",
+  no_show: "no_show",
+};
+
+const normalizeStatus = (status) => {
+  const key = String(status || "").trim().toLowerCase();
+  return STATUS_MAP[key] || "confirmed";
+};
+
 const createGuest = async (data, callback) => {
   try {
-    const normalizedStatus = ["cancelled", "checked in", "checked out"].includes(
-      String(data.bookingStatus || "").trim().toLowerCase(),
-    )
-      ? data.bookingStatus
-      : "Confirmed";
+    const status = normalizeStatus(data.bookingStatus);
+    const fullName = String(data.guestName || "").trim();
+    const [firstName, ...rest] = fullName.split(/\s+/);
+    const lastName = rest.join(" ") || null;
 
     let attempt = 0;
     while (attempt < 5) {
       const bookingCode = generateBookingCode();
-      const sql = `
-        INSERT INTO guests
-        (booking_code, mobile, guest_name, guest_email, check_in, check_out, arrival, departure, booking_status)
-        VALUES (?,?,?,?,?,?,?,?,?)
-      `;
-
       try {
-        const result = await new Promise((resolve, reject) => {
-          db.query(
-            sql,
-            [
-              bookingCode,
-              data.mobile,
-              data.guestName,
-              data.guestEmail,
-              data.checkIn,
-              data.checkOut,
-              data.arrival,
-              data.departure,
-              normalizedStatus,
-            ],
-            (error, result) => {
-              if (error) return reject(error);
-              resolve(result);
-            },
-          );
-        });
-        callback(null, { ...result, bookingCode });
+        const insertResult = await runQuery(
+          `INSERT INTO bookings
+             (booking_code, status, check_in, check_out, adults, children, total_rooms, total_guests)
+           VALUES (?, ?, ?, ?, 1, 0, 1, 1)`,
+          [bookingCode, status, data.checkIn || null, data.checkOut || null],
+        );
+
+        const bookingId = insertResult.insertId;
+
+        const guestResult = await runQuery(
+          `INSERT INTO guest_profiles (first_name, last_name, email, phone)
+           VALUES (?, ?, ?, ?)`,
+          [firstName || "Guest", lastName, data.guestEmail || null, data.mobile || null],
+        );
+
+        await runQuery(
+          `INSERT INTO booking_guests (booking_id, guest_profile_id, is_primary, first_name, last_name)
+           VALUES (?, ?, 1, ?, ?)`,
+          [bookingId, guestResult.insertId, firstName || "Guest", lastName],
+        );
+
+        callback(null, { insertId: bookingId, bookingCode });
         return;
       } catch (error) {
         // Retry on UNIQUE constraint collision for booking_code

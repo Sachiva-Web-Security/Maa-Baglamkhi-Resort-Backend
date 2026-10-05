@@ -33,6 +33,22 @@ const withAttendanceSchema = async (res, task) => {
 
 const normalizeStatus = (status) => String(status || "").toLowerCase().trim();
 
+/**
+ * Resolve a requesting USER id to an EMPLOYEE id.
+ *
+ * In v4 attendance is keyed by `attendance_records.employee_id` -> `employees.id`.
+ * Requests carry a user id (`req.user.id`), so we look up the linked employee row.
+ * Returns `null` when the user has no `employees` row (a valid state, not an error).
+ */
+const resolveEmployeeId = async (userId) => {
+  const [rows] = await db.query(
+    "SELECT id FROM employees WHERE user_id = ? LIMIT 1",
+    [userId]
+  );
+  const row = Array.isArray(rows) ? rows[0] : null;
+  return row ? row.id : null;
+};
+
 exports.getMyAttendance = async (req, res) => {
   const id = req.user?.id;
   if (!id) {
@@ -40,9 +56,15 @@ exports.getMyAttendance = async (req, res) => {
   }
 
   return withAttendanceSchema(res, async () => {
+    const employeeId = await resolveEmployeeId(id);
+    if (!employeeId) {
+      // No linked employee row: well-formed empty payload, not an error.
+      return res.json([]);
+    }
+
     const [rows] = await db.query(
-      "SELECT * FROM attendance_records WHERE user_id = ? ORDER BY date DESC",
-      [id]
+      "SELECT * FROM attendance_records WHERE employee_id = ? ORDER BY date DESC",
+      [employeeId]
     );
     res.json(rows);
   });
@@ -50,27 +72,22 @@ exports.getMyAttendance = async (req, res) => {
 
 exports.getAllAttendance = async (req, res) => {
   return withAttendanceSchema(res, async () => {
-    const users = await UsersModel.findAll();
-    const userIds = users.map((u) => u.id);
-    const placeholders = userIds.map(() => "?").join(",");
-    const records = userIds.length
-      ? await db.query(
-          `SELECT * FROM attendance_records WHERE user_id IN (${placeholders}) ORDER BY date DESC`,
-          userIds
-        )
-      : [];
-
-    const enrichedRecords = await Promise.all(
-      records.map(async (record) => {
-        const matched = await UsersModel.findById(record.user_id);
-        const user = matched[0] || {};
-        return {
-          ...record,
-          userName: user.name || null,
-          userEmail: user.email || null,
-        };
-      })
+    // Join attendance -> employees -> users so we can enrich with the owner's
+    // name/email without a per-row query.
+    const [records] = await db.query(
+      `SELECT ar.*, e.user_id AS employee_user_id,
+              u.name AS employee_name, u.email AS employee_email
+       FROM attendance_records ar
+       LEFT JOIN employees e ON e.id = ar.employee_id
+       LEFT JOIN users u ON u.id = e.user_id
+       ORDER BY ar.date DESC`
     );
+
+    const enrichedRecords = (Array.isArray(records) ? records : []).map((record) => ({
+      ...record,
+      userName: record.employee_name || null,
+      userEmail: record.employee_email || null,
+    }));
 
     res.json(enrichedRecords);
   });
@@ -82,36 +99,49 @@ exports.markMyAttendance = async (req, res) => {
     return res.status(401).json({ message: "Authentication required" });
   }
 
-  const { status } = req.body || {};
+  const { status, date } = req.body || {};
   const normalized = normalizeStatus(status);
 
   if (!["present", "absent", "late", "half_day", "on_leave", "holiday", "week_off"].includes(normalized)) {
     return res.status(400).json({ message: "Invalid attendance status" });
   }
 
+  // Honour a caller-supplied date when provided (YYYY-MM-DD), else default to today.
+  const requestedDate = typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date.trim())
+    ? date.trim()
+    : null;
+
   const now = new Date();
-  const dateStr = now.toISOString().slice(0, 10);
+  const dateStr = requestedDate || now.toISOString().slice(0, 10);
   const timeStr = now.toISOString().slice(11, 19);
 
   return withAttendanceSchema(res, async () => {
-    const existing = await db.query(
-      "SELECT id FROM attendance_records WHERE user_id = ? AND date = ? LIMIT 1",
-      [id, dateStr]
+    const employeeId = await resolveEmployeeId(id);
+    if (!employeeId) {
+      return res.status(400).json({
+        message: "No employee record is linked to this user; cannot mark attendance.",
+      });
+    }
+
+    const [existingRows] = await db.query(
+      "SELECT id FROM attendance_records WHERE employee_id = ? AND date = ? LIMIT 1",
+      [employeeId, dateStr]
     );
 
-    if (existing[0]) {
+    if (existingRows && existingRows[0]) {
       return res.status(409).json({ message: "Attendance already marked for today" });
     }
 
     const [result] = await db.query(
-      `INSERT INTO attendance_records (user_id, date, status, check_in, check_out, created_at, updated_at)
+      `INSERT INTO attendance_records (employee_id, date, status, check_in, check_out, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
-      [id, dateStr, normalized, timeStr, timeStr]
+      [employeeId, dateStr, normalized, timeStr, timeStr]
     );
 
     res.json({
       message: "Attendance marked successfully",
       id: result.insertId,
+      employeeId,
       date: dateStr,
       status: normalized,
     });
@@ -174,11 +204,28 @@ exports.calculateMySalary = async (req, res) => {
   const targetYear = Number(year || new Date().getFullYear());
 
   return withAttendanceSchema(res, async () => {
-    const [userRows] = await db.query("SELECT salary, designation FROM users WHERE id = ? LIMIT 1", [id]);
-    const user = userRows[0] || null;
-    const monthlySalary = Number(user?.salary || 0);
+    // v4: salary lives on employees.base_salary and attendance is keyed by
+    // employee_id, so resolve the employee row for this user first.
+    const employeeId = await resolveEmployeeId(id);
 
-    const records = await AttendanceRecordsModel.findByEmployeeAndMonth(id, targetMonth, targetYear);
+    let monthlySalary = 0;
+    let designation = null;
+    if (employeeId) {
+      const [empRows] = await db.query(
+        `SELECT e.base_salary, d.name AS designation
+         FROM employees e
+         LEFT JOIN designations d ON d.id = e.designation_id
+         WHERE e.id = ? LIMIT 1`,
+        [employeeId]
+      );
+      const emp = empRows && empRows[0];
+      monthlySalary = Number(emp?.base_salary || 0);
+      designation = emp?.designation || null;
+    }
+
+    const records = employeeId
+      ? await AttendanceRecordsModel.findByEmployeeAndMonth(employeeId, targetMonth, targetYear)
+      : [];
 
     const attendanceRecords = records.map((r) => {
       const status = normalizeStatus(r.status);
@@ -198,8 +245,9 @@ exports.calculateMySalary = async (req, res) => {
     res.json({
       employee: {
         id,
+        employeeId: employeeId || null,
         salary: monthlySalary,
-        designation: user?.designation || null,
+        designation,
       },
       month: `${targetYear}-${String(targetMonth).padStart(2, "0")}`,
       attendanceRecords,

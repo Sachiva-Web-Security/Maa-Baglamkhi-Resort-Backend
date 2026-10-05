@@ -107,14 +107,14 @@ exports.replaceRecipe = async (req, res) => {
   }
 
   return withRecipeSchema(res, async () => {
-    const connection = await db.promise().getConnection();
+    const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
-      await db.query("DELETE FROM menu_item_ingredients WHERE menu_item_id = ?", [req.params.menuItemId], connection);
+      await connection.query("DELETE FROM menu_item_ingredients WHERE menu_item_id = ?", [req.params.menuItemId]);
 
       for (let index = 0; index < recipeRows.length; index += 1) {
         const row = recipeRows[index];
-        await db.query(
+        await connection.query(
           `
             INSERT INTO menu_item_ingredients
               (menu_item_id, inventory_item_id, quantity, unit, wastage_percent, is_optional, notes, sort_order)
@@ -130,7 +130,6 @@ exports.replaceRecipe = async (req, res) => {
             row.notes,
             row.sortOrder,
           ],
-          connection,
         );
       }
 
@@ -254,11 +253,11 @@ exports.applyConsumption = async (req, res) => {
   }
 
   return withRecipeSchema(res, async () => {
-    const connection = await db.promise().getConnection();
+    const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
 
-      const [rows] = await db.query(
+      const [rows] = await connection.query(
         `
           SELECT mir.id,
                  mir.inventory_item_id AS inventoryItemId,
@@ -274,8 +273,7 @@ exports.applyConsumption = async (req, res) => {
           ORDER BY mir.sort_order ASC, i.name ASC
           FOR UPDATE
         `,
-        [menuItemId],
-        connection
+        [menuItemId]
       );
 
       if (!rows.length) {
@@ -297,27 +295,26 @@ exports.applyConsumption = async (req, res) => {
           throw error;
         }
 
-        await db.query("UPDATE inventory SET stock = stock - ? WHERE id = ?", [requiredQuantity, row.inventoryItemId], connection);
+        await connection.query("UPDATE inventory SET stock = stock - ? WHERE id = ?", [requiredQuantity, row.inventoryItemId]);
 
-        await db.query(
+        // v4 migration: persist to `inventory_consumption` (the legacy
+        // `inventory_consumption_log` table was retired). `reference_type='recipe'`
+        // and `reference_id=<menuItemId>` keep the menu linkage so the
+        // consumption-log read can resolve the menu item name.
+        await connection.query(
           `
-            INSERT INTO inventory_consumption_log
-              (menu_item_id, inventory_item_id, recipe_row_id, order_quantity, consumed_quantity, unit, reference_type, reference_id, remarks, consumed_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO inventory_consumption
+              (inventory_item_id, quantity, unit, reference_type, reference_id, remarks, consumed_by)
+            VALUES (?, ?, ?, 'recipe', ?, ?, ?)
           `,
           [
-            menuItemId,
             row.inventoryItemId,
-            row.id,
-            Number(orderQuantity || 0),
             requiredQuantity,
             row.unit || row.inventoryUnit || null,
-            req.body?.referenceType || "manual",
-            req.body?.referenceId || null,
+            String(menuItemId),
             req.body?.remarks || null,
             req.user?.email || req.user?.username || "system",
-          ],
-          connection
+          ]
         );
 
         results.push({
@@ -346,25 +343,36 @@ exports.applyConsumption = async (req, res) => {
 
 exports.getConsumptionLog = async (req, res) => {
   return withRecipeSchema(res, async () => {
-    const limit = Number(req.query.limit || 100);
+    const parsedLimit = Number(req.query.limit || 100);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : 100;
+
+    // v4 migration: consumption is stored in `inventory_consumption`
+    // (the legacy `inventory_consumption_log` table was retired). The v4 table
+    // tracks `inventory_item_id` against `inventory_items` and keeps the menu
+    // linkage in `reference_id` (reference_type = 'recipe'). LEFT JOINs keep the
+    // response a valid array even while all tables are empty.
     const [rows] = await db.query(
       `
         SELECT icl.id,
-               icl.menu_item_id AS menuItemId,
+               CASE WHEN icl.reference_type = 'recipe'
+                    THEN CAST(NULLIF(icl.reference_id, '') AS UNSIGNED)
+                    ELSE NULL END AS menuItemId,
                m.name AS menuItemName,
                icl.inventory_item_id AS inventoryItemId,
                i.name AS inventoryItemName,
-               icl.order_quantity AS orderQuantity,
-               icl.consumed_quantity AS consumedQuantity,
+               NULL AS orderQuantity,
+               icl.quantity AS consumedQuantity,
                icl.unit,
                icl.reference_type AS referenceType,
                icl.reference_id AS referenceId,
                icl.remarks,
                icl.consumed_by AS consumedBy,
                icl.consumed_at AS consumedAt
-        FROM inventory_consumption_log icl
-        INNER JOIN menu_items m ON m.id = icl.menu_item_id
-        INNER JOIN inventory i ON i.id = icl.inventory_item_id
+        FROM inventory_consumption icl
+        LEFT JOIN inventory_items i ON i.id = icl.inventory_item_id
+        LEFT JOIN menu_items m
+               ON icl.reference_type = 'recipe'
+              AND m.id = CAST(NULLIF(icl.reference_id, '') AS UNSIGNED)
         ORDER BY icl.consumed_at DESC, icl.id DESC
         LIMIT ?
       `,

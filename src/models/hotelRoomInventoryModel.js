@@ -35,56 +35,27 @@ const normalizeDateValue = (value) => {
 };
 
 // ─── Schema bootstrap ──────────────────────────────────────────────────────────
+// v4: categories live in `room_categories`, rooms in `rooms`. This bootstrap is
+// idempotent and only seeds anything missing.
+const CATEGORY_SLUG = (name) =>
+  String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
 const ensureSchema = async () => {
-  await runQuery(`
-    CREATE TABLE IF NOT EXISTS hotel_room_categories (
-      id           INT AUTO_INCREMENT PRIMARY KEY,
-      name         VARCHAR(120) NOT NULL UNIQUE,
-      default_price DECIMAL(10,2) NOT NULL DEFAULT 0,
-      unit_label   VARCHAR(40)  NOT NULL DEFAULT 'PER NIGHT',
-      created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    )
-  `);
-
-  await runQuery(`
-    CREATE TABLE IF NOT EXISTS hotel_room_inventory (
-      id          INT AUTO_INCREMENT PRIMARY KEY,
-      category_id INT NOT NULL,
-      room_number VARCHAR(50) NOT NULL UNIQUE,
-      guest       VARCHAR(200) DEFAULT NULL,
-      status      VARCHAR(60)  DEFAULT 'Available',
-      check_in    DATE DEFAULT NULL,
-      check_out   DATE DEFAULT NULL,
-      created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT fk_hotel_room_inventory_category
-        FOREIGN KEY (category_id) REFERENCES hotel_room_categories(id)
-        ON DELETE CASCADE
-    )
-  `);
-
-  // Add missing columns if needed
-  for (const [column, definition] of [
-    ["guest",     "VARCHAR(200) DEFAULT NULL"],
-    ["status",    "VARCHAR(60) DEFAULT 'Available'"],
-    ["check_in",  "DATE DEFAULT NULL"],
-    ["check_out", "DATE DEFAULT NULL"],
-  ]) {
-    const exists = await columnExists("hotel_room_inventory", column);
-    if (!exists) {
-      await runQuery(`ALTER TABLE hotel_room_inventory ADD COLUMN ${column} ${definition}`);
-    }
-  }
+  if (!(await tableExists("room_categories"))) return;
 
   // Keep the default room categories present across repeated starts.
   for (const category of DEFAULT_CATEGORIES) {
     await runQuery(
-      `INSERT INTO hotel_room_categories (name, default_price, unit_label)
-       VALUES (?, ?, ?)
+      `INSERT INTO room_categories (name, slug, default_price, unit_label, is_active)
+       VALUES (?, ?, ?, ?, 1)
        ON DUPLICATE KEY UPDATE
          default_price = VALUES(default_price),
-         unit_label = VALUES(unit_label)`,
-      [category.name, category.defaultPrice, category.unitLabel],
+         unit_label   = VALUES(unit_label)`,
+      [category.name, CATEGORY_SLUG(category.name), category.defaultPrice, category.unitLabel],
     );
   }
 };
@@ -101,21 +72,22 @@ const getRoomSetup = async ({ checkIn = null, checkOut = null } = {}) => {
       name,
       default_price AS defaultPrice,
       unit_label    AS unitLabel
-    FROM hotel_room_categories
+    FROM room_categories
     ORDER BY id
   `);
 
-  // FIX: include status, guest, check_in, check_out so frontend knows room state
+  // v4: operational state lives on `rooms`; occupancy is derived from
+  // booking_rooms below when a date range is supplied.
   const rooms = await runQuery(`
     SELECT
       id,
-      category_id                           AS categoryId,
-      room_number                           AS roomNumber,
-      COALESCE(status, 'Available')         AS status,
-      guest,
-      check_in                              AS checkIn,
-      check_out                             AS checkOut
-    FROM hotel_room_inventory
+      category_id                   AS categoryId,
+      room_number                   AS roomNumber,
+      COALESCE(status, 'available') AS status,
+      NULL                          AS guest,
+      NULL                          AS checkIn,
+      NULL                          AS checkOut
+    FROM rooms
     ORDER BY CAST(room_number AS UNSIGNED), room_number
   `);
 
@@ -127,16 +99,27 @@ const getRoomSetup = async ({ checkIn = null, checkOut = null } = {}) => {
       ? await runQuery(
           `
             SELECT
-              CAST(rt.room_number AS CHAR) AS roomNumber,
-              g.guest_name AS guest,
-              DATE_FORMAT(g.check_in, '%Y-%m-%d') AS checkIn,
-              DATE_FORMAT(g.check_out, '%Y-%m-%d') AS checkOut,
+              CAST(r.room_number AS CHAR) AS roomNumber,
+              COALESCE(
+                NULLIF((
+                  SELECT TRIM(CONCAT(COALESCE(gp.first_name, ''), ' ', COALESCE(gp.last_name, '')))
+                  FROM booking_guests bg
+                  LEFT JOIN guest_profiles gp ON gp.id = bg.guest_profile_id
+                  WHERE bg.booking_id = b.id AND bg.is_primary = 1
+                  LIMIT 1
+                ), ''),
+                NULLIF(br.guest_name, ''),
+                'Guest'
+              ) AS guest,
+              DATE_FORMAT(b.check_in, '%Y-%m-%d') AS checkIn,
+              DATE_FORMAT(b.check_out, '%Y-%m-%d') AS checkOut,
               'Occupied' AS status
-            FROM guests g
-            INNER JOIN room_tariff rt ON rt.booking_id = g.id
-            WHERE LOWER(COALESCE(g.booking_status, 'confirmed')) NOT IN ('checked out', 'cancelled')
-              AND DATE(COALESCE(g.check_in, ?)) <= DATE(?)
-              AND DATE(COALESCE(g.check_out, ?)) >= DATE(?)
+            FROM booking_rooms br
+            INNER JOIN bookings b ON b.id = br.booking_id
+            INNER JOIN rooms r ON r.id = br.room_id
+            WHERE LOWER(COALESCE(b.status, 'confirmed')) NOT IN ('checked_out', 'cancelled')
+              AND DATE(COALESCE(b.check_in, ?)) <= DATE(?)
+              AND DATE(COALESCE(b.check_out, ?)) >= DATE(?)
           `,
           [selectedCheckIn, selectedCheckOut, selectedCheckOut, selectedCheckIn],
         )
@@ -193,14 +176,14 @@ const getRoomSetup = async ({ checkIn = null, checkOut = null } = {}) => {
 const addRoom = async ({ categoryId, roomNumber }) => {
   await ensureSchema();
   const result = await runQuery(
-    "INSERT INTO hotel_room_inventory (category_id, room_number) VALUES (?, ?)",
+    "INSERT INTO rooms (category_id, room_number) VALUES (?, ?)",
     [categoryId, String(roomNumber || "").trim()],
   );
   return {
     id:          result.insertId,
     categoryId:  Number(categoryId),
     roomNumber:  String(roomNumber || "").trim(),
-    status:      "Available",
+    status:      "available",
   };
 };
 
@@ -214,7 +197,7 @@ const deleteRoom = async ({ roomNumber }) => {
   }
   const [result] = await new Promise((resolve, reject) => {
     db.query(
-      "DELETE FROM hotel_room_inventory WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)",
+      "DELETE FROM rooms WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)",
       [num],
       (error, result) => {
         if (error) { reject(error); return; }
@@ -232,9 +215,28 @@ const deleteRoom = async ({ roomNumber }) => {
 const updateCategoryPrice = async ({ categoryId, defaultPrice }) => {
   await ensureSchema();
   await runQuery(
-    "UPDATE hotel_room_categories SET default_price = ? WHERE id = ?",
+    "UPDATE room_categories SET default_price = ? WHERE id = ?",
     [Number(defaultPrice) || 0, categoryId],
   );
+};
+
+// v4 `rooms.status` is an enum; map the display strings used by callers.
+const ROOM_STATUS_ENUM = {
+  available: "available",
+  occupied: "occupied",
+  cleaning: "cleaning",
+  "occupied dirty": "cleaning",
+  "vacant dirty": "cleaning",
+  "vacant clean": "available",
+  blocked: "out_of_service",
+  maintenance: "out_of_service",
+  outofservice: "out_of_service",
+  reserved: "reserved",
+};
+
+const toRoomStatusEnum = (status) => {
+  const key = String(status || "").trim().toLowerCase();
+  return ROOM_STATUS_ENUM[key] || "available";
 };
 
 // ─── updateRoomOperationalState ───────────────────────────────────────────────
@@ -247,33 +249,14 @@ const updateRoomOperationalState = async ({
   checkOut  = null,
 }) => {
   await ensureSchema();
+  if (!(await tableExists("rooms"))) return;
 
-  const updates = [];
-
-  if (await tableExists("hotel_room_inventory")) {
-    updates.push(
-      runQuery(
-        `UPDATE hotel_room_inventory
-         SET guest = ?, status = ?, check_in = ?, check_out = ?
-         WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)`,
-        [guestName, status, checkIn, checkOut, roomNumber],
-      ),
-    );
-  }
-
-  // Also update legacy `rooms` table if it exists
-  if (await tableExists("rooms")) {
-    updates.push(
-      runQuery(
-        `UPDATE rooms
-         SET guest = ?, status = ?, check_in = ?, check_out = ?
-         WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)`,
-        [guestName, status, checkIn, checkOut, roomNumber],
-      ),
-    );
-  }
-
-  await Promise.all(updates);
+  await runQuery(
+    `UPDATE rooms
+     SET status = ?
+     WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)`,
+    [toRoomStatusEnum(status), roomNumber],
+  );
 };
 
 // ─── validateRoomAvailability ──────────────────────────────────────────────────
@@ -295,20 +278,31 @@ const validateRoomAvailability = async ({ roomNumbers, checkIn, checkOut, exclud
     const overlapping = await runQuery(
       `
         SELECT
-          g.id AS bookingId,
-          g.booking_code AS bookingCode,
-          g.guest_name,
-          g.check_in,
-          g.check_out,
-          g.booking_status,
-          rt.room_number
-        FROM guests g
-        INNER JOIN room_tariff rt ON rt.booking_id = g.id
-        WHERE LOWER(COALESCE(g.booking_status, 'confirmed')) NOT IN ('checked out', 'cancelled')
-          AND CAST(rt.room_number AS CHAR) = ?
-          AND DATE(COALESCE(g.check_in, ?)) <= DATE(?)
-          AND DATE(COALESCE(g.check_out, ?)) >= DATE(?)
-          ${excludeBookingId ? "AND g.id <> ?" : ""}
+          b.id AS bookingId,
+          b.booking_code AS bookingCode,
+          COALESCE(
+            NULLIF((
+              SELECT TRIM(CONCAT(COALESCE(gp.first_name, ''), ' ', COALESCE(gp.last_name, '')))
+              FROM booking_guests bg
+              LEFT JOIN guest_profiles gp ON gp.id = bg.guest_profile_id
+              WHERE bg.booking_id = b.id AND bg.is_primary = 1
+              LIMIT 1
+            ), ''),
+            NULLIF(br.guest_name, ''),
+            'Guest'
+          ) AS guest_name,
+          b.check_in,
+          b.check_out,
+          b.status AS booking_status,
+          CAST(r.room_number AS CHAR) AS room_number
+        FROM booking_rooms br
+        INNER JOIN bookings b ON b.id = br.booking_id
+        INNER JOIN rooms r ON r.id = br.room_id
+        WHERE LOWER(COALESCE(b.status, 'confirmed')) NOT IN ('checked_out', 'cancelled')
+          AND CAST(r.room_number AS CHAR) = ?
+          AND DATE(COALESCE(b.check_in, ?)) <= DATE(?)
+          AND DATE(COALESCE(b.check_out, ?)) >= DATE(?)
+          ${excludeBookingId ? "AND b.id <> ?" : ""}
         LIMIT 1
       `,
       excludeBookingId

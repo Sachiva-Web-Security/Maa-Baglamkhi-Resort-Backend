@@ -1,6 +1,7 @@
 const db = require("../config/db");
 const { getRequestActor, isWaiterActor } = require("../utils/requestActor");
 const { ensureSchema: ensureKitchenSchema } = require("../models/KotOrdersModel");
+const { ensureSchema: ensureNotificationSchema } = require("../models/NotificationsModel");
 const notificationController = require("../controller/notificationController");
 const { syncRestaurantOrdersToKitchen } = require("../utils/kitchenOrderSync");
 
@@ -123,7 +124,7 @@ exports.updateOrderStatus = async (req, res) => {
 
 exports.getNotifications = async (req, res) => {
   try {
-    await notificationController.ensureSchema();
+    await ensureNotificationSchema();
     return notificationController.listNotifications(req, res);
   } catch (err) {
     console.error("getNotifications error:", err);
@@ -133,7 +134,7 @@ exports.getNotifications = async (req, res) => {
 
 exports.markNotificationRead = async (req, res) => {
   try {
-    await notificationController.ensureSchema();
+    await ensureNotificationSchema();
     return notificationController.markAsRead(req, res);
   } catch (err) {
     console.error("markNotificationRead error:", err);
@@ -143,7 +144,7 @@ exports.markNotificationRead = async (req, res) => {
 
 exports.markAllNotificationsRead = async (req, res) => {
   try {
-    await notificationController.ensureSchema();
+    await ensureNotificationSchema();
     return notificationController.markAllAsRead(req, res);
   } catch (err) {
     console.error("markAllNotificationsRead error:", err);
@@ -153,7 +154,7 @@ exports.markAllNotificationsRead = async (req, res) => {
 
 exports.createKitchenNotification = async (req, res) => {
   try {
-    await notificationController.ensureSchema();
+    await ensureNotificationSchema();
     return notificationController.createNotification(req, res);
   } catch (err) {
     console.error("createKitchenNotification error:", err);
@@ -163,7 +164,7 @@ exports.createKitchenNotification = async (req, res) => {
 
 exports.deleteNotification = async (req, res) => {
   try {
-    await notificationController.ensureSchema();
+    await ensureNotificationSchema();
     return notificationController.deleteNotification(req, res);
   } catch (err) {
     console.error("deleteNotification error:", err);

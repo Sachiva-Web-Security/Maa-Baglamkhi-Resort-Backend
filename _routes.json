@@ -1,0 +1,1194 @@
+[
+ {
+  "method": "POST",
+  "path": "/api/auth/login"
+ },
+ {
+  "method": "POST",
+  "path": "/api/auth/register"
+ },
+ {
+  "method": "GET",
+  "path": "/api/auth/me"
+ },
+ {
+  "method": "GET",
+  "path": "/api/users/me"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/users/me"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/users/me/phone"
+ },
+ {
+  "method": "POST",
+  "path": "/api/users/change-password"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/users/me/avatar"
+ },
+ {
+  "method": "POST",
+  "path": "/api/users"
+ },
+ {
+  "method": "GET",
+  "path": "/api/users"
+ },
+ {
+  "method": "GET",
+  "path": "/api/users/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/users/:id"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/users/:id"
+ },
+ {
+  "method": "POST",
+  "path": "/api/hotel/guest"
+ },
+ {
+  "method": "POST",
+  "path": "/api/hotel/other-booking/:id"
+ },
+ {
+  "method": "POST",
+  "path": "/api/hotel/reference/:id"
+ },
+ {
+  "method": "POST",
+  "path": "/api/hotel/company/:id"
+ },
+ {
+  "method": "POST",
+  "path": "/api/hotel/pax/:id"
+ },
+ {
+  "method": "POST",
+  "path": "/api/hotel/room-tariff/:id"
+ },
+ {
+  "method": "POST",
+  "path": "/api/hotel/advance/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/hotel/all-bookings"
+ },
+ {
+  "method": "GET",
+  "path": "/api/hotel/booking/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/hotel/wizard/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/hotel/rooms/setup"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/hotel/booking/:id"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/hotel/full-booking/:id"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/hotel/check-in/:id"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/hotel/check-out/:id"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/hotel/cancel/:id"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/hotel/rooms/category/:id/price"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/hotel/rooms/state/:roomNumber"
+ },
+ {
+  "method": "POST",
+  "path": "/api/hotel/rooms/validate-availability"
+ },
+ {
+  "method": "GET",
+  "path": "/api/hotel/full-booking/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/hotel/booking-history"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/hotel/rooms/:roomNumber"
+ },
+ {
+  "method": "POST",
+  "path": "/api/hotel/rooms"
+ },
+ {
+  "method": "POST",
+  "path": "/api/hotel/refund/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/hotel/payment-history/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/hotel/folio/:bookingId"
+ },
+ {
+  "method": "POST",
+  "path": "/api/hotel/folio/:bookingId"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/hotel/folio/entry/:entryId"
+ },
+ {
+  "method": "GET",
+  "path": "/api/hotel/folio/:bookingId/totals"
+ },
+ {
+  "method": "GET",
+  "path": "/api/hotel/guest-profile"
+ },
+ {
+  "method": "GET",
+  "path": "/api/hotel/guests/search"
+ },
+ {
+  "method": "GET",
+  "path": "/api/hotel/guest-documents/:bookingId"
+ },
+ {
+  "method": "POST",
+  "path": "/api/hotel/guest-documents/:bookingId"
+ },
+ {
+  "method": "POST",
+  "path": "/api/hotel/invoice/pdf"
+ },
+ {
+  "method": "POST",
+  "path": "/api/hotel/group-booking"
+ },
+ {
+  "method": "POST",
+  "path": "/api/restaurant/tables"
+ },
+ {
+  "method": "GET",
+  "path": "/api/restaurant/tables"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/restaurant/tables/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/restaurant/tables/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/restaurant/waiter-performance"
+ },
+ {
+  "method": "GET",
+  "path": "/api/restaurant/menu"
+ },
+ {
+  "method": "POST",
+  "path": "/api/restaurant/menu"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/restaurant/menu/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/restaurant/menu/:id"
+ },
+ {
+  "method": "POST",
+  "path": "/api/restaurant/split-bills"
+ },
+ {
+  "method": "GET",
+  "path": "/api/restaurant/item-action-requests"
+ },
+ {
+  "method": "POST",
+  "path": "/api/restaurant/item-action-requests"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/restaurant/item-action-requests/:id/review"
+ },
+ {
+  "method": "POST",
+  "path": "/api/restaurant/order/add"
+ },
+ {
+  "method": "GET",
+  "path": "/api/restaurant/order"
+ },
+ {
+  "method": "GET",
+  "path": "/api/restaurant/order/:tableNumber"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/restaurant/order/:orderId"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/restaurant/order/:orderId"
+ },
+ {
+  "method": "GET",
+  "path": "/api/restaurant/order-items/:orderId"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/restaurant/order/:tableNumber/pay"
+ },
+ {
+  "method": "POST",
+  "path": "/api/restaurant/bill"
+ },
+ {
+  "method": "POST",
+  "path": "/api/restaurant/bill/:id/charge-to-room"
+ },
+ {
+  "method": "POST",
+  "path": "/api/restaurant/bill/charge-to-room"
+ },
+ {
+  "method": "POST",
+  "path": "/api/restaurant/bill/:id/pay"
+ },
+ {
+  "method": "POST",
+  "path": "/api/restaurant/bill/pay"
+ },
+ {
+  "method": "POST",
+  "path": "/api/restaurant/split-bills/:id/charge-to-room"
+ },
+ {
+  "method": "POST",
+  "path": "/api/restaurant/split-bills/charge-to-room"
+ },
+ {
+  "method": "GET",
+  "path": "/api/restaurant/bills"
+ },
+ {
+  "method": "POST",
+  "path": "/api/restaurant/invoice/send-whatsapp/:billId"
+ },
+ {
+  "method": "GET",
+  "path": "/api/web/dining/config"
+ },
+ {
+  "method": "GET",
+  "path": "/api/web/dining/availability"
+ },
+ {
+  "method": "POST",
+  "path": "/api/web/dining/reservations"
+ },
+ {
+  "method": "GET",
+  "path": "/api/web/dining/reservations/:code"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/web/dining/reservations/:code/cancel"
+ },
+ {
+  "method": "POST",
+  "path": "/api/room-service/rooms"
+ },
+ {
+  "method": "GET",
+  "path": "/api/room-service/rooms"
+ },
+ {
+  "method": "POST",
+  "path": "/api/room-service/menu"
+ },
+ {
+  "method": "GET",
+  "path": "/api/room-service/menu"
+ },
+ {
+  "method": "POST",
+  "path": "/api/room-service/order/add"
+ },
+ {
+  "method": "GET",
+  "path": "/api/room-service/order/:roomNumber"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/room-service/order/:roomNumber/pay"
+ },
+ {
+  "method": "GET",
+  "path": "/api/room-service/order-items/:orderId"
+ },
+ {
+  "method": "POST",
+  "path": "/api/room-service/bill"
+ },
+ {
+  "method": "GET",
+  "path": "/api/room-service/bill/:roomNumber"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/room-service/order/:orderId/status"
+ },
+ {
+  "method": "GET",
+  "path": "/api/waiter/orders/ready"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/waiter/orders/:id/pickup"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/waiter/orders/:id/served"
+ },
+ {
+  "method": "GET",
+  "path": "/api/waiter/live-board"
+ },
+ {
+  "method": "POST",
+  "path": "/api/waiter/release-lock"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/transactions"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/transactions/:id"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/accounts/transactions/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/accounts/transactions/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/summary"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/department-summary"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/hotel-billing"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/restaurant-billing"
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounts/income"
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounts/expense"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/extended-summary"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/reconciliation/summary"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/reconciliation/items"
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounts/reconciliation/match"
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounts/reconciliation/unmatch"
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounts/settle-pending-bill"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/bank-ledger"
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounts/bank-ledger"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/accounts/bank-ledger/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/accounts/bank-ledger/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/petty-cash"
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounts/petty-cash"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/accounts/petty-cash/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/accounts/petty-cash/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/gst-returns"
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounts/gst-returns"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/accounts/gst-returns/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/accounts/gst-returns/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/vendor-payments"
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounts/vendor-payments"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/accounts/vendor-payments/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/accounts/vendor-payments/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/purchase-orders"
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounts/purchase-orders"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/accounts/purchase-orders/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/accounts/purchase-orders/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/payroll"
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounts/payroll"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/accounts/payroll/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/accounts/payroll/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/profit-centers"
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounts/profit-centers"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/accounts/profit-centers/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/accounts/profit-centers/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/payment-settings"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/accounts/payment-settings/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/payment-history"
+ },
+ {
+  "method": "GET",
+  "path": "/api/banquet/config"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/banquet/config"
+ },
+ {
+  "method": "GET",
+  "path": "/api/banquet"
+ },
+ {
+  "method": "POST",
+  "path": "/api/banquet"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/banquet/:id"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/banquet/:id/cancel"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/banquet/:id/refund"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/banquet/:id"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/banquet/:id/complete"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/banquet/:id/bill"
+ },
+ {
+  "method": "POST",
+  "path": "/api/banquet/halls"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/banquet/halls/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/banquet/halls/:id"
+ },
+ {
+  "method": "POST",
+  "path": "/api/banquet/invoice/send-whatsapp/:bookingId"
+ },
+ {
+  "method": "GET",
+  "path": "/api/attendance"
+ },
+ {
+  "method": "POST",
+  "path": "/api/attendance"
+ },
+ {
+  "method": "GET",
+  "path": "/api/reports/summary"
+ },
+ {
+  "method": "GET",
+  "path": "/api/reports/data"
+ },
+ {
+  "method": "GET",
+  "path": "/api/report/daywise"
+ },
+ {
+  "method": "GET",
+  "path": "/api/report/items"
+ },
+ {
+  "method": "GET",
+  "path": "/api/assignments/stats"
+ },
+ {
+  "method": "GET",
+  "path": "/api/assignments"
+ },
+ {
+  "method": "POST",
+  "path": "/api/assignments"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/assignments/:id"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/assignments/:id/status"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/assignments/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/dashboard/metrics"
+ },
+ {
+  "method": "GET",
+  "path": "/api/dashboard/charts"
+ },
+ {
+  "method": "POST",
+  "path": "/api/token/create"
+ },
+ {
+  "method": "GET",
+  "path": "/api/token/table/:table"
+ },
+ {
+  "method": "POST",
+  "path": "/api/token/item"
+ },
+ {
+  "method": "GET",
+  "path": "/api/token/items/:tokenId"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/token/item"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/token/item/:id"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/token/close/:table"
+ },
+ {
+  "method": "POST",
+  "path": "/api/payment"
+ },
+ {
+  "method": "GET",
+  "path": "/api/payment"
+ },
+ {
+  "method": "POST",
+  "path": "/api/kitchen/order"
+ },
+ {
+  "method": "GET",
+  "path": "/api/kitchen/orders"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/kitchen/orders/:id"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/kitchen/orders/:id/save"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/kitchen/orders/:id/cancel"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/kitchen/orders/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/chef/orders"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/chef/orders/:id/status"
+ },
+ {
+  "method": "GET",
+  "path": "/api/chef/notifications"
+ },
+ {
+  "method": "POST",
+  "path": "/api/chef/notifications/:id/read"
+ },
+ {
+  "method": "POST",
+  "path": "/api/chef/notifications/mark-all-read"
+ },
+ {
+  "method": "POST",
+  "path": "/api/chef/notifications"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/chef/notifications/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/notifications"
+ },
+ {
+  "method": "POST",
+  "path": "/api/notifications/:id/read"
+ },
+ {
+  "method": "POST",
+  "path": "/api/notifications/mark-all-read"
+ },
+ {
+  "method": "POST",
+  "path": "/api/notifications"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/notifications/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory/alerts/low-stock"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory/alerts/expiring"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory/waste"
+ },
+ {
+  "method": "POST",
+  "path": "/api/inventory/waste"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/inventory/waste/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/inventory/waste/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory/purchase-orders"
+ },
+ {
+  "method": "POST",
+  "path": "/api/inventory/purchase-orders"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/inventory/purchase-orders/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/inventory/purchase-orders/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory/vendor-inwards"
+ },
+ {
+  "method": "POST",
+  "path": "/api/inventory/vendor-inwards"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/inventory/vendor-inwards/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/inventory/vendor-inwards/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory/vendor-payments"
+ },
+ {
+  "method": "POST",
+  "path": "/api/inventory/vendor-payments"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/inventory/vendor-payments/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/inventory/vendor-payments/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory/stock-ledger"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory/reports/stock-flow"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory/vendor-insights"
+ },
+ {
+  "method": "POST",
+  "path": "/api/inventory/audit"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory/audit/report"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory/transfers"
+ },
+ {
+  "method": "POST",
+  "path": "/api/inventory/transfers"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/inventory/transfers/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/inventory/transfers/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory/chef-issues"
+ },
+ {
+  "method": "POST",
+  "path": "/api/inventory/chef-issues"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/inventory/chef-issues/:id/return"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory/chef-issues/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory/:id"
+ },
+ {
+  "method": "POST",
+  "path": "/api/inventory"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/inventory/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/inventory/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory-masters/sections"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory-masters/:sectionKey"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory-masters/:sectionKey/:id"
+ },
+ {
+  "method": "POST",
+  "path": "/api/inventory-masters/:sectionKey"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/inventory-masters/:sectionKey/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/inventory-masters/:sectionKey/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/menu-recipes/menu-items"
+ },
+ {
+  "method": "GET",
+  "path": "/api/menu-recipes/inventory-items"
+ },
+ {
+  "method": "GET",
+  "path": "/api/menu-recipes/recipes"
+ },
+ {
+  "method": "GET",
+  "path": "/api/menu-recipes/menu/:menuItemId"
+ },
+ {
+  "method": "POST",
+  "path": "/api/menu-recipes/menu/:menuItemId"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/menu-recipes/recipes/:recipeRowId"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/menu-recipes/recipes/:recipeRowId"
+ },
+ {
+  "method": "POST",
+  "path": "/api/menu-recipes/preview-consumption"
+ },
+ {
+  "method": "POST",
+  "path": "/api/menu-recipes/apply-consumption"
+ },
+ {
+  "method": "GET",
+  "path": "/api/menu-recipes/consumption-log"
+ },
+ {
+  "method": "GET",
+  "path": "/api/audit-logs"
+ },
+ {
+  "method": "GET",
+  "path": "/api/settings"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/settings"
+ },
+ {
+  "method": "GET",
+  "path": "/api/housekeeping"
+ },
+ {
+  "method": "GET",
+  "path": "/api/housekeeping/logs"
+ },
+ {
+  "method": "GET",
+  "path": "/api/housekeeping/notifications"
+ },
+ {
+  "method": "POST",
+  "path": "/api/housekeeping"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/housekeeping/:id"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/housekeeping/status/:id"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/housekeeping/assignee/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/housekeeping/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/housekeeping/parameters"
+ },
+ {
+  "method": "POST",
+  "path": "/api/housekeeping/parameters"
+ },
+ {
+  "method": "POST",
+  "path": "/api/housekeeping/message"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/housekeeping/notifications/:id/complete"
+ },
+ {
+  "method": "GET",
+  "path": "/api/housekeeping/amenities"
+ },
+ {
+  "method": "POST",
+  "path": "/api/housekeeping/amenities"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/housekeeping/amenities/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/housekeeping/inspections"
+ },
+ {
+  "method": "POST",
+  "path": "/api/housekeeping/inspections"
+ },
+ {
+  "method": "GET",
+  "path": "/api/housekeeping/inspections/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/housekeeping/lost-found"
+ },
+ {
+  "method": "POST",
+  "path": "/api/housekeeping/lost-found"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/housekeeping/lost-found/:id"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/housekeeping/lost-found/:id"
+ },
+ {
+  "method": "GET",
+  "path": "/api/housekeeping/roster"
+ },
+ {
+  "method": "POST",
+  "path": "/api/housekeeping/roster"
+ },
+ {
+  "method": "GET",
+  "path": "/api/housekeeping/costing"
+ },
+ {
+  "method": "POST",
+  "path": "/api/housekeeping/costing"
+ },
+ {
+  "method": "GET",
+  "path": "/api/housekeeping/checkout-report"
+ },
+ {
+  "method": "GET",
+  "path": "/api/housekeeping/completed-cleaning"
+ },
+ {
+  "method": "POST",
+  "path": "/api/housekeeping/completed-cleaning"
+ },
+ {
+  "method": "POST",
+  "path": "/api/salary/:userId"
+ },
+ {
+  "method": "GET",
+  "path": "/api/salary"
+ },
+ {
+  "method": "GET",
+  "path": "/api/salary/:userId"
+ },
+ {
+  "method": "GET",
+  "path": "/api/salary/me"
+ },
+ {
+  "method": "GET",
+  "path": "/api/salary/me/attendance"
+ },
+ {
+  "method": "POST",
+  "path": "/api/salary/:userId/recalculate"
+ },
+ {
+  "method": "POST",
+  "path": "/api/print/queue"
+ },
+ {
+  "method": "POST",
+  "path": "/api/print/reprint"
+ },
+ {
+  "method": "GET",
+  "path": "/api/print/history"
+ },
+ {
+  "method": "GET",
+  "path": "/api/print/status"
+ },
+ {
+  "method": "GET",
+  "path": "/api/print/queue"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/print/queue/:jobId"
+ },
+ {
+  "method": "GET",
+  "path": "/api/print/types"
+ },
+ {
+  "method": "POST",
+  "path": "/api/print/test"
+ }
+]

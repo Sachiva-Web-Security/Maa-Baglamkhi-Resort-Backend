@@ -36,36 +36,16 @@ const generateBookingCode = () => {
 // Delegate schema creation to the v4 model
 const ensureSchema = ensureGroupBookingSchema;
 
+const roomInventoryModel = require("../models/hotelRoomInventoryModel");
+
 const updateRoomOperationalState = async ({ roomNumber, guestName, status, checkIn, checkOut }) => {
-  const updates = [];
-
-  // Update hotel_room_inventory if it exists
-  const tables = await db.query("SHOW TABLES LIKE 'hotel_room_inventory'").catch(() => []);
-  if (Array.isArray(tables) && tables.length > 0) {
-    updates.push(
-      db.query(
-        `UPDATE hotel_room_inventory
-         SET guest = ?, status = ?, check_in = ?, check_out = ?
-         WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)`,
-        [guestName, status, checkIn, checkOut, roomNumber],
-      ),
-    );
-  }
-
-  // Also update legacy rooms table if it exists
-  const legacyTables = await db.query("SHOW TABLES LIKE 'rooms'").catch(() => []);
-  if (Array.isArray(legacyTables) && legacyTables.length > 0) {
-    updates.push(
-      db.query(
-        `UPDATE rooms
-         SET guest = ?, status = ?, check_in = ?, check_out = ?
-         WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)`,
-        [guestName, status, checkIn, checkOut, roomNumber],
-      ),
-    );
-  }
-
-  await Promise.all(updates);
+  await roomInventoryModel.updateRoomOperationalState({
+    roomNumber,
+    guestName,
+    status,
+    checkIn,
+    checkOut,
+  });
 };
 
 // ─── POST /hotel/group-booking ────────────────────────────────────────────────
@@ -86,112 +66,107 @@ exports.create = async (req, res) => {
   try {
     await ensureSchema();
 
-    // ── Step 1: Create master guest record ───────────────────────────────
+    // ── Step 1: Create master booking (v4) ───────────────────────────────
     const bookingCode = generateBookingCode();
+    const [firstName, ...restName] = String(guest.guestName || "").trim().split(/\s+/);
+    const lastName = restName.join(" ") || null;
 
-    const guestResult = await db.query(
-      `INSERT INTO guests
-         (booking_code, mobile, guest_name, guest_email,
-          check_in, check_out, arrival, departure,
-          booking_status, is_group_booking, group_label)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+    const grandTotal = rooms.reduce((s, r) => s + Number(r.total || 0), 0);
+    const paidAmount  = Number(payment?.amount || 0);
+
+    const bookingResult = await db.query(
+      `INSERT INTO bookings
+         (booking_code, status, check_in, check_out,
+          adults, children, total_rooms, total_guests,
+          subtotal, total_amount, advance_amount, balance_amount)
+       VALUES (?, 'confirmed', ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
       [
         bookingCode,
-        guest.mobile,
-        guest.guestName,
-        guest.guestEmail || "",
         guest.checkIn,
         guest.checkOut,
-        guest.arrival || null,
-        guest.departure || null,
-        guest.bookingStatus || "Confirmed",
-        guest.groupLabel || null,
+        rooms.reduce((s, r) => s + Number(r.adults || 1), 0),
+        rooms.length,
+        rooms.reduce((s, r) => s + Number(r.adults || 1) + Number(r.children || 0), 0),
+        grandTotal,
+        grandTotal,
+        paidAmount,
+        Math.max(grandTotal - paidAmount, 0),
       ],
     );
 
-    const bookingId = guestResult.insertId;
+    const bookingId = bookingResult.insertId;
 
-    // ── Step 2: Insert room tariff rows for each room ─────────────────────
-    // Ensure room_tariff table has a category_name column
-    const catCol = await db.query(
-      "SHOW COLUMNS FROM room_tariff LIKE 'category_name'",
-    ).catch(() => []);
+    // Primary guest profile + link (v4 guest identity tables).
+    const guestProfileResult = await db.query(
+      `INSERT INTO guest_profiles (first_name, last_name, email, phone)
+       VALUES (?, ?, ?, ?)`,
+      [firstName || "Guest", lastName, guest.guestEmail || null, guest.mobile],
+    );
 
-    if (catCol && !catCol.length) {
-      await db.query(
-        "ALTER TABLE room_tariff ADD COLUMN category_name VARCHAR(120) DEFAULT NULL",
-      ).catch(() => {}); // Non-fatal if column already exists
-    }
+    await db.query(
+      `INSERT INTO booking_guests
+         (booking_id, guest_profile_id, is_primary, first_name, last_name)
+       VALUES (?, ?, 1, ?, ?)`,
+      [bookingId, guestProfileResult.insertId, firstName || "Guest", lastName],
+    );
 
-    const grandTotal = rooms.reduce((s, r) => s + Number(r.total || 0), 0);
-
+    // ── Step 2: Insert booking_rooms lines for each room ──────────────────
     for (const room of rooms) {
+      const roomNumber = String(room.roomNumber || "").trim();
       const nights = Number(room.nights || 1);
       const tariff = Number(room.tariff || 0);
       const gst    = Number(room.gst || 0);
       const base   = tariff * nights;
       const total  = Number(room.total || base + (base * gst) / 100);
 
-      await db.query(
-        `INSERT INTO room_tariff
-           (booking_id, room_number, tariff, gst, total, category_name)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           tariff = VALUES(tariff),
-           gst    = VALUES(gst),
-           total  = VALUES(total)`,
-        [
-          bookingId,
-          String(room.roomNumber || ""),
-          tariff,
-          gst,
-          total,
-          room.categoryName || null,
-        ],
+      const [roomRows] = await db.query(
+        "SELECT r.id AS room_id, r.category_id FROM rooms r WHERE CAST(r.room_number AS CHAR) = CAST(? AS CHAR) LIMIT 1",
+        [roomNumber],
       );
+      const resolvedRoom = roomRows[0];
+      if (!resolvedRoom) continue;
 
-      // Insert pax row for each room
       await db.query(
-        `INSERT INTO pax (booking_id, room_number, adults, children)
-         VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           adults   = VALUES(adults),
-           children = VALUES(children)`,
+        `INSERT INTO booking_rooms
+           (booking_id, room_id, category_id, rate_per_night, nights, room_charge, total, guest_name, adults, children)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           bookingId,
-          String(room.roomNumber || ""),
+          resolvedRoom.room_id,
+          resolvedRoom.category_id,
+          tariff,
+          nights,
+          base,
+          total,
+          guest.guestName || null,
           Number(room.adults || 1),
           Number(room.children || 0),
         ],
-      ).catch(() => {}); // pax table may not have room_number — skip gracefully
+      );
     }
 
-    // ── Step 3: Create advance payment record ─────────────────────────────
-    const paidAmount    = Number(payment?.amount   || 0);
-    const discountAmt   = Number(payment?.discount || 0);
-    const paymentMode   = payment?.paymentMode || "Cash";
-    const remarks       = payment?.remarks || null;
+    // ── Step 3 + 4: Record the advance as a v4 payment ────────────────────
+    const discountAmt = Number(payment?.discount || 0);
+    const paymentMode = payment?.paymentMode || "Cash";
+    const remarks     = payment?.remarks || null;
 
-    await db.query(
-      `INSERT INTO advance_payment
-         (booking_id, amount, discount_amount, payment_mode, remarks)
-       VALUES (?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         amount           = amount + VALUES(amount),
-         discount_amount  = IFNULL(discount_amount, 0) + VALUES(discount_amount),
-         payment_mode     = VALUES(payment_mode),
-         remarks          = COALESCE(VALUES(remarks), remarks)`,
-      [bookingId, paidAmount, discountAmt, paymentMode, remarks],
-    );
-
-    // ── Step 4: Save to payment_history ──────────────────────────────────
     if (paidAmount > 0) {
-      await db.query(
-        `INSERT INTO payment_history
-           (booking_id, amount, discount_amount, payment_mode, remarks)
-         VALUES (?, ?, ?, ?, ?)`,
-        [bookingId, paidAmount, discountAmt, paymentMode, remarks],
-      ).catch(() => {}); // non-fatal if table schema differs
+      const [methodRows] = await db.query(
+        "SELECT id FROM payment_methods WHERE LOWER(name) = LOWER(?) LIMIT 1",
+        [paymentMode],
+      );
+      const [fallbackMethods] = await db.query(
+        "SELECT id FROM payment_methods ORDER BY id ASC LIMIT 1",
+      );
+      const methodId = methodRows[0]?.id || fallbackMethods[0]?.id || null;
+      if (methodId) {
+        await db.query(
+          `INSERT INTO payments
+             (booking_id, amount, payment_method_id, payment_type, reference_no, status)
+           VALUES (?, ?, ?, 'advance', ?, 'completed')`,
+          [bookingId, paidAmount, methodId, remarks],
+        );
+      }
     }
 
     // ── Step 5: Group booking meta ────────────────────────────────────────

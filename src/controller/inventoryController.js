@@ -20,42 +20,27 @@ const tableExists = async (tableName) => {
   return Number(rows?.[0]?.count || 0) > 0;
 };
 
-const getConnection = () =>
-  new Promise((resolve, reject) => {
-    db.getConnection((err, connection) => {
-      if (err) return reject(err);
-      resolve(connection);
-    });
-  });
+const getConnection = async () => {
+  const [conn] = await db.getConnection();
+  return conn;
+};
 
-const queryWithConnection = (connection, sql, params = []) =>
-  new Promise((resolve, reject) => {
-    connection.query(sql, params, (err, results) => {
-      if (err) return reject(err);
-      resolve(results);
-    });
-  });
+const queryWithConnection = async (connection, sql, params = []) => {
+  const [rows] = await connection.query(sql, params);
+  return rows;
+};
 
-const beginTransaction = (connection) =>
-  new Promise((resolve, reject) => {
-    connection.beginTransaction((err) => {
-      if (err) return reject(err);
-      resolve();
-    });
-  });
+const beginTransaction = async (connection) => {
+  await connection.beginTransaction();
+};
 
-const commitTransaction = (connection) =>
-  new Promise((resolve, reject) => {
-    connection.commit((err) => {
-      if (err) return reject(err);
-      resolve();
-    });
-  });
+const commitTransaction = async (connection) => {
+  await connection.commit();
+};
 
-const rollbackTransaction = (connection) =>
-  new Promise((resolve) => {
-    connection.rollback(() => resolve());
-  });
+const rollbackTransaction = async (connection) => {
+  await connection.rollback();
+};
 
 const normalizeNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -265,22 +250,27 @@ const writeLedgerEntry = async (connection, entry) => {
 };
 
 const ensureSchema = async () => {
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS inventory (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      category VARCHAR(120) NULL,
-      subcategory VARCHAR(120) NULL,
-      stock DECIMAL(10,2) NOT NULL DEFAULT 0,
-      unit VARCHAR(60) NULL,
-      price DECIMAL(10,2) NOT NULL DEFAULT 0,
-      reorder_point DECIMAL(10,2) NOT NULL DEFAULT 10,
-      expiry DATE NULL,
-      branch VARCHAR(120) NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    )
-  `);
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS inventory (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        category VARCHAR(120) NULL,
+        subcategory VARCHAR(120) NULL,
+        stock DECIMAL(10,2) NOT NULL DEFAULT 0,
+        unit VARCHAR(60) NULL,
+        price DECIMAL(10,2) NOT NULL DEFAULT 0,
+        reorder_point DECIMAL(10,2) NOT NULL DEFAULT 10,
+        expiry DATE NULL,
+        branch VARCHAR(120) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+  } catch (error) {
+    console.error("ensureSchema inventory table error:", error);
+    throw error;
+  }
 
   const inventoryColumns = [
     ["category", "VARCHAR(120) NULL"],
@@ -296,13 +286,27 @@ const ensureSchema = async () => {
   ];
 
   for (const [columnName, definition] of inventoryColumns) {
-    if (!(await columnExists("inventory", columnName))) {
-      await db.query(`ALTER TABLE inventory ADD COLUMN ${columnName} ${definition}`);
+    try {
+      if (!(await columnExists("inventory", columnName))) {
+        await db.query(`ALTER TABLE inventory ADD COLUMN ${columnName} ${definition}`);
+      }
+    } catch (error) {
+      console.error(`ensureSchema inventory column ${columnName} error:`, error);
     }
   }
 
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS inventory_waste_log (
+  for (const [columnName, definition] of inventoryColumns) {
+    try {
+      if (!(await columnExists("inventory", columnName))) {
+        await db.query(`ALTER TABLE inventory ADD COLUMN ${columnName} ${definition}`);
+      }
+    } catch (error) {
+      console.error(`ensureSchema inventory column ${columnName} error:`, error);
+    }
+  }
+
+  const schemaChecks = [
+    [`inventory_waste_log`, `CREATE TABLE IF NOT EXISTS inventory_waste_log (
       id INT AUTO_INCREMENT PRIMARY KEY,
       item_id INT NULL,
       item_name VARCHAR(255) NOT NULL,
@@ -314,11 +318,8 @@ const ensureSchema = async () => {
       waste_date DATE NULL,
       created_by VARCHAR(120) NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS inventory_purchase_orders (
+    )`],
+    [`inventory_purchase_orders`, `CREATE TABLE IF NOT EXISTS inventory_purchase_orders (
       id INT AUTO_INCREMENT PRIMARY KEY,
       po_number VARCHAR(120) NOT NULL,
       vendor VARCHAR(255) NOT NULL,
@@ -330,11 +331,8 @@ const ensureSchema = async () => {
       status VARCHAR(60) NOT NULL DEFAULT 'Draft',
       created_by VARCHAR(120) NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS inventory_stock_audit (
+    )`],
+    [`inventory_stock_audit`, `CREATE TABLE IF NOT EXISTS inventory_stock_audit (
       id INT AUTO_INCREMENT PRIMARY KEY,
       item_id INT NULL,
       item_name VARCHAR(255) NOT NULL,
@@ -346,11 +344,8 @@ const ensureSchema = async () => {
       audit_date DATE NULL,
       audited_by VARCHAR(120) NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS inventory_transfers (
+    )`],
+    [`inventory_transfers`, `CREATE TABLE IF NOT EXISTS inventory_transfers (
       id INT AUTO_INCREMENT PRIMARY KEY,
       item_id INT NULL,
       item_name VARCHAR(255) NOT NULL,
@@ -361,6 +356,79 @@ const ensureSchema = async () => {
       approved_by VARCHAR(120) NULL,
       transfer_date DATE NULL,
       notes TEXT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`],
+  ];
+
+  for (const [tableName, sql] of schemaChecks) {
+    try {
+      await db.query(sql);
+    } catch (error) {
+      console.error(`ensureSchema ${tableName} error:`, error);
+    }
+  }
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS inventory_vendor_inwards (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      item_id INT NULL,
+      item_name VARCHAR(255) NOT NULL,
+      vendor VARCHAR(255) NOT NULL,
+      quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+      unit VARCHAR(60) NULL,
+      rate DECIMAL(10,2) NOT NULL DEFAULT 0,
+      batch_no VARCHAR(120) NULL,
+      expiry_date DATE NULL,
+      inward_date DATE NULL,
+      created_by VARCHAR(120) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vendor_payment_records (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      vendor VARCHAR(255) NOT NULL,
+      amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+      payment_date DATE NULL,
+      payment_mode VARCHAR(120) NULL,
+      reference_no VARCHAR(120) NULL,
+      notes TEXT NULL,
+      created_by VARCHAR(120) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS purchase_orders (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      po_number VARCHAR(120) NOT NULL,
+      vendor VARCHAR(255) NOT NULL,
+      item_name VARCHAR(255) NOT NULL,
+      quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+      unit VARCHAR(60) NULL,
+      rate DECIMAL(10,2) NOT NULL DEFAULT 0,
+      expected_date DATE NULL,
+      status VARCHAR(60) NOT NULL DEFAULT 'Draft',
+      notes TEXT NULL,
+      created_by VARCHAR(120) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS inventory_chef_issues (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      item_id INT NULL,
+      item_name VARCHAR(255) NOT NULL,
+      quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+      unit VARCHAR(60) NULL,
+      reason VARCHAR(255) NOT NULL,
+      status VARCHAR(60) NOT NULL DEFAULT 'Pending',
+      issued_by VARCHAR(120) NULL,
+      issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      returned_at TIMESTAMP NULL,
+      remarks TEXT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -1516,39 +1584,70 @@ exports.getStockFlowReport = async (req, res) => {
 exports.getVendorInsights = async (req, res) => {
   try {
     await ensureSchema();
-    const [summaryRows, vendorRows] = await Promise.all([
+    // v4 migration: vendor receipts now live in `inventory_purchases` (with
+    // `inventory_purchase_items` for the received quantity and `paid_amount` for
+    // payments). The legacy `inventory_vendor_inwards` / `inventory_vendor_payments`
+    // tables were retired by the migration, so the insights are derived from the
+    // v4 tables while preserving the outward JSON shape the frontend expects.
+    // `db.query` resolves to [rows, fields], so unwrap the tuple from each
+    // promise before destructuring the row sets.
+    const [[summaryRows], [vendorRows]] = await Promise.all([
       db.query(
         `SELECT
           (SELECT COUNT(*) FROM inventory_vendors) AS totalVendors,
-          (SELECT COALESCE(SUM(quantity_received), 0) FROM inventory_vendor_inwards) AS totalReceivedQty,
-          (SELECT COALESCE(SUM(amount), 0) FROM inventory_vendor_inwards) AS totalReceivedValue,
-          (SELECT COALESCE(SUM(amount), 0) FROM inventory_vendor_payments WHERE status <> 'Cancelled') AS totalPaidAmount`,
+          (SELECT COALESCE(SUM(ipi.quantity), 0)
+             FROM inventory_purchase_items ipi
+             INNER JOIN inventory_purchases ip ON ip.id = ipi.purchase_id
+            WHERE COALESCE(ip.status, 'received') <> 'cancelled') AS totalReceivedQty,
+          (SELECT COALESCE(SUM(ip.total_amount), 0)
+             FROM inventory_purchases ip
+            WHERE COALESCE(ip.status, 'received') <> 'cancelled') AS totalReceivedValue,
+          (SELECT COALESCE(SUM(ip.paid_amount), 0)
+             FROM inventory_purchases ip
+            WHERE COALESCE(ip.status, 'received') <> 'cancelled') AS totalPaidAmount`,
       ),
       db.query(
-        `SELECT base.vendorName, COALESCE(v.status, 'Active') AS status,
-                COALESCE(inwardStats.receiptsCount, 0) AS receiptsCount,
-                COALESCE(inwardStats.totalQty, 0) AS totalQty,
-                COALESCE(inwardStats.totalValue, 0) AS totalValue,
-                COALESCE(paymentStats.totalPaid, 0) AS totalPaid,
-                COALESCE(paymentStats.paymentCount, 0) AS paymentCount,
-                inwardStats.lastReceivedDate AS lastReceivedDate
+        `SELECT base.vendorName,
+                CASE WHEN COALESCE(v.is_active, 1) = 1 THEN 'Active' ELSE 'Inactive' END AS status,
+                COALESCE(purchaseStats.receiptsCount, 0) AS receiptsCount,
+                COALESCE(purchaseStats.totalQty, 0) AS totalQty,
+                COALESCE(purchaseStats.totalValue, 0) AS totalValue,
+                COALESCE(purchaseStats.totalPaid, 0) AS totalPaid,
+                COALESCE(purchaseStats.paymentCount, 0) AS paymentCount,
+                purchaseStats.lastReceivedDate AS lastReceivedDate
          FROM (
            SELECT name AS vendorName FROM inventory_vendors
            UNION
-           SELECT vendor_name AS vendorName FROM inventory_vendor_inwards
-           UNION
-           SELECT vendor_name AS vendorName FROM inventory_vendor_payments
+           SELECT v.name AS vendorName
+             FROM inventory_purchases p
+             INNER JOIN inventory_vendors v ON v.id = p.vendor_id
+            WHERE v.name IS NOT NULL AND v.name <> ''
          ) base
          LEFT JOIN inventory_vendors v ON LOWER(v.name) = LOWER(base.vendorName)
          LEFT JOIN (
-           SELECT vendor_name, COUNT(*) AS receiptsCount, COALESCE(SUM(quantity_received), 0) AS totalQty,
-                  COALESCE(SUM(amount), 0) AS totalValue, MAX(DATE_FORMAT(received_date, '%Y-%m-%d')) AS lastReceivedDate
-           FROM inventory_vendor_inwards GROUP BY vendor_name
-         ) inwardStats ON LOWER(inwardStats.vendor_name) = LOWER(base.vendorName)
-         LEFT JOIN (
-           SELECT vendor_name, COUNT(*) AS paymentCount, COALESCE(SUM(amount), 0) AS totalPaid
-           FROM inventory_vendor_payments WHERE status <> 'Cancelled' GROUP BY vendor_name
-         ) paymentStats ON LOWER(paymentStats.vendor_name) = LOWER(base.vendorName)
+           SELECT vendor_name,
+                  COUNT(*) AS receiptsCount,
+                  COALESCE(SUM(total_qty), 0) AS totalQty,
+                  COALESCE(SUM(total_amount), 0) AS totalValue,
+                  SUM(CASE WHEN paid_amount > 0 THEN 1 ELSE 0 END) AS paymentCount,
+                  COALESCE(SUM(paid_amount), 0) AS totalPaid,
+                  MAX(received_date) AS lastReceivedDate
+           FROM (
+             SELECT v.name AS vendor_name,
+                    DATE_FORMAT(p.purchase_date, '%Y-%m-%d') AS received_date,
+                    COALESCE(p.total_amount, 0) AS total_amount,
+                    COALESCE(p.paid_amount, 0) AS paid_amount,
+                    COALESCE((
+                      SELECT SUM(ipi.quantity)
+                        FROM inventory_purchase_items ipi
+                       WHERE ipi.purchase_id = p.id
+                    ), 0) AS total_qty
+               FROM inventory_purchases p
+               INNER JOIN inventory_vendors v ON v.id = p.vendor_id
+              WHERE COALESCE(p.status, 'received') <> 'cancelled'
+           ) purchaseLines
+           GROUP BY vendor_name
+         ) purchaseStats ON LOWER(purchaseStats.vendor_name) = LOWER(base.vendorName)
          WHERE base.vendorName IS NOT NULL AND base.vendorName <> ''
          ORDER BY totalValue DESC, totalQty DESC, base.vendorName ASC`,
       ),

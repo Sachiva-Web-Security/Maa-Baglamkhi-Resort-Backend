@@ -10,6 +10,26 @@ const columnExists = async (tableName, columnName) => {
   return Array.isArray(rows) && rows.length > 0;
 };
 
+const columnMapCache = new Map();
+// Returns { column_name: true, ... } for a table, so a query can be built from
+// whichever columns actually exist instead of assuming the legacy camelCase names.
+const getColumnMap = async (tableName) => {
+  if (!columnMapCache.has(tableName)) {
+    columnMapCache.set(
+      tableName,
+      (async () => {
+        const [rows] = await db.query(`SHOW COLUMNS FROM \`${tableName}\``);
+        const map = {};
+        (Array.isArray(rows) ? rows : []).forEach((row) => {
+          map[row.Field] = true;
+        });
+        return map;
+      })(),
+    );
+  }
+  return columnMapCache.get(tableName);
+};
+
 let banquetHallRateColumnPromise = null;
 const getBanquetHallRateColumn = async () => {
   if (!banquetHallRateColumnPromise) {
@@ -107,6 +127,7 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
   const restaurantTable = hasRestaurantBills ? "restaurant_bills" : "bills";
   const restaurantColumns = hasRestaurantBills ? await getRestaurantBillsColumnMap() : null;
   const restaurantHasCreatedAt = await columnExists(restaurantTable, "created_at");
+  const billColumns = hasRestaurantBills ? null : await getColumnMap("bills");
 
   const restaurantSql = hasRestaurantBills
     ? `SELECT id, DATE(created_at) AS billDate, COALESCE(total, 0) AS amount, ${
@@ -114,7 +135,9 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
       } AS paymentMode, ${
         restaurantColumns?.status || "'Paid'"
       } AS status FROM restaurant_bills`
-    : `SELECT id, ${restaurantHasCreatedAt ? "DATE(created_at)" : "NULL"} AS billDate, COALESCE(total, 0) AS amount, paymentMethod AS paymentMode, 'Paid' AS status FROM bills`;
+    : `SELECT id, ${restaurantHasCreatedAt ? "DATE(created_at)" : "NULL"} AS billDate, COALESCE(total, 0) AS amount, ` +
+      `${billColumns?.payment_method ? "payment_method" : "NULL"} AS paymentMode, ` +
+      `${billColumns?.payment_status ? "COALESCE(payment_status, 'Paid')" : "'Paid'"} AS status FROM bills`;
 
   const [restaurantRows] = await db.query(restaurantSql);
   restaurantRows.forEach((r) => {
@@ -377,10 +400,20 @@ exports.getReportData = async (req, res) => {
         }
         sql += " ORDER BY id DESC";
       } else {
-        const hasCreatedAt = await columnExists("bills", "created_at");
-        sql = `SELECT id, ${hasCreatedAt ? "DATE(created_at)" : "NULL"} as date, tableNumber as table_number, total as amount, paymentMethod as paymentMode FROM bills WHERE 1=1`;
+        const billColumns = await getColumnMap("bills");
+        const hasCreatedAt = Boolean(billColumns.created_at);
+        sql =
+          `SELECT id, ${hasCreatedAt ? "DATE(created_at)" : "NULL"} as date, ` +
+          `${billColumns.table_number ? "table_number" : "NULL"} as table_number, ` +
+          `total as amount, ` +
+          `${billColumns.payment_method ? "payment_method" : "NULL"} as paymentMode, ` +
+          `${billColumns.payment_status ? "COALESCE(payment_status, 'Paid')" : "'Paid'"} as status ` +
+          `FROM bills WHERE 1=1`;
         if (hasCreatedAt) addDateFilter("created_at");
-        if (paymentMode && paymentMode !== "All") { sql += " AND paymentMethod = ?"; params.push(paymentMode); }
+        if (paymentMode && paymentMode !== "All" && billColumns.payment_method) {
+          sql += " AND payment_method = ?";
+          params.push(paymentMode);
+        }
         sql += " ORDER BY id DESC";
       }
 

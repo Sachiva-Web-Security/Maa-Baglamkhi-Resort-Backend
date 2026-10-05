@@ -1,4 +1,5 @@
 // models/GroupBookingModel.js
+// v4: group metadata hangs off `bookings` (the legacy `guests` table is gone).
 const db = require("../config/db");
 
 const runQuery = (sql, params = []) =>
@@ -9,35 +10,37 @@ const runQuery = (sql, params = []) =>
     });
   });
 
+const tableExists = async (tableName) => {
+  const rows = await runQuery("SHOW TABLES LIKE ?", [tableName]);
+  return Array.isArray(rows) && rows.length > 0;
+};
+
 const ensureSchema = async () => {
+  if (!(await tableExists("bookings"))) return;
+
   await runQuery(`
     CREATE TABLE IF NOT EXISTS hotel_group_bookings (
       id           INT AUTO_INCREMENT PRIMARY KEY,
-      booking_id   INT NOT NULL UNIQUE,
+      booking_id   BIGINT UNSIGNED NOT NULL UNIQUE,
       group_label  VARCHAR(200) DEFAULT NULL,
       total_rooms  INT NOT NULL DEFAULT 1,
       grand_total  DECIMAL(10,2) NOT NULL DEFAULT 0,
       paid_amount  DECIMAL(10,2) NOT NULL DEFAULT 0,
       created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (booking_id) REFERENCES guests(id) ON DELETE CASCADE
+      FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE
     )
   `);
-
-  const col1 = await runQuery("SHOW COLUMNS FROM guests LIKE 'is_group_booking'");
-  if (!Array.isArray(col1) || col1.length === 0) {
-    await runQuery("ALTER TABLE guests ADD COLUMN is_group_booking TINYINT(1) NOT NULL DEFAULT 0");
-  }
-
-  const col2 = await runQuery("SHOW COLUMNS FROM guests LIKE 'group_label'");
-  if (!Array.isArray(col2) || col2.length === 0) {
-    await runQuery("ALTER TABLE guests ADD COLUMN group_label VARCHAR(200) DEFAULT NULL");
-  }
 };
 
 const create = (data) => {
   const sql = `
     INSERT INTO hotel_group_bookings (booking_id, group_label, total_rooms, grand_total, paid_amount)
     VALUES (?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      group_label = VALUES(group_label),
+      total_rooms = VALUES(total_rooms),
+      grand_total = VALUES(grand_total),
+      paid_amount = VALUES(paid_amount)
   `;
   return runQuery(sql, [
     data.booking_id,

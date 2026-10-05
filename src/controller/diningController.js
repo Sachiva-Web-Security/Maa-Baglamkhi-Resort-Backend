@@ -19,37 +19,65 @@ const db = require("../config/db");
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
 
+// v4 has no dedicated table-reservation table. Web dining reservations are
+// stored on the master `bookings` table (guest details in booking_guests,
+// dining-specific attributes packed into bookings.special_requests), and the
+// unique `booking_code` doubles as the public reservation code.
+const DINING_STATUS_TO_BOOKING = {
+  pending: "inquiry",
+  confirmed: "confirmed",
+  assigned: "reserved",
+  seated: "checked_in",
+  completed: "checked_out",
+  cancelled: "cancelled",
+  "no-show": "no_show",
+};
+
+const BOOKING_STATUS_TO_DINING = {
+  inquiry: "Pending",
+  confirmed: "confirmed",
+  reserved: "assigned",
+  checked_in: "seated",
+  checked_out: "completed",
+  cancelled: "cancelled",
+  no_show: "no-show",
+};
+
+function parseDiningMeta(specialRequests) {
+  if (!specialRequests) return {};
+  try {
+    const parsed = JSON.parse(specialRequests);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function mapReservationRow(row) {
   if (!row) return null;
+  const meta = parseDiningMeta(row.special_requests);
   return {
     id: row.id,
-    reservationCode: row.reservation_code,
-    customerName: row.customer_name,
-    mobile: row.mobile,
-    email: row.email,
-    reservationDate: row.reservation_date,
-    timeSlot: row.time_slot,
-    guestCount: Number(row.guest_count || 1),
-    tablePreference: row.table_preference,
-    occasion: row.occasion,
-    specialRequest: row.special_request,
-    status: row.status,
-    source: row.source,
-    assignedTableId: row.assigned_table_id,
-    assignedTableNumber: row.assigned_table_number,
-    confirmedBy: row.confirmed_by,
-    confirmedAt: row.confirmed_at,
+    reservationCode: row.booking_code,
+    customerName: row.primary_guest_name || meta.customerName || null,
+    mobile: row.primary_guest_phone || meta.mobile || null,
+    email: row.primary_guest_email || meta.email || null,
+    reservationDate: row.check_in,
+    timeSlot: meta.timeSlot || null,
+    guestCount: Number(row.total_guests || 1),
+    tablePreference: meta.tablePreference || null,
+    occasion: meta.occasion || null,
+    specialRequest: meta.specialRequest || null,
+    status: BOOKING_STATUS_TO_DINING[row.status] || row.status,
+    source: meta.source || row.source_name || "website",
+    assignedTableId: meta.assignedTableId || null,
+    assignedTableNumber: meta.assignedTableNumber || null,
+    confirmedBy: meta.confirmedBy || null,
+    confirmedAt: meta.confirmedAt || null,
     cancelledAt: row.cancelled_at,
-    notes: row.notes,
+    notes: meta.notes || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    paymentMethod: row.paymentMethod,
-    paymentStatus: row.paymentStatus,
-    holdExpiresAt: row.hold_expires_at,
-    paymentAmount: Number(row.paymentAmount || 0),
-    razorpayOrderId: row.razorpayOrderId,
-    razorpayPaymentId: row.razorpayPaymentId,
-    paidAt: row.paidAt,
   };
 }
 
@@ -59,20 +87,62 @@ function generateReservationCode() {
   return `DIN-${ts}-${rand}`;
 }
 
+// Booking metadata is stored as JSON in `special_requests`; merge new keys in
+// rather than replacing, so unrelated booking metadata is preserved.
+async function mergeDiningMeta(bookingId, patch) {
+  const [rows] = await db.query(
+    "SELECT special_requests FROM bookings WHERE id = ? LIMIT 1",
+    [bookingId]
+  );
+  const current = parseDiningMeta(rows?.[0]?.special_requests);
+  const merged = { ...current, ...patch };
+  await db.query("UPDATE bookings SET special_requests = ? WHERE id = ?", [
+    JSON.stringify(merged),
+    bookingId,
+  ]);
+  return merged;
+}
+
+const RESERVATION_SELECT = `
+  SELECT
+    b.id,
+    b.booking_code,
+    b.status,
+    b.check_in,
+    b.check_out,
+    b.total_guests,
+    b.cancelled_at,
+    b.special_requests,
+    b.created_at,
+    b.updated_at,
+    bg.first_name AS primary_guest_first,
+    bg.last_name AS primary_guest_last,
+    CONCAT_WS(' ', bg.first_name, bg.last_name) AS primary_guest_name,
+    gp.phone AS primary_guest_phone,
+    gp.email AS primary_guest_email,
+    bs.name AS source_name
+  FROM bookings b
+  LEFT JOIN booking_guests bg ON bg.booking_id = b.id AND bg.is_primary = 1
+  LEFT JOIN guest_profiles gp ON gp.id = bg.guest_profile_id
+  LEFT JOIN booking_sources bs ON bs.id = b.source_id
+`;
+
 /* ─── Public: Dining Config ───────────────────────────────────────────────── */
 
 async function getDiningConfig(req, res) {
   try {
+    // v4 restaurant_tables uses `number` (not `table_number`) and
+    // `is_active` (there is no 'removed' status). app_settings uses key/value.
     const [tables] = await db.query(
-      `SELECT id, table_number, floor_name, section_name, seat_count,
+      `SELECT id, number, floor_name, section_name, seat_count,
               status, status_color
        FROM restaurant_tables
-       WHERE status != 'removed'
-       ORDER BY section_name, table_number`
+       WHERE is_active = 1
+       ORDER BY section_name, number`
     );
     const mapped = tables.map((t) => ({
       id: t.id,
-      tableNumber: t.table_number,
+      tableNumber: t.number,
       floorName: t.floor_name,
       sectionName: t.section_name,
       seatCount: Number(t.seat_count || 4),
@@ -81,8 +151,8 @@ async function getDiningConfig(req, res) {
     }));
 
     const [settings] = await db.query(
-      `SELECT setting_key, setting_value FROM app_settings
-       WHERE setting_key IN (
+      `SELECT \`key\`, \`value\` FROM app_settings
+       WHERE \`key\` IN (
          'dining_open_time','dining_close_time',
          'dining_slot_interval_minutes','dining_max_guest_count',
          'dining_reservation_hold_minutes','dining_reservation_hold_amount'
@@ -90,9 +160,8 @@ async function getDiningConfig(req, res) {
     );
     const config = {};
     for (const row of settings) {
-      config[row.setting_key] = isNaN(row.setting_value)
-        ? row.setting_value
-        : Number(row.setting_value);
+      const raw = row.value;
+      config[row.key] = raw === null || raw === '' || isNaN(raw) ? raw : Number(raw);
     }
 
     res.json({ success: true, data: { tables: mapped, config } });
@@ -110,32 +179,34 @@ async function getDiningAvailability(req, res) {
     const date = reservationDate || new Date().toISOString().slice(0, 10);
     const guests = Math.max(1, Number(guestCount) || 1);
 
-    // Fetch tables with enough seats that are currently 'available'
+    // Fetch tables with enough seats that are currently 'available'.
+    // v4 restaurant_tables uses `number` (not `table_number`) and `is_active`.
     const [tables] = await db.query(
-      `SELECT id, table_number, floor_name, section_name, seat_count,
+      `SELECT id, number, floor_name, section_name, seat_count,
               status, status_color
        FROM restaurant_tables
        WHERE status = 'available'
+         AND is_active = 1
          AND seat_count >= ?
-       ORDER BY seat_count ASC, section_name, table_number`,
+       ORDER BY seat_count ASC, section_name, number`,
       [guests]
     );
 
-    // For each table check if there's an active reservation that overlaps
-    // (simple same-slot check: we match by reservation_date + status NOT cancelled)
-    const [activeReservations] = await db.query(
-      `SELECT assigned_table_number, reservation_date, status
-       FROM website_table_reservations
-       WHERE reservation_date = ?
-         AND status NOT IN ('cancelled','no-show','seated','completed')`,
+    // Occupancy comes from live orders in the v4 schema: any table with an
+    // order that is not yet completed/cancelled is considered taken.
+    const [activeOrders] = await db.query(
+      `SELECT DISTINCT table_number
+       FROM orders
+       WHERE status NOT IN ('completed','cancelled')
+         AND DATE(created_at) = ?`,
       [date]
     );
     const occupiedSet = new Set(
-      activeReservations.map((r) => r.assigned_table_number).filter(Boolean)
+      activeOrders.map((r) => String(r.table_number)).filter(Boolean)
     );
 
     const availableTables = tables.filter(
-      (t) => !occupiedSet.has(t.table_number)
+      (t) => !occupiedSet.has(String(t.number))
     );
 
     res.json({
@@ -145,7 +216,7 @@ async function getDiningAvailability(req, res) {
         guestCount: guests,
         tables: availableTables.map((t) => ({
           id: t.id,
-          tableNumber: t.table_number,
+          tableNumber: t.number,
           floorName: t.floor_name,
           sectionName: t.section_name,
           seatCount: Number(t.seat_count || 4),
@@ -163,7 +234,6 @@ async function getDiningAvailability(req, res) {
 /* ─── Public: Create Reservation ──────────────────────────────────────────── */
 
 async function createReservation(req, res) {
-  const conn = await db.query("START TRANSACTION");
   try {
     const {
       customerName,
@@ -179,45 +249,47 @@ async function createReservation(req, res) {
     } = req.body;
 
     if (!customerName || !mobile || !reservationDate || !timeSlot) {
-      await db.query("ROLLBACK");
       return res
         .status(400)
         .json({ error: "customerName, mobile, reservationDate, and timeSlot are required" });
     }
 
     const code = generateReservationCode();
+    const guests = Math.max(1, Number(guestCount) || 1);
+    const meta = {
+      timeSlot,
+      tablePreference: tablePreference || null,
+      occasion: occasion || null,
+      specialRequest: specialRequest || null,
+      source: source || "website",
+      kind: "dining",
+    };
 
+    const [result] = await db.query(
+      `INSERT INTO bookings
+        (booking_code, status, check_in, check_out, total_guests,
+         special_requests, created_at, updated_at)
+       VALUES (?, 'inquiry', ?, ?, ?, ?, NOW(), NOW())`,
+      [code, reservationDate, reservationDate, guests, JSON.stringify(meta)]
+    );
+
+    const bookingId = result.insertId;
+
+    // Store the guest on the booking (no dedicated guest profile required for
+    // a web reservation). guest_profile_id stays NULL; first_name is required.
     await db.query(
-      `INSERT INTO website_table_reservations
-        (reservation_code, customer_name, mobile, email, reservation_date,
-         time_slot, guest_count, table_preference, occasion, special_request,
-         status, source)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [
-        code,
-        customerName,
-        mobile,
-        email || null,
-        reservationDate,
-        timeSlot,
-        Math.max(1, Number(guestCount) || 1),
-        tablePreference || null,
-        occasion || null,
-        specialRequest || null,
-        "Pending",
-        source || "website",
-      ]
+      `INSERT INTO booking_guests
+        (booking_id, guest_profile_id, is_primary, first_name, last_name)
+       VALUES (?, NULL, 1, ?, NULL)`,
+      [bookingId, customerName]
     );
 
-    const [row] = await db.query(
-      "SELECT * FROM website_table_reservations WHERE reservation_code = ?",
-      [code]
-    );
+    // Keep contact details retrievable without a guest profile row.
+    await mergeDiningMeta(bookingId, { mobile, email: email || null, customerName });
 
-    await db.query("COMMIT");
-    res.status(201).json({ success: true, data: mapReservationRow(row) });
+    const [rows] = await db.query(`${RESERVATION_SELECT} WHERE b.id = ? LIMIT 1`, [bookingId]);
+    res.status(201).json({ success: true, data: mapReservationRow(rows?.[0] || null) });
   } catch (err) {
-    await db.query("ROLLBACK").catch(() => {});
     console.error("createReservation error:", err);
     res.status(500).json({ error: "Failed to create reservation" });
   }
@@ -229,11 +301,11 @@ async function getReservationByCode(req, res) {
   try {
     const { code } = req.params;
     const [rows] = await db.query(
-      "SELECT * FROM website_table_reservations WHERE reservation_code = ? LIMIT 1",
+      `${RESERVATION_SELECT} WHERE b.booking_code = ? LIMIT 1`,
       [code]
     );
     const row = rows?.[0] || null;
-    if (!row) return res.status(404).json({ error: "Reservation not found" });
+    if (!row) return res.json({ success: true, data: null });
     res.json({ success: true, data: mapReservationRow(row) });
   } catch (err) {
     console.error("getReservationByCode error:", err);
@@ -249,19 +321,22 @@ async function cancelReservation(req, res) {
     const { reason } = req.body || {};
 
     const [rows] = await db.query(
-      "SELECT * FROM website_table_reservations WHERE reservation_code = ? LIMIT 1",
+      "SELECT id, status, special_requests FROM bookings WHERE booking_code = ? LIMIT 1",
       [code]
     );
     const row = rows?.[0];
-    if (!row) return res.status(404).json({ error: "Reservation not found" });
+    if (!row) return res.json({ success: true, message: "Reservation already cancelled" });
     if (row.status === "cancelled")
       return res.status(400).json({ error: "Reservation already cancelled" });
 
     await db.query(
-      `UPDATE website_table_reservations
-       SET status = 'cancelled', notes = ?, cancelled_at = NOW()
+      `UPDATE bookings
+       SET status = 'cancelled',
+           cancellation_reason = ?,
+           cancelled_at = NOW(),
+           updated_at = NOW()
        WHERE id = ?`,
-      [reason || row.notes || "Cancelled via website", row.id]
+      [reason || "Cancelled via website", row.id]
     );
 
     res.json({ success: true, message: "Reservation cancelled" });
@@ -282,31 +357,32 @@ async function getAdminReservations(req, res) {
       limit = 50,
     } = req.query;
 
-    const where = [];
+    const where = ["b.id IS NOT NULL"];
     const params = [];
 
     if (status) {
-      where.push("status = ?");
-      params.push(status);
+      const mapped = DINING_STATUS_TO_BOOKING[String(status).toLowerCase()] || status;
+      where.push("b.status = ?");
+      params.push(mapped);
     }
     if (reservationDate) {
-      where.push("reservation_date = ?");
+      where.push("b.check_in = ?");
       params.push(reservationDate);
     }
 
-    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const whereSql = `WHERE ${where.join(" AND ")}`;
 
     const [countRow] = await db.query(
-      `SELECT COUNT(*) AS total FROM website_table_reservations ${whereSql}`,
+      `SELECT COUNT(*) AS total FROM bookings b ${whereSql}`,
       params
     );
     const total = Number(countRow?.total || 0);
 
     const offset = (Number(page) - 1) * Number(limit);
     const [rows] = await db.query(
-      `SELECT * FROM website_table_reservations
+      `${RESERVATION_SELECT}
        ${whereSql}
-       ORDER BY created_at DESC
+       ORDER BY b.created_at DESC, b.id DESC
        LIMIT ? OFFSET ?`,
       [...params, Number(limit), offset]
     );
@@ -330,21 +406,19 @@ async function confirmReservation(req, res) {
     const { confirmedBy } = req.body || {};
 
     const [rows] = await db.query(
-      "SELECT * FROM website_table_reservations WHERE id = ? LIMIT 1",
+      "SELECT id FROM bookings WHERE id = ? LIMIT 1",
       [id]
     );
     const row = rows?.[0];
     if (!row) return res.status(404).json({ error: "Reservation not found" });
 
     await db.query(
-      `UPDATE website_table_reservations
-       SET status = 'confirmed',
-           confirmed_by = ?,
-           confirmed_at = NOW(),
-           updated_at = NOW()
+      `UPDATE bookings
+       SET status = 'confirmed', updated_at = NOW()
        WHERE id = ?`,
-      [confirmedBy || null, id]
+      [id]
     );
+    await mergeDiningMeta(id, { confirmedBy: confirmedBy || null, confirmedAt: new Date().toISOString() });
 
     res.json({ success: true, message: "Reservation confirmed" });
   } catch (err) {
@@ -365,25 +439,19 @@ async function assignTable(req, res) {
     }
 
     const [rows] = await db.query(
-      "SELECT * FROM website_table_reservations WHERE id = ? LIMIT 1",
+      "SELECT id FROM bookings WHERE id = ? LIMIT 1",
       [id]
     );
     if (!rows?.[0]) return res.status(404).json({ error: "Reservation not found" });
 
-    const updateFields = [];
-    const updateParams = [];
-    updateFields.push("assigned_table_id = ?");
-    updateParams.push(tableId || null);
-    updateFields.push("assigned_table_number = ?");
-    updateParams.push(tableNumber);
-    updateFields.push("status = 'assigned'");
-    updateFields.push("updated_at = NOW()");
-    updateParams.push(id);
-
     await db.query(
-      `UPDATE website_table_reservations SET ${updateFields.join(", ")} WHERE id = ?`,
-      updateParams
+      `UPDATE bookings SET status = 'reserved', updated_at = NOW() WHERE id = ?`,
+      [id]
     );
+    await mergeDiningMeta(id, {
+      assignedTableId: tableId || null,
+      assignedTableNumber: tableNumber,
+    });
 
     res.json({ success: true, message: "Table assigned" });
   } catch (err) {
@@ -399,13 +467,13 @@ async function markSeated(req, res) {
     const { id } = req.params;
 
     const [rows] = await db.query(
-      "SELECT * FROM website_table_reservations WHERE id = ? LIMIT 1",
+      "SELECT id FROM bookings WHERE id = ? LIMIT 1",
       [id]
     );
     if (!rows?.[0]) return res.status(404).json({ error: "Reservation not found" });
 
     await db.query(
-      `UPDATE website_table_reservations SET status = 'seated', updated_at = NOW()
+      `UPDATE bookings SET status = 'checked_in', updated_at = NOW()
        WHERE id = ?`,
       [id]
     );
@@ -424,13 +492,13 @@ async function markNoShow(req, res) {
     const { id } = req.params;
 
     const [rows] = await db.query(
-      "SELECT * FROM website_table_reservations WHERE id = ? LIMIT 1",
+      "SELECT id FROM bookings WHERE id = ? LIMIT 1",
       [id]
     );
     if (!rows?.[0]) return res.status(404).json({ error: "Reservation not found" });
 
     await db.query(
-      `UPDATE website_table_reservations SET status = 'no-show', updated_at = NOW()
+      `UPDATE bookings SET status = 'no_show', updated_at = NOW()
        WHERE id = ?`,
       [id]
     );

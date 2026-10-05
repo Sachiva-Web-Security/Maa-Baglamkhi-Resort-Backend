@@ -223,14 +223,20 @@ const ensureSchema = async () => {
 
   await runQuery(`
     CREATE TABLE IF NOT EXISTS housekeeping_logs (
-      id INT NOT NULL AUTO_INCREMENT,
-      roomNo VARCHAR(50) NOT NULL,
-      oldStatus VARCHAR(100) NULL,
-      newStatus VARCHAR(100) NOT NULL,
-      assignee VARCHAR(100) NULL,
-      notes TEXT NULL,
-      changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (id)
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      room_id VARCHAR(100) NULL,
+      room_number VARCHAR(50) NOT NULL,
+      assignment_id BIGINT UNSIGNED NULL,
+      assigned_to VARCHAR(255) NULL,
+      guest_status VARCHAR(255) NULL,
+      final_status VARCHAR(100) NULL,
+      verified_by_user_id BIGINT UNSIGNED NULL,
+      verified_by_name VARCHAR(120) NULL,
+      completed_at DATETIME NULL,
+      verified_at DATETIME NULL,
+      PRIMARY KEY (id),
+      KEY idx_room (room_number),
+      KEY idx_completed (completed_at)
     )
   `);
 
@@ -730,15 +736,14 @@ const Housekeeping = {
         await runQuery(
           `
           INSERT INTO housekeeping_logs
-          (roomNo, oldStatus, newStatus, assignee, notes)
-          VALUES (?, ?, ?, ?, ?)
+          (room_number, assigned_to, guest_status, final_status, completed_at)
+          VALUES (?, ?, ?, ?, NOW())
         `,
           [
             roomNo,
+            assignee || existingRows[0].assignee || null,
             existingRows[0].status || null,
             status,
-            assignee || existingRows[0].assignee || null,
-            notes || null,
           ]
         );
 
@@ -842,15 +847,14 @@ const Housekeeping = {
       await runQuery(
         `
         INSERT INTO housekeeping_logs
-        (roomNo, oldStatus, newStatus, assignee, notes)
-        VALUES (?, ?, ?, ?, ?)
+        (room_number, assigned_to, guest_status, final_status, completed_at)
+        VALUES (?, ?, ?, ?, NOW())
       `,
         [
           roomNo,
+          data.assignee || null,
           oldRoom?.status || null,
           data.status,
-          data.assignee || null,
-          data.notes || null,
         ]
       );
 
@@ -893,14 +897,14 @@ const Housekeeping = {
       await runQuery(
         `
         INSERT INTO housekeeping_logs
-        (roomNo, oldStatus, newStatus, assignee)
-        VALUES (?, ?, ?, ?)
+        (room_number, assigned_to, guest_status, final_status, completed_at)
+        VALUES (?, ?, ?, ?, NOW())
       `,
         [
           targetRoomNo,
+          oldRoom?.assignee || null,
           oldRoom?.status || null,
           status,
-          oldRoom?.assignee || null,
         ]
       );
 
@@ -948,10 +952,26 @@ const Housekeeping = {
 
   getLogs: async (callback) => {
     try {
+      // v4 housekeeping_logs has no `changed_at` column. Order by the real
+      // event timestamps (null-safe) and expose legacy-friendly aliases.
       const rows = await runQuery(`
-        SELECT *
+        SELECT
+          id,
+          room_id,
+          room_number AS roomNo,
+          assignment_id,
+          assigned_to AS assignee,
+          guest_status,
+          guest_status AS oldStatus,
+          final_status,
+          final_status AS newStatus,
+          verified_by_user_id,
+          verified_by_name,
+          completed_at,
+          verified_at,
+          COALESCE(completed_at, verified_at) AS changed_at
         FROM housekeeping_logs
-        ORDER BY changed_at DESC
+        ORDER BY COALESCE(completed_at, verified_at) DESC, id DESC
       `);
       callback(null, rows);
     } catch (error) {

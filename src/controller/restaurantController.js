@@ -1,6 +1,21 @@
 const db = require("../config/db");
 const { getRequestActor, isWaiterActor, namesMatch } = require("../utils/requestActor");
 
+// Resolve a payment-mode label to a payment_methods.id. Creates the row if needed.
+const resolvePaymentMethodId = async (paymentMode) => {
+  const label = String(paymentMode || "").trim();
+  if (!label) return null;
+  try {
+    const [rows] = await db.query("SELECT id FROM payment_methods WHERE LOWER(name) = LOWER(?) LIMIT 1", [label]);
+    if (rows && rows[0]) return rows[0].id;
+    const code = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 30) || "other";
+    const [result] = await db.query("INSERT INTO payment_methods (name, code, is_active) VALUES (?, ?, 1)", [label, code]);
+    if (result?.insertId) return result.insertId;
+  } catch { /* unique-name race: fall through */ }
+  const [retry] = await db.query("SELECT id FROM payment_methods ORDER BY id ASC LIMIT 1");
+  return retry?.[0]?.id || null;
+};
+
 
 const resolveAssignedWaiterName = (req, fallbackEntityType = "Table") => {
   const actor = getRequestActor(req);
@@ -108,7 +123,7 @@ exports.addTable = async (req, res) => {
   }
 
   try {
-    const existing = await db.query(
+    const [existing] = await db.query(
       "SELECT id FROM restaurant_tables WHERE number = ? LIMIT 1",
       [String(number)]
     );
@@ -289,7 +304,7 @@ exports.addMenuItem = async (req, res) => {
 
 exports.getMenuItems = async (req, res) => {
   try {
-    const rows = await db.query("SELECT * FROM menu_items ORDER BY category_id, name");
+    const [rows] = await db.query("SELECT * FROM menu_items ORDER BY category_id, name");
 
     res.json(rows.map(withEffectivePrice));
   } catch (err) {
@@ -369,20 +384,25 @@ exports.deleteMenuItem = async (req, res) => {
 
 exports.addOrderItem = async (req, res) => {
   const actor = getRequestActor(req);
-  const { tableNumber, item } = req.body || {};
-  if (!tableNumber || !item) return res.status(400).json({ message: "tableNumber and item required" });
+  const { tableNumber, item, itemId, qty, price, name } = req.body || {};
+  const resolvedItem = item || {};
+  const itemName = String(name || resolvedItem.name || "").trim();
+  const itemQty = Number((resolvedItem.quantity || qty || 1));
+  const itemPrice = Number((resolvedItem.price || price || 0));
+  if (!tableNumber || !itemName) return res.status(400).json({ message: "tableNumber and item required" });
   const waiterName = resolveAssignedWaiterName(req);
 
   try {
     let created = false;
-    let order = (await db.query("SELECT id, waiter_name FROM orders WHERE tableNumber=? AND status='pending' ORDER BY id DESC LIMIT 1", [tableNumber]))[0];
+    const [orderRows] = await db.query("SELECT id, waiter_name FROM orders WHERE table_number=? AND status='pending' ORDER BY id DESC LIMIT 1", [tableNumber]);
+    let order = orderRows[0];
 
     if (isWaiterActor(actor) && order?.waiter_name && !namesMatch(order.waiter_name, actor.name)) {
       return res.status(403).json({ message: "This table is already running under another waiter" });
     }
 
     if (!order) {
-      const result = await db.query(
+      const [result] = await db.query(
         "INSERT INTO orders (table_number, waiter_name, status) VALUES (?, ?, 'pending')",
         [tableNumber, waiterName || null],
       );
@@ -394,7 +414,7 @@ exports.addOrderItem = async (req, res) => {
 
     await db.query(
       "INSERT INTO order_items (order_id, name, price, quantity) VALUES (?,?,?,?)",
-      [order.id, item.name, Number(item.price), Number(item.quantity || 1)]
+      [order.id, itemName, itemPrice, itemQty]
     );
 
     res.json({
@@ -475,7 +495,7 @@ exports.updateOrder = async (req, res) => {
   const { status, tableNumber } = req.body || {};
 
   try {
-    const existing = await db.query("SELECT id, waiter_name FROM orders WHERE id = ? LIMIT 1", [orderId]);
+    const [existing] = await db.query("SELECT id, waiter_name FROM orders WHERE id = ? LIMIT 1", [orderId]);
     if (!existing.length) {
       return res.status(404).json({ message: "Order not found" });
     }
@@ -512,7 +532,7 @@ exports.deleteOrder = async (req, res) => {
   const actor = getRequestActor(req);
   const { orderId } = req.params;
   try {
-    const existing = await db.query("SELECT id, waiter_name FROM orders WHERE id = ? LIMIT 1", [orderId]);
+    const [existing] = await db.query("SELECT id, waiter_name FROM orders WHERE id = ? LIMIT 1", [orderId]);
     if (!existing.length) {
       return res.status(404).json({ message: "Order not found" });
     }
@@ -537,7 +557,7 @@ exports.payOrder = async (req, res) => {
       sql += " AND LOWER(COALESCE(waiter_name, '')) = LOWER(?)";
       params.push(actor.name);
     }
-    const result = await db.query(sql, params);
+    const [result] = await db.query(sql, params);
     if (!result.affectedRows) {
       return res.json({ message: "Order already settled" });
     }
@@ -550,7 +570,7 @@ exports.payOrder = async (req, res) => {
 /* ================= BILLS ================= */
 
 const createRestaurantBill = async (data) => {
-  const conn = await db.promise().getConnection();
+  const conn = await db.getConnection();
   try {
     const reusableBill = await findReusableOpenBill(conn, data);
     if (reusableBill?.id) {
@@ -663,8 +683,8 @@ const findReusableOpenBill = async (conn, data) => {
         SELECT id
         FROM bills
         WHERE token_id=?
-          AND entityType=?
-          AND invoiceStatus, 'Saved') NOT IN ('Paid', 'Posted To Room')
+          AND entity_type=?
+          AND payment_status NOT IN ('Paid', 'Posted To Room')
         ORDER BY id DESC
         LIMIT 1
       `,
@@ -678,9 +698,9 @@ const findReusableOpenBill = async (conn, data) => {
     `
       SELECT id
       FROM bills
-      WHERE tableNumber=?
-        AND entityType=?
-        AND invoiceStatus, 'Saved') NOT IN ('Paid', 'Posted To Room')
+      WHERE table_number=?
+        AND entity_type=?
+        AND payment_status NOT IN ('Paid', 'Posted To Room')
       ORDER BY id DESC
       LIMIT 1
     `,
@@ -937,7 +957,7 @@ const syncLegacyRestaurantBill = async (conn, modernBillId) => {
 };
 
 const processBillPayment = async (data) => {
-  const conn = await db.promise().getConnection();
+  const conn = await db.getConnection();
   const paymentsTableName = process.env.PAYMENTS_TABLE_NAME || "payments";
 
   try {
@@ -956,8 +976,8 @@ const processBillPayment = async (data) => {
             SELECT id
             FROM bills
             WHERE token_id=?
-              AND entityType=?
-              AND invoiceStatus, 'Saved') NOT IN ('Paid', 'Posted To Room')
+              AND entity_type=?
+              AND payment_status IN ('unpaid', 'partial')
             ORDER BY id DESC
             LIMIT 1
           `,
@@ -973,9 +993,9 @@ const processBillPayment = async (data) => {
           `
             SELECT id
             FROM bills
-            WHERE tableNumber=?
-              AND entityType=?
-              AND invoiceStatus, 'Saved') NOT IN ('Paid', 'Posted To Room')
+            WHERE table_number=?
+              AND entity_type=?
+              AND payment_status IN ('unpaid', 'partial')
             ORDER BY id DESC
             LIMIT 1
           `,
@@ -1044,29 +1064,24 @@ const processBillPayment = async (data) => {
       billRow = createdBills[0];
     }
 
-    const [paymentTables] = await conn.query("SHOW TABLES LIKE ?", [paymentsTableName]);
-    if (!Array.isArray(paymentTables) || !paymentTables.length) {
-      const error = new Error("Payments module is temporarily unavailable until the payments table is repaired.");
-      error.statusCode = 503;
-      throw error;
-    }
-
     const [paymentResult] = await conn.query(
       `
-        INSERT INTO ${paymentsTableName} (tableNumber, total, paymentMethod)
-        VALUES (?, ?, ?)
+        INSERT INTO ${paymentsTableName} (bill_id, amount, payment_method_id, payment_type, status, received_by, created_at)
+        VALUES (?, ?, ?, ?, 'completed', ?, NOW())
       `,
       [
-        billRow.tableNumber || data.table || null,
+        billId,
         Number(billRow.total || data.total || 0),
-        data.paymentMethod || billRow.paymentMethod || null,
+        await resolvePaymentMethodId(data.paymentMethod || billRow.payment_method || "Cash"),
+        data.paymentMethod || billRow.payment_method || "Cash",
+        data.userId || data.userId || billRow.created_by || null,
       ],
     );
 
     const transactionDate = new Date().toISOString().slice(0, 10);
     const entityLabel =
-      String(billRow.entityType || data.entityType || "Table").toLowerCase() === "room" ? "Room" : "Table";
-    const entityRef = billRow.tableNumber || data.table || "--";
+      String(billRow.entity_type || data.entityType || "Table").toLowerCase() === "room" ? "Room" : "Table";
+    const entityRef = billRow.table_number || data.table || "--";
     const description = `Restaurant bill payment - ${entityLabel} ${entityRef} - Bill #${billId}`;
 
     const [accountResult] = await conn.query(
@@ -1080,14 +1095,15 @@ const processBillPayment = async (data) => {
     await conn.query(
       `
         UPDATE bills
-        SET invoiceStatus='Paid',
-            paymentMethod=?,
+        SET payment_status='paid',
+            payment_method=?,
+            paid_amount=COALESCE(paid_amount,0)+?,
             paid_at=NOW(),
             payment_id=?,
             account_transaction_id=?
         WHERE id=?
       `,
-      [data.paymentMethod || billRow.paymentMethod || null, paymentResult.insertId, accountResult.insertId, billId],
+      [data.paymentMethod || billRow.payment_method || null, Number(billRow.total || data.total || 0), paymentResult.insertId, accountResult.insertId, billId],
     );
 
     if (billRow.tableNumber) {
@@ -1135,11 +1151,28 @@ const chargeBillToRoom = async (data) => {
     tableNumber: data?.tableNumber,
   });
 
-  const folioModel = require("./FolioEntriesModel");
-  await folioModel.ensureSchema();
-  log("schema ready");
+  // Ensure hotel_folio_entries table exists (schema is also bootstrapped in app.js,
+  // but we double-check here in case the server was started without that path).
+  const [folioTables] = await db.query("SHOW TABLES LIKE 'hotel_folio_entries'");
+  if (!Array.isArray(folioTables) || !folioTables.length) {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS hotel_folio_entries (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        booking_id BIGINT UNSIGNED NOT NULL,
+        entry_date DATE NOT NULL,
+        entry_type ENUM('Room Charge','Extra Charge','Adjustment','Payment','Tax') NOT NULL DEFAULT 'Room Charge',
+        category VARCHAR(80) NULL,
+        description VARCHAR(255) NULL,
+        amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+        created_by BIGINT UNSIGNED NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+  }
+  log("folio schema ready");
 
-  const conn = await db.promise().getConnection();
+  const conn = await db.getConnection();
   log("connection acquired");
 
   try {
@@ -1354,9 +1387,13 @@ const chargeBillToRoom = async (data) => {
 exports.createBill = async (req, res) => {
   try {
     const actor = getRequestActor(req);
+    const table = req.body.table || req.body.tableNumber;
+    if (!table) {
+      return res.status(400).json({ message: "table or tableNumber is required" });
+    }
 
     const result = await createRestaurantBill({
-      table: req.body.table || req.body.tableNumber,
+      table,
       tokenId: req.body.tokenId || null,
       entityType: req.body.entityType || "Table",
       waiterName: isWaiterActor(actor) ? actor.name || req.body.waiterName || null : req.body.waiterName || null,
@@ -1462,6 +1499,11 @@ exports.getBillById = async (req, res) => {
 exports.payBill = async (req, res) => {
   try {
     const actor = getRequestActor(req);
+    const billId = req.body?.billId || req.params?.id || null;
+    if (!billId) {
+      return res.status(400).json({ message: "billId is required" });
+    }
+
     const result = await processBillPayment({
       ...req.body,
       billId: req.body?.billId || req.params?.id || null,
@@ -1536,13 +1578,15 @@ exports.chargeBillToRoom = async (req, res) => {
     return res.status(403).json({ message: "Waiter cannot charge bill to room" });
   }
 
-  console.log("[chargeBillToRoom] incoming body keys:", Object.keys(req.body || {}));
-  console.log("[chargeBillToRoom] billId:", req.body?.billId, "params.id:", req.params?.id, "roomNumber:", req.body?.roomNumber);
+  const billId = req.body?.billId || req.params?.id || null;
+  if (!billId) {
+    return res.status(400).json({ message: "billId is required" });
+  }
 
   try {
     const result = await chargeBillToRoom({
       ...req.body,
-      billId: req.body?.billId || req.params?.id || null,
+      billId,
     });
 
     res.json({
@@ -1567,7 +1611,7 @@ exports.addItemActionRequest = async (req, res) => {
   }
 
   try {
-    const result = await db.query(
+    const [result] = await db.query(
       `
         INSERT INTO restaurant_item_action_requests
         (token_item_id, table_number, action_type, reason, requested_by, status)
@@ -1661,7 +1705,7 @@ exports.createSplitBill = async (req, res) => {
   const startTime = Date.now();
 
   try {
-    const result = await db.query(
+    const [result] = await db.query(
       `
         INSERT INTO restaurant_split_bills
         (bill_id, table_number, entity_type, split_label, split_no, split_count, subtotal, gst, total, payment_method, items_json)

@@ -23,7 +23,7 @@ const { ensureSchema: ensureCompanySchema } = require("./models/ResortProfilesMo
 const { ensureSchema: ensurePaymentHistorySchema } = require("./models/PaymentsModel");
 const { ensureSchema: ensurePaxSchema } = require("./models/BookingGuestsModel");
 const { ensureSchema: ensurePaymentSchema } = require("./models/PaymentsModel");
-const { ensureSchema: ensureRoomServiceSchema } = require("./models/KotOrdersModel");
+const { ensureSchema: ensureRoomServiceSchema } = require("./models/RoomServiceModel");
 const { ensureSchema: ensureRoomTariffSchema } = require("./models/RatePlansModel");
 const { ensureSchema: ensureTokenSchema } = require("./models/TokensModel");
 const { ensureSchema: ensureRestaurantSchema } = require("./models/RestaurantTablesModel");
@@ -32,6 +32,7 @@ const { ensureSchema: ensureHousekeepingSchema } = require("./models/Housekeepin
 const { ensureSchema: ensureAuditLogSchema } = require("./models/AuditLogsModel");
 const { ensureSchema: ensureCompletedCleaningLogSchema } = require("./models/HousekeepingLogsModel");
 const { ensureSchema: ensureAccountsExpansionSchema } = require("./models/TransactionsModel");
+const { ensureSchema: ensureAccountsTransactionsSchema } = require("./models/AccountsModel");
 const { ensureSchema: ensureInventoryMastersSchema } = require("./models/InventoryCategoriesModel");
 const { ensureSchema: ensureMenuRecipeSchema } = require("./models/MenuItemIngredientsModel");
 const { ensureSchema: ensureAssignmentSchema } = require("./models/HousekeepingAssignmentsModel");
@@ -183,6 +184,7 @@ async function initializeDatabase(options = {}) {
     await bootstrapSchema("Kitchen schema init", ensureKitchenSchema);
     await bootstrapSchema("Audit log schema init", ensureAuditLogSchema);
     await bootstrapSchema("Completed cleaning log schema init", ensureCompletedCleaningLogSchema);
+    await bootstrapSchema("Accounts transactions schema init", ensureAccountsTransactionsSchema);
     await bootstrapSchema("Accounts expansion schema init", ensureAccountsExpansionSchema);
     await bootstrapSchema("Inventory masters schema init", ensureInventoryMastersSchema);
     await bootstrapSchema("Menu recipe schema init", ensureMenuRecipeSchema);

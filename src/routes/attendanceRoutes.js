@@ -14,19 +14,23 @@ router.get("/", authMiddleware, (req, res, next) => {
     return attendanceController.getAllAttendance(req, res, next);
   }
 
-  const AttendanceRecordsModel = require("../models/AttendanceRecordsModel");
-  const UsersModel = require("../models/UsersModel");
+  const db = require("../config/db");
 
-  Promise.all([
-    UsersModel.findById(userId).then((rows) => rows[0] || null),
-    AttendanceRecordsModel.findAll().then((rows) => rows || []),
-  ])
-    .then(([user, rows]) => {
-      if (!user) {
-        return res.status(401).json({ message: "User not found" });
+  // v4: attendance is keyed by employee_id (employees.id), while requests carry
+  // a user id. Resolve this user's employee row, then return only their records.
+  db.query("SELECT id FROM employees WHERE user_id = ? LIMIT 1", [userId])
+    .then(([employeeRows]) => {
+      const employee = employeeRows && employeeRows[0];
+      // No linked employee row is a valid state: return an empty, well-formed list.
+      if (!employee) {
+        return res.json([]);
       }
-      const myRecords = rows.filter((r) => r.employee_name === user.name || r.user_id === userId);
-      res.json(myRecords);
+      return db
+        .query(
+          "SELECT * FROM attendance_records WHERE employee_id = ? ORDER BY date DESC",
+          [employee.id]
+        )
+        .then(([rows]) => res.json(rows || []));
     })
     .catch(() => res.status(500).json({ message: "Error fetching attendance" }));
 });

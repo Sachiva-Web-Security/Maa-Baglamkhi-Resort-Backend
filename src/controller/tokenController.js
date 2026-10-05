@@ -133,7 +133,7 @@ exports.updateItem = async (req, res) => {
 
   try {
     const row = await db.query(
-      `SELECT ti.*, t.id AS token_row_id, t.table_number, t.waiter, t.status AS token_status FROM token_items ti INNER JOIN tokens t ON t.id = ti.token_id WHERE ti.id = ? LIMIT 1`,
+      `SELECT ti.*, t.id AS token_row_id, t.table_number, t.waiter_name, t.status AS token_status FROM token_items ti INNER JOIN tokens t ON t.id = ti.token_id WHERE ti.id = ? LIMIT 1`,
       [req.body?.id]
     ).then(rows => rows[0] || null);
     if (!row) {
@@ -154,7 +154,7 @@ exports.deleteItem = async (req, res) => {
 
   try {
     const row = await db.query(
-      `SELECT ti.*, t.id AS token_row_id, t.table_number, t.waiter, t.status AS token_status FROM token_items ti INNER JOIN tokens t ON t.id = ti.token_id WHERE ti.id = ? LIMIT 1`,
+      `SELECT ti.*, t.id AS token_row_id, t.table_number, t.waiter_name, t.status AS token_status FROM token_items ti INNER JOIN tokens t ON t.id = ti.token_id WHERE ti.id = ? LIMIT 1`,
       [id]
     ).then(rows => rows[0] || null);
     if (!row) {

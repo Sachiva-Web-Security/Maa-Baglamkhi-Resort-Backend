@@ -6,10 +6,11 @@ const {
 
 const { syncOperationalStatus } = require("../models/Housekeeping");
 
-const query = (sql, params = []) =>
-  new Promise((resolve, reject) =>
-    db.query(sql, params, (err, results) => (err ? reject(err) : resolve(results)))
-  );
+// v4 promise pool: db.query returns [rows, fields], destructure to get the actual result
+const query = async (sql, params = []) => {
+  const [rows] = await db.query(sql, params);
+  return rows;
+};
 
 const formatBusyUntil = (value) => {
   const date = value ? new Date(value) : null;
@@ -266,31 +267,36 @@ exports.saveParameters = async (req, res) => {
   const {
     cleaningTimeMinutes, maxRoomsPerHousekeeper, shiftStartTime, shiftEndTime,
     autoReleaseEnabled, inspectionRequired, defaultAssignee,
-  } = req.body;
+  } = req.body || {};
   try {
     const existing = await query("SELECT id FROM hk_parameters LIMIT 1");
     if (existing.length > 0) {
       await query(
         `UPDATE hk_parameters SET
-          cleaning_time_minutes = ?, max_rooms_per_housekeeper = ?,
-          shift_start_time = ?, shift_end_time = ?,
-          auto_release_enabled = ?, inspection_required = ?, default_assignee = ?
+          cleaning_time_minutes = COALESCE(?, cleaning_time_minutes),
+          max_rooms_per_housekeeper = COALESCE(?, max_rooms_per_housekeeper),
+          shift_start_time = COALESCE(?, shift_start_time),
+          shift_end_time = COALESCE(?, shift_end_time),
+          auto_release_enabled = COALESCE(?, auto_release_enabled),
+          inspection_required = COALESCE(?, inspection_required),
+          default_assignee = COALESCE(?, default_assignee)
           WHERE id = ?`,
-        [cleaningTimeMinutes, maxRoomsPerHousekeeper, shiftStartTime, shiftEndTime,
-          autoReleaseEnabled ? 1 : 0, inspectionRequired ? 1 : 0, defaultAssignee || "No Housekeeper", existing[0].id]
+        [cleaningTimeMinutes ?? null, maxRoomsPerHousekeeper ?? null, shiftStartTime ?? null, shiftEndTime ?? null,
+          autoReleaseEnabled ? 1 : (autoReleaseEnabled === false ? 0 : null), inspectionRequired ? 1 : (inspectionRequired === false ? 0 : null),
+          defaultAssignee || null, existing[0].id]
       );
     } else {
       await query(
         `INSERT INTO hk_parameters
           (cleaning_time_minutes, max_rooms_per_housekeeper, shift_start_time, shift_end_time, auto_release_enabled, inspection_required, default_assignee)
           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [cleaningTimeMinutes, maxRoomsPerHousekeeper, shiftStartTime, shiftEndTime,
+        [cleaningTimeMinutes || 30, maxRoomsPerHousekeeper || 5, shiftStartTime || "09:00", shiftEndTime || "17:00",
           autoReleaseEnabled ? 1 : 0, inspectionRequired ? 1 : 0, defaultAssignee || "No Housekeeper"]
       );
     }
     res.json({ message: "Parameters saved" });
   } catch (err) {
-    res.status(500).json({ message: "Failed to save parameters", error: err });
+    res.status(500).json({ message: "Failed to save parameters", error: err.message || err });
   }
 };
 
@@ -438,18 +444,23 @@ exports.getAmenities = async (req, res) => {
 };
 
 exports.logAmenity = async (req, res) => {
-  const { roomId, roomNo, category, itemName, quantity, unitCost, notes, loggedBy } = req.body;
+  const { roomId, roomNo, category, itemName, quantity, unitCost, notes, loggedBy } = req.body || {};
   const totalCost = (parseFloat(unitCost) || 0) * (parseInt(quantity) || 1);
+  const cat = String(category || "General").trim();
+  const name = String(itemName || "Item").trim();
+  const qty = parseInt(quantity) || 1;
+  const cost = parseFloat(unitCost) || 0;
+  const by = String(loggedBy || "Staff").trim();
   try {
     const result = await query(
       `INSERT INTO hk_amenities_consumption
         (room_id, room_no, category, item_name, quantity, unit_cost, total_cost, notes, logged_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [roomId, roomNo, category, itemName, quantity, unitCost || 0, totalCost, notes || null, loggedBy || "Staff"]
+      [roomId || null, roomNo || null, cat, name, qty, cost, totalCost, notes || null, by]
     );
     res.json({ message: "Amenity logged", id: result.insertId });
   } catch (err) {
-    res.status(500).json({ message: "Insert failed", error: err });
+    res.status(500).json({ message: "Insert failed", error: err.message || err });
   }
 };
 
@@ -477,20 +488,24 @@ exports.getInspections = async (req, res) => {
 };
 
 exports.createInspection = async (req, res) => {
-  const { roomId, roomNo, inspectorName, priority, checklist, score, notes } = req.body;
+  const { roomId, roomNo, inspectorName, priority, checklist, score, notes } = req.body || {};
+  const name = String(inspectorName || "").trim();
+  if (!name) {
+    return res.status(400).json({ message: "inspector_name is required" });
+  }
   try {
     const result = await query(
       `INSERT INTO hk_inspections
         (room_id, room_no, inspector_name, priority, checklist_json, score, notes)
         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [roomId, roomNo, inspectorName, priority || "Normal", JSON.stringify(checklist || {}), score || 0, notes || null]
+      [roomId || null, roomNo || null, name, priority || "Normal", JSON.stringify(checklist || {}), score ?? 0, notes || null]
     );
     if (score >= 90) {
       await query("UPDATE housekeeping SET status = 'Vacant Clean Inspected' WHERE id = ?", [roomId]);
     }
     res.json({ message: "Inspection submitted", id: result.insertId });
   } catch (err) {
-    res.status(500).json({ message: "Insert failed", error: err });
+    res.status(500).json({ message: "Insert failed", error: err.message || err });
   }
 };
 
@@ -516,17 +531,22 @@ exports.getLostFound = async (req, res) => {
 };
 
 exports.createLostFound = async (req, res) => {
-  const { foundDate, roomNo, roomId, foundBy, category, description, guestName, storageLocation, status, notes } = req.body;
+  const { foundDate, roomNo, roomId, foundBy, category, description, guestName, storageLocation, status, notes } = req.body || {};
+  const by = String(foundBy || "").trim();
+  if (!by) {
+    return res.status(400).json({ message: "found_by is required" });
+  }
   try {
     const result = await query(
       `INSERT INTO hk_lost_found
         (found_date, found_room, room_id, found_by, category, description, guest_name, storage_location, status, notes)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [foundDate || new Date().toISOString().slice(0, 10), roomNo, roomId || null, foundBy, category, description, guestName || null, storageLocation || null, status || "Found", notes || null]
+      [foundDate || new Date().toISOString().slice(0, 10), roomNo || null, roomId || null, by,
+        category || null, description || null, guestName || null, storageLocation || null, status || "Found", notes || null]
     );
     res.json({ message: "Item reported", id: result.insertId });
   } catch (err) {
-    res.status(500).json({ message: "Insert failed", error: err });
+    res.status(500).json({ message: "Insert failed", error: err.message || err });
   }
 };
 
@@ -610,18 +630,23 @@ exports.logCost = async (req, res) => {
     roomId, roomNo,
     staffCostPerHour, avgCleaningHours, lineCostPerClean, toiletrieCostPerClean, miscCostPerClean,
     totalCost, loggedBy,
-  } = req.body;
+  } = req.body || {};
   const staffCost = (parseFloat(staffCostPerHour) || 0) * (parseFloat(avgCleaningHours) || 0);
+  const linenCost = parseFloat(lineCostPerClean) || 0;
+  const toiletryCost = parseFloat(toiletrieCostPerClean) || 0;
+  const miscCost = parseFloat(miscCostPerClean) || 0;
+  const computedTotal = staffCost + linenCost + toiletryCost + miscCost;
+  const finalTotal = totalCost != null ? parseFloat(totalCost) : computedTotal;
   try {
     const result = await query(
       `INSERT INTO hk_room_costing
         (room_id, room_no, staff_cost, linen_cost, toiletrie_cost, misc_cost, total_cost, logged_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [roomId, roomNo, staffCost, lineCostPerClean || 0, toiletrieCostPerClean || 0, miscCostPerClean || 0, totalCost, loggedBy || "Staff"]
+      [roomId || null, roomNo || null, staffCost, linenCost, toiletryCost, miscCost, finalTotal, loggedBy || "Staff"]
     );
     res.json({ message: "Cost logged", id: result.insertId });
   } catch (err) {
-    res.status(500).json({ message: "Insert failed", error: err });
+    res.status(500).json({ message: "Insert failed", error: err.message || err });
   }
 };
 
@@ -629,49 +654,41 @@ exports.getCheckoutReport = async (req, res) => {
   const { date } = req.query;
   const targetDate = date || new Date().toISOString().slice(0, 10);
   try {
+    // v4 bookings use `check_in` / `check_out` (no `checkout_date`), carry no
+    // direct guest/room columns, and store status as lowercase 'checked_out'.
+    // Rooms and guests live in booking_rooms / booking_guests / guest_profiles.
     const results = await query(
       `SELECT
         b.id AS booking_id,
-        b.checkout_date,
+        b.booking_code,
+        b.check_in,
+        b.check_out AS checkout_date,
         b.check_out AS checkout_time,
-        g.name AS guest_name,
+        b.status AS booking_status,
+        COALESCE(
+          NULLIF(TRIM(CONCAT_WS(' ', bg.first_name, bg.last_name)), ''),
+          NULLIF(TRIM(CONCAT_WS(' ', gp.first_name, gp.last_name)), '')
+        ) AS guest_name,
         r.room_number AS room_no,
         r.id AS room_id,
         h.id AS hk_room_id,
         h.status AS hk_status,
         h.assignee
       FROM bookings b
-      LEFT JOIN guests g ON g.id = b.guest_id
-      LEFT JOIN rooms r ON r.id = b.room_id
+      LEFT JOIN booking_rooms br ON br.booking_id = b.id
+      LEFT JOIN rooms r ON r.id = br.room_id
+      LEFT JOIN booking_guests bg ON bg.booking_id = b.id AND bg.is_primary = 1
+      LEFT JOIN guest_profiles gp ON gp.id = bg.guest_profile_id
       LEFT JOIN housekeeping h ON h.roomNo = r.room_number
-      WHERE DATE(b.checkout_date) = ?
-        AND b.status = 'Checked Out'
-      ORDER BY b.check_out DESC`,
+      WHERE DATE(b.check_out) = ?
+        AND b.status = 'checked_out'
+      ORDER BY b.check_out DESC, b.id DESC`,
       [targetDate]
     );
     res.json(results);
   } catch (err) {
-    try {
-      const simple = await query(
-        `SELECT
-          b.id AS booking_id,
-          b.checkout_date,
-          b.check_out AS checkout_time,
-          r.room_number AS room_no,
-          h.id AS hk_room_id,
-          h.status AS hk_status,
-          h.assignee
-        FROM bookings b
-        LEFT JOIN rooms r ON r.id = b.room_id
-        LEFT JOIN housekeeping h ON h.roomNo = r.room_number
-        WHERE DATE(b.checkout_date) = ?
-        ORDER BY b.checkout_date DESC`,
-        [targetDate]
-      );
-      res.json(simple);
-    } catch (err2) {
-      res.status(500).json({ message: "Database error", error: err2 });
-    }
+    console.error("getCheckoutReport error:", err.message);
+    res.status(500).json({ message: "Database error", error: err.message });
   }
 };
 
