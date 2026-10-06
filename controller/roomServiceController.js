@@ -309,3 +309,90 @@ exports.updateStatus = (req, res) => {
     res.json({ message: "Status updated", orderId, status });
   });
 };
+
+/* ================= DELIVERY ASSIGNMENTS ================= */
+
+exports.assignWaiter = (req, res) => {
+  const { kitchenOrderId, waiterName, deliveryEtaMinutes, bookingId, roomNumber } = req.body;
+
+  if (!kitchenOrderId || !waiterName) {
+    return res.status(400).json({ message: "kitchenOrderId and waiterName are required" });
+  }
+
+  RoomService.assignWaiter(
+    { kitchenOrderId, waiterName, deliveryEtaMinutes, bookingId: bookingId || 0, roomNumber: roomNumber || "" },
+    (err, result) => {
+      if (err) return res.status(500).json(err);
+
+      res.json({
+        message: "Waiter assigned",
+        assignmentId: result.insertId,
+      });
+    }
+  );
+};
+
+exports.getWaiterQueue = (req, res) => {
+  const waiterName = req.query.waiterName || req.body?.waiterName;
+
+  if (!waiterName) {
+    return res.status(400).json({ message: "waiterName query param is required" });
+  }
+
+  RoomService.getWaiterQueue(waiterName, (err, rows) => {
+    if (err) return res.status(500).json(err);
+
+    // Parse items JSON for each row so the frontend gets an array
+    const data = (rows || []).map((row) => {
+      let items = [];
+      try {
+        items = JSON.parse(row.items || "[]");
+      } catch {
+        items = [];
+      }
+      return {
+        ...row,
+        items,
+      };
+    });
+
+    res.json(data);
+  });
+};
+
+exports.markDelivered = (req, res) => {
+  const assignmentId = req.params.assignmentId;
+
+  if (!assignmentId) {
+    return res.status(400).json({ message: "assignmentId is required" });
+  }
+
+  RoomService.markDelivered(assignmentId, (err) => {
+    if (err) return res.status(500).json(err);
+
+    res.json({ message: "Delivery confirmed", assignmentId });
+  });
+};
+
+exports.cancelAssignment = (req, res) => {
+  const { assignmentId } = req.body;
+
+  if (!assignmentId) {
+    return res.status(400).json({ message: "assignmentId is required" });
+  }
+
+  // Mark assignment as cancelled and return kitchen order to ready queue
+  const sql = `
+    UPDATE delivery_assignments
+    SET status = 'cancelled', delivered_at = NOW()
+    WHERE id = ? AND status = 'assigned'
+  `;
+  db.query(sql, [assignmentId], (err, result) => {
+    if (err) return res.status(500).json(err);
+    if (!result.affectedRows) {
+      return res.status(404).json({ message: "Assignment not found or already resolved" });
+    }
+
+    res.json({ message: "Assignment cancelled, order returned to queue", assignmentId });
+  });
+};

@@ -67,6 +67,21 @@ exports.ensureSchema = async () => {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS delivery_assignments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      kitchen_order_id INT NOT NULL,
+      waiter_name VARCHAR(100) NOT NULL,
+      room_number VARCHAR(50) NOT NULL,
+      booking_id INT DEFAULT 0,
+      status VARCHAR(30) DEFAULT 'assigned',
+      delivery_eta_minutes INT DEFAULT 15,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      delivered_at TIMESTAMP NULL DEFAULT NULL,
+      FOREIGN KEY (kitchen_order_id) REFERENCES kitchen_orders(id) ON DELETE CASCADE
+    )
+  `);
 };
 
 /* ================= ROOMS ================= */
@@ -166,4 +181,59 @@ exports.markOrderPaid = (orderId, callback) => {
 
 exports.updateOrderStatus = (orderId, status, callback) => {
   db.query("UPDATE room_orders SET status=? WHERE id=?", [status, orderId], callback);
+};
+
+/* ================= DELIVERY ASSIGNMENTS ================= */
+
+exports.assignWaiter = (data, callback) => {
+  const sql = `
+    INSERT INTO delivery_assignments (kitchen_order_id, waiter_name, room_number, booking_id, delivery_eta_minutes)
+    VALUES (?,?,?,?,?)
+  `;
+  db.query(
+    sql,
+    [data.kitchenOrderId, data.waiterName, data.roomNumber, data.bookingId || 0, data.deliveryEtaMinutes || 15],
+    callback
+  );
+};
+
+exports.getWaiterQueue = (waiterName, callback) => {
+  const sql = `
+    SELECT
+      da.id                        AS assignment_id,
+      da.kitchen_order_id          AS id,
+      ko.table_number              AS table_number,
+      ko.entity_type               AS entityType,
+      ko.items                     AS items,
+      ko.status                    AS kitchen_status,
+      ko.waiter_name               AS waiter_name,
+      da.room_number               AS room_number,
+      da.booking_id                AS booking_id,
+      da.delivery_eta_minutes      AS delivery_eta_minutes,
+      da.created_at                AS assigned_at
+    FROM delivery_assignments da
+    JOIN kitchen_orders ko ON ko.id = da.kitchen_order_id
+    WHERE da.waiter_name = ?
+      AND da.status = 'assigned'
+    ORDER BY da.created_at DESC
+  `;
+  db.query(sql, [waiterName], callback);
+};
+
+exports.markDelivered = (assignmentId, callback) => {
+  const sql = `
+    UPDATE delivery_assignments
+    SET status = 'delivered', delivered_at = NOW()
+    WHERE id = ?
+  `;
+  db.query(sql, [assignmentId], callback);
+};
+
+exports.cancelAssignment = (assignmentId, callback) => {
+  const sql = `
+    UPDATE delivery_assignments
+    SET status = 'cancelled', delivered_at = NOW()
+    WHERE id = ? AND status = 'assigned'
+  `;
+  db.query(sql, [assignmentId], callback);
 };
