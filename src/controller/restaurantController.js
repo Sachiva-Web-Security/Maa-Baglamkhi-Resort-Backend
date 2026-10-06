@@ -569,6 +569,16 @@ exports.payOrder = async (req, res) => {
 
 /* ================= BILLS ================= */
 
+const mapInvoiceStatusToPaymentStatus = (status) => {
+  const s = String(status || "").toLowerCase().trim();
+  if (["paid", "post to room", "posted to room", "settled"].includes(s)) return "paid";
+  if (["unpaid", "saved", "draft"].includes(s)) return "unpaid";
+  if (["partial", "partially paid"].includes(s)) return "partial";
+  if (["refunded", "refund"].includes(s)) return "refunded";
+  if (["cancelled", "canceled", "cancelled"].includes(s)) return "cancelled";
+  return "unpaid";
+};
+
 const createRestaurantBill = async (data) => {
   const conn = await db.getConnection();
   try {
@@ -603,7 +613,7 @@ const createRestaurantBill = async (data) => {
           Number(data.total || 0),
           Number(data.discountAmount || 0),
           data.paymentMethod || null,
-          data.paymentStatus || data.invoiceStatus || "Saved",
+          mapInvoiceStatusToPaymentStatus(data.paymentStatus || data.invoiceStatus || "Saved"),
           data.splitNo || null,
           data.splitCount || null,
           reusableBill.id,
@@ -622,7 +632,7 @@ const createRestaurantBill = async (data) => {
     // Release token_id from any settled bill that would block the INSERT
     if (data.tokenId) {
       await conn.query(
-        `UPDATE bills SET token_id = NULL WHERE token_id = ? AND COALESCE(payment_status, 'Saved') IN ('Paid', 'Posted To Room')`,
+        `UPDATE bills SET token_id = NULL WHERE token_id = ? AND COALESCE(payment_status, 'unpaid') IN ('paid', 'Posted To Room')`,
         [Number(data.tokenId)],
       );
     }
@@ -646,7 +656,7 @@ const createRestaurantBill = async (data) => {
       Number(data.total || 0),
       Number(data.discountAmount || 0),
       data.paymentMethod || null,
-      data.invoiceStatus || "Saved",
+      mapInvoiceStatusToPaymentStatus(data.invoiceStatus || "Saved"),
       data.splitNo || null,
       data.splitCount || null,
     ]);
@@ -684,7 +694,7 @@ const findReusableOpenBill = async (conn, data) => {
         FROM bills
         WHERE token_id=?
           AND entity_type=?
-          AND payment_status NOT IN ('Paid', 'Posted To Room')
+          AND payment_status NOT IN ('paid', 'Posted To Room')
         ORDER BY id DESC
         LIMIT 1
       `,
@@ -700,7 +710,7 @@ const findReusableOpenBill = async (conn, data) => {
       FROM bills
       WHERE table_number=?
         AND entity_type=?
-        AND payment_status NOT IN ('Paid', 'Posted To Room')
+        AND payment_status NOT IN ('paid', 'Posted To Room')
       ORDER BY id DESC
       LIMIT 1
     `,
@@ -1095,7 +1105,7 @@ const processBillPayment = async (data) => {
     await conn.query(
       `
         UPDATE bills
-        SET payment_status='paid',
+        SET invoiceStatus='paid',
             payment_method=?,
             paid_amount=COALESCE(paid_amount,0)+?,
             paid_at=NOW(),
@@ -1579,8 +1589,15 @@ exports.chargeBillToRoom = async (req, res) => {
   }
 
   const billId = req.body?.billId || req.params?.id || null;
-  if (!billId) {
-    return res.status(400).json({ message: "billId is required" });
+  const roomNumber = String(req.body?.roomNumber || "").trim();
+  const bookingId = Number(req.body?.bookingId || 0) || null;
+
+  if (!billId && !roomNumber) {
+    return res.status(400).json({ message: "billId or roomNumber is required" });
+  }
+
+  if (billId && !roomNumber && !bookingId) {
+    return res.status(400).json({ message: "roomNumber or bookingId is required to charge bill to room" });
   }
 
   try {

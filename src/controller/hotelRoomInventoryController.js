@@ -26,7 +26,11 @@ exports.getRoomSetup = async (req, res) => {
 
 exports.addRoom = async (req, res) => {
   try {
-    const room = await roomInventoryModel.addRoom(req.body);
+    const body = req.body || {};
+    if (!body.roomNumber && !body.room_number) {
+      return res.status(400).json({ message: "roomNumber is required" });
+    }
+    const room = await roomInventoryModel.addRoom(body);
     res.json({ message: "Room added successfully", room });
   } catch (error) {
     if (error.code !== "ER_DUP_ENTRY" && process.env.NODE_ENV !== "test") {
@@ -40,9 +44,13 @@ exports.addRoom = async (req, res) => {
 
 exports.updateCategoryPrice = async (req, res) => {
   try {
+    const body = req.body || {};
+    if (body.defaultPrice === undefined && body.default_price === undefined) {
+      return res.status(400).json({ message: "defaultPrice is required" });
+    }
     await roomInventoryModel.updateCategoryPrice({
       categoryId: req.params.id,
-      defaultPrice: req.body.defaultPrice,
+      defaultPrice: body.defaultPrice,
     });
 
     res.json({ message: "Price updated successfully" });
@@ -54,10 +62,14 @@ exports.updateCategoryPrice = async (req, res) => {
 
 exports.updateRoomOperationalState = async (req, res) => {
   try {
+    const body = req.body || {};
+    if (!body.status) {
+      return res.status(400).json({ message: "status is required" });
+    }
     await roomInventoryModel.updateRoomOperationalState({
       roomNumber: req.params.roomNumber,
-      guestName: req.body.guestName ?? null,
-      status: req.body.status,
+      guestName: body.guestName ?? null,
+      status: body.status,
       checkIn: req.body.checkIn ?? null,
       checkOut: req.body.checkOut ?? null,
       blockReason: req.body.blockReason ?? null,

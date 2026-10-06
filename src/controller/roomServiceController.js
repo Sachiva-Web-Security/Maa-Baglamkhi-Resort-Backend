@@ -252,7 +252,11 @@ exports.payOrder = (req, res) => {
 /* ================= BILL ================= */
 
 exports.createBill = (req, res) => {
-  RoomService.createBill(req.body, (err, result) => {
+  const body = req.body || {};
+  if (!body.roomNumber && !body.room_number) {
+    return res.status(400).json({ message: "roomNumber is required" });
+  }
+  RoomService.createBill(body, (err, result) => {
     if (err) return res.status(500).json(err);
 
     res.json({

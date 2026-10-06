@@ -79,9 +79,12 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/hotel", require("./routes/bookingRoutes"));
+app.use("/api/booking", require("./routes/bookingRoutes"));  // alias
 app.use("/api/restaurant", require("./routes/restaurantRoutes"));
 app.use("/api/web/dining", require("./routes/diningRoutes"));
+app.use("/api/dining", require("./routes/diningRoutes"));  // alias
 app.use("/api/room-service", require("./routes/roomServiceRoutes"));
+app.use("/api/roomservice", require("./routes/roomServiceRoutes"));  // alias
 app.use("/api/waiter", require("./routes/waiterRoutes"));
 app.use("/api/accounts", require("./routes/accountsRoutes"));
 app.use("/api/banquet", require("./routes/banquetRoutes"));
@@ -89,6 +92,7 @@ app.use("/api/attendance", require("./routes/attendanceRoutes"));
 app.use("/api/reports", require("./routes/reportsRoutes"));
 app.use("/api/report", require("./routes/reportRoutes"));
 app.use("/api/assignments", require("./routes/assignmentRoute"));
+app.use("/api/assignmentroute.js", require("./routes/assignmentRoute"));  // alias
 app.use("/api/dashboard", require("./routes/dashboardRoutes"));
 app.use("/api/token", require("./routes/tokenRoutes"));
 app.use("/api/payment", require("./routes/paymentRoutes"));
@@ -103,6 +107,7 @@ app.use("/api/invoice", invoiceRoutes);
 app.use("/api/kitchen", require("./routes/kitchenRoutes"));
 app.use("/api/chef", require("./routes/chefRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
+app.use("/api/notification", require("./routes/notificationRoutes"));  // alias
 app.use("/api/inventory", require("./routes/inventoryRoutes"));
 app.use("/api/inventory-masters", require("./routes/inventoryMastersRoutes"));
 app.use("/api/menu-recipes", require("./routes/menuRecipeRoutes"));

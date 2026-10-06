@@ -464,6 +464,14 @@ exports.createGuest = async (req, res) => {
     (req.body && (req.body.bookedBy || req.body.booked_by)) ||
     "";
 
+  const body = req.body || {};
+  if (!body.guestName && !body.guest_name && !body.phone) {
+    return res.status(400).json({ message: "guestName, guest_name or phone is required" });
+  }
+  if (!body.checkIn && !body.check_in) {
+    return res.status(400).json({ message: "checkIn is required" });
+  }
+
   try {
     const body = req.body || {};
     const statusMap = {
