@@ -50,6 +50,8 @@ const {
   deletePaymentGatewaySetting,
   settlePendingBill,
   getAllPaymentHistory,
+  getCustomerStatement,
+  getCustomerStatementByIdentifier,
 } = require("../controller/accountsController");
 
 router.get("/transactions", getTransactions);
@@ -102,5 +104,7 @@ router.post("/payment-settings", paymentQrUpload, addPaymentGatewaySetting);
 router.put("/payment-settings/:id", paymentQrUpload, updatePaymentGatewaySetting);
 router.delete("/payment-settings/:id", deletePaymentGatewaySetting);
 router.get("/payment-history", getAllPaymentHistory);
+router.get("/customer-statement", getCustomerStatement);
+router.get("/customer-statement/:identifier", getCustomerStatementByIdentifier);
 
 module.exports = router;

@@ -1,0 +1,374 @@
+/**
+ * Build one unified customer statement timeline from all financial sources.
+ */
+const escapeLike = (value) => String(value).replace(/[%_]/g, "\\$&");
+
+const getCustomerStatement = async ({ by = "mobile", value = "" }) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return { transactions: [], totals: { income: 0, expense: 0, net: 0 } };
+
+  const hasInvoices = await tableExists("invoices");
+  const hasPaymentHistory = await tableExists("payment_history");
+  const hasAdvancePayment = await tableExists("advance_payment");
+  const hasFolio = await tableExists("hotel_folio_entries");
+  const hasRestaurantBills = await tableExists("restaurant_bills");
+  const hasRoomOrders = await tableExists("room_orders");
+  const hasBanquetBookings = await tableExists("banquet_bookings");
+
+  const invoiceConfig = hasInvoices ? await getInvoiceSchemaConfig() : null;
+  const invoiceAmountExpr = invoiceConfig?.invoiceAmountExpr || "0";
+
+  const isMobile = by === "mobile";
+  const likeValue = "%" + escapeLike(normalized) + "%";
+
+  const parts = [];
+  const params = [];
+  const add = (sql, p = []) => { parts.push(sql); params.push(...p); };
+
+  if (isMobile) {
+    add(
+      `SELECT
+        CONCAT('txn-', at.id) AS id,
+        DATE_FORMAT(at.date, '%d %b %Y') AS date,
+        at.date AS sort_date,
+        at.type AS flow_type,
+        at.department,
+        at.description,
+        at.amount,
+        COALESCE(at.payment_mode, 'Cash') AS mode,
+        at.source_module AS source,
+        at.narration
+      FROM accounts_transactions at
+      WHERE at.is_deleted = 0
+        AND LOWER(COALESCE(at.customer_mobile, '')) = ?`,
+      [normalized]
+    );
+  } else {
+    add(
+      `SELECT
+        CONCAT('txn-', at.id) AS id,
+        DATE_FORMAT(at.date, '%d %b %Y') AS date,
+        at.date AS sort_date,
+        at.type AS flow_type,
+        at.department,
+        at.description,
+        at.amount,
+        COALESCE(at.payment_mode, 'Cash') AS mode,
+        at.source_module AS source,
+        at.narration
+      FROM accounts_transactions at
+      WHERE at.is_deleted = 0
+        AND (LOWER(COALESCE(at.customer_name, '')) = ? OR LOWER(COALESCE(at.customer_name, '')) LIKE ?)`,
+      [normalized, likeValue]
+    );
+  }
+
+  if (hasPaymentHistory) {
+    if (isMobile) {
+      add(
+        `SELECT
+          CONCAT('ph-', ph.id) AS id,
+          DATE_FORMAT(DATE(ph.created_at), '%d %b %Y') AS date,
+          DATE(ph.created_at) AS sort_date,
+          'Income' AS flow_type,
+          'Room' AS department,
+          CONCAT('Payment received - ', COALESCE(g.guest_name, 'Guest'), ' (Booking #', ph.booking_id, ')') AS description,
+          ph.amount,
+          COALESCE(NULLIF(ph.payment_mode, ''), 'Cash') AS mode,
+          'payment_history' AS source,
+          NULL AS narration
+        FROM payment_history ph
+        LEFT JOIN guests g ON g.id = ph.booking_id
+        WHERE ph.is_deleted = 0
+          AND (LOWER(COALESCE(g.mobile, '')) = ? OR LOWER(COALESCE(g.guest_name, '')) = ? OR LOWER(COALESCE(g.guest_name, '')) LIKE ?)`,
+        [normalized, normalized, likeValue]
+      );
+    } else {
+      add(
+        `SELECT
+          CONCAT('ph-', ph.id) AS id,
+          DATE_FORMAT(DATE(ph.created_at), '%d %b %Y') AS date,
+          DATE(ph.created_at) AS sort_date,
+          'Income' AS flow_type,
+          'Room' AS department,
+          CONCAT('Payment received - ', COALESCE(g.guest_name, 'Guest'), ' (Booking #', ph.booking_id, ')') AS description,
+          ph.amount,
+          COALESCE(NULLIF(ph.payment_mode, ''), 'Cash') AS mode,
+          'payment_history' AS source,
+          NULL AS narration
+        FROM payment_history ph
+        LEFT JOIN guests g ON g.id = ph.booking_id
+        WHERE ph.is_deleted = 0
+          AND (LOWER(COALESCE(g.guest_name, '')) = ? OR LOWER(COALESCE(g.guest_name, '')) LIKE ?)`,
+        [normalized, likeValue]
+      );
+    }
+  }
+
+  if (hasInvoices && invoiceConfig) {
+    const customerExpr =
+      invoiceConfig.hasCustomerName && invoiceConfig.hasGuestName
+        ? "COALESCE(NULLIF(i.customer_name, ''), NULLIF(i.guest_name, ''))"
+        : invoiceConfig.hasCustomerName
+          ? "i.customer_name"
+          : invoiceConfig.hasGuestName
+            ? "i.guest_name"
+            : "''";
+
+    if (isMobile) {
+      add(
+        `SELECT
+          CONCAT('inv-', i.id) AS id,
+          DATE_FORMAT(i.date, '%d %b %Y') AS date,
+          i.date AS sort_date,
+          'Income' AS flow_type,
+          'Room' AS department,
+          CONCAT('Invoice ', COALESCE(i.invoice_no, CONCAT('#', i.id)), ' - ', COALESCE(${customerExpr}, 'Guest')) AS description,
+          ${invoiceAmountExpr} AS amount,
+          COALESCE(NULLIF(i.payment_mode, ''), 'Pending') AS mode,
+          'invoice' AS source,
+          NULL AS narration
+        FROM invoices i
+        WHERE ${invoiceConfig.paidStatusExpr} = 'paid'
+          AND LOWER(COALESCE(i.customer_mobile, i.mobile, '')) = ?`,
+        [normalized]
+      );
+    } else {
+      add(
+        `SELECT
+          CONCAT('inv-', i.id) AS id,
+          DATE_FORMAT(i.date, '%d %b %Y') AS date,
+          i.date AS sort_date,
+          'Income' AS flow_type,
+          'Room' AS department,
+          CONCAT('Invoice ', COALESCE(i.invoice_no, CONCAT('#', i.id)), ' - ', COALESCE(${customerExpr}, 'Guest')) AS description,
+          ${invoiceAmountExpr} AS amount,
+          COALESCE(NULLIF(i.payment_mode, ''), 'Pending') AS mode,
+          'invoice' AS source,
+          NULL AS narration
+        FROM invoices i
+        WHERE ${invoiceConfig.paidStatusExpr} = 'paid'
+          AND (LOWER(COALESCE(${customerExpr}, '')) = ? OR LOWER(COALESCE(${customerExpr}, '')) LIKE ?)`,
+        [normalized, likeValue]
+      );
+    }
+  }
+
+  if (hasRestaurantBills) {
+    if (isMobile) {
+      add(
+        `SELECT
+          CONCAT('rst-', rb.id) AS id,
+          DATE_FORMAT(COALESCE(rb.paid_at, rb.created_at), '%d %b %Y') AS date,
+          COALESCE(rb.paid_at, rb.created_at) AS sort_date,
+          'Income' AS flow_type,
+          'Restaurant' AS department,
+          CONCAT('Restaurant bill ', COALESCE(rb.reference, CONCAT('#', rb.id)), ' - ', COALESCE(NULLIF(rb.customerName, ''), 'Walk-in')) AS description,
+          COALESCE(rb.total, 0) AS amount,
+          COALESCE(NULLIF(rb.paymentMethod, ''), 'Pending') AS mode,
+          'restaurant_bill' AS source,
+          NULL AS narration
+        FROM restaurant_bills rb
+        WHERE COALESCE(rb.total, 0) > 0
+          AND LOWER(COALESCE(rb.mobile, '')) = ?`,
+        [normalized]
+      );
+    } else {
+      add(
+        `SELECT
+          CONCAT('rst-', rb.id) AS id,
+          DATE_FORMAT(COALESCE(rb.paid_at, rb.created_at), '%d %b %Y') AS date,
+          COALESCE(rb.paid_at, rb.created_at) AS sort_date,
+          'Income' AS flow_type,
+          'Restaurant' AS department,
+          CONCAT('Restaurant bill ', COALESCE(rb.reference, CONCAT('#', rb.id)), ' - ', COALESCE(NULLIF(rb.customerName, ''), 'Walk-in')) AS description,
+          COALESCE(rb.total, 0) AS amount,
+          COALESCE(NULLIF(rb.paymentMethod, ''), 'Pending') AS mode,
+          'restaurant_bill' AS source,
+          NULL AS narration
+        FROM restaurant_bills rb
+        WHERE COALESCE(rb.total, 0) > 0
+          AND (LOWER(COALESCE(rb.customerName, '')) = ? OR LOWER(COALESCE(rb.customerName, '')) LIKE ?)`,
+        [normalized, likeValue]
+      );
+    }
+  }
+
+  if (hasRoomOrders) {
+    add(
+      `SELECT
+        CONCAT('ro-', ro.id) AS id,
+        DATE_FORMAT(ro.created_at, '%d %b %Y') AS date,
+        ro.created_at AS sort_date,
+        'Income' AS flow_type,
+        'Room' AS department,
+        CONCAT('Room order #', ro.id, ' - Room ', COALESCE(NULLIF(ro.roomNumber, ''), '-')) AS description,
+        COALESCE(roi.total, 0) AS amount,
+        'Billed to Room' AS mode,
+        'room_order' AS source,
+        NULL AS narration
+      FROM room_orders ro
+      INNER JOIN (
+        SELECT order_id, SUM(price * quantity) AS total
+        FROM room_order_items
+        GROUP BY order_id
+      ) roi ON roi.order_id = ro.id
+      WHERE COALESCE(roi.total, 0) > 0
+        AND LOWER(COALESCE(ro.status, 'pending')) IN ('served', 'paid', 'completed')`,
+      []
+    );
+  }
+
+  if (hasAdvancePayment) {
+    if (isMobile) {
+      add(
+        `SELECT
+          CONCAT('adv-', ap.booking_id) AS id,
+          DATE_FORMAT(NOW(), '%d %b %Y') AS date,
+          CURDATE() AS sort_date,
+          'Income' AS flow_type,
+          'Room' AS department,
+          CONCAT('Advance payment - Booking #', ap.booking_id) AS description,
+          GREATEST(COALESCE(ap.amount, 0) - COALESCE(ap.refund_amount, 0), 0) AS amount,
+          COALESCE(NULLIF(ap.payment_mode, ''), 'Cash') AS mode,
+          'advance_payment' AS source,
+          ap.remarks AS narration
+        FROM advance_payment ap
+        INNER JOIN guests g ON g.id = ap.booking_id
+        WHERE GREATEST(COALESCE(ap.amount, 0) - COALESCE(ap.refund_amount, 0), 0) > 0
+          AND (LOWER(COALESCE(g.mobile, '')) = ? OR LOWER(COALESCE(g.guest_name, '')) = ? OR LOWER(COALESCE(g.guest_name, '')) LIKE ?)`,
+        [normalized, normalized, likeValue]
+      );
+    } else {
+      add(
+        `SELECT
+          CONCAT('adv-', ap.booking_id) AS id,
+          DATE_FORMAT(NOW(), '%d %b %Y') AS date,
+          CURDATE() AS sort_date,
+          'Income' AS flow_type,
+          'Room' AS department,
+          CONCAT('Advance payment - Booking #', ap.booking_id) AS description,
+          GREATEST(COALESCE(ap.amount, 0) - COALESCE(ap.refund_amount, 0), 0) AS amount,
+          COALESCE(NULLIF(ap.payment_mode, ''), 'Cash') AS mode,
+          'advance_payment' AS source,
+          ap.remarks AS narration
+        FROM advance_payment ap
+        INNER JOIN guests g ON g.id = ap.booking_id
+        WHERE GREATEST(COALESCE(ap.amount, 0) - COALESCE(ap.refund_amount, 0), 0) > 0
+          AND (LOWER(COALESCE(g.guest_name, '')) = ? OR LOWER(COALESCE(g.guest_name, '')) LIKE ?)`,
+        [normalized, likeValue]
+      );
+    }
+  }
+
+  if (hasBanquetBookings) {
+    if (isMobile) {
+      add(
+        `SELECT
+          CONCAT('ban-', bb.id) AS id,
+          DATE_FORMAT(bb.event_date, '%d %b %Y') AS date,
+          bb.event_date AS sort_date,
+          'Income' AS flow_type,
+          'Banquet' AS department,
+          CONCAT('Banquet booking ', COALESCE(NULLIF(bb.invoice_no, ''), CONCAT('#', bb.id)), ' - ', COALESCE(NULLIF(bb.customer_name, ''), 'Guest')) AS description,
+          COALESCE(bb.grand_total, 0) AS amount,
+          COALESCE(NULLIF(bb.payment_mode, ''), 'Pending') AS mode,
+          'banquet_booking' AS source,
+          bb.notes AS narration
+        FROM banquet_bookings bb
+        WHERE COALESCE(bb.invoice_no, '') <> ''
+          AND LOWER(COALESCE(bb.payment_status, 'pending')) = 'paid'
+          AND LOWER(COALESCE(bb.customer_mobile, '')) = ?`,
+        [normalized]
+      );
+    } else {
+      add(
+        `SELECT
+          CONCAT('ban-', bb.id) AS id,
+          DATE_FORMAT(bb.event_date, '%d %b %Y') AS date,
+          bb.event_date AS sort_date,
+          'Income' AS flow_type,
+          'Banquet' AS department,
+          CONCAT('Banquet booking ', COALESCE(NULLIF(bb.invoice_no, ''), CONCAT('#', bb.id)), ' - ', COALESCE(NULLIF(bb.customer_name, ''), 'Guest')) AS description,
+          COALESCE(bb.grand_total, 0) AS amount,
+          COALESCE(NULLIF(bb.payment_mode, ''), 'Pending') AS mode,
+          'banquet_booking' AS source,
+          bb.notes AS narration
+        FROM banquet_bookings bb
+        WHERE COALESCE(bb.invoice_no, '') <> ''
+          AND LOWER(COALESCE(bb.payment_status, 'pending')) = 'paid'
+          AND (LOWER(COALESCE(bb.customer_name, '')) = ? OR LOWER(COALESCE(bb.customer_name, '')) LIKE ?)`,
+        [normalized, likeValue]
+      );
+    }
+  }
+
+  if (hasFolio) {
+    if (isMobile) {
+      add(
+        `SELECT
+          CONCAT('fol-', hfe.id) AS id,
+          DATE_FORMAT(hfe.entry_date, '%d %b %Y') AS date,
+          hfe.entry_date AS sort_date,
+          CASE
+            WHEN hfe.entry_type IN ('Payment', 'Refund') THEN
+              CASE WHEN hfe.entry_type = 'Refund' THEN 'Expense' ELSE 'Income' END
+            ELSE 'Expense'
+          END AS flow_type,
+          'Room' AS department,
+          CONCAT('Folio ', hfe.entry_type, ' - Booking #', hfe.booking_id, ' - ', hfe.description) AS description,
+          hfe.amount,
+          'Folio' AS mode,
+          'hotel_folio' AS source,
+          NULL AS narration
+        FROM hotel_folio_entries hfe
+        INNER JOIN guests g ON g.id = hfe.booking_id
+        WHERE COALESCE(hfe.amount, 0) > 0
+          AND LOWER(COALESCE(g.mobile, '')) = ?`,
+        [normalized]
+      );
+    } else {
+      add(
+        `SELECT
+          CONCAT('fol-', hfe.id) AS id,
+          DATE_FORMAT(hfe.entry_date, '%d %b %Y') AS date,
+          hfe.entry_date AS sort_date,
+          CASE
+            WHEN hfe.entry_type IN ('Payment', 'Refund') THEN
+              CASE WHEN hfe.entry_type = 'Refund' THEN 'Expense' ELSE 'Income' END
+            ELSE 'Expense'
+          END AS flow_type,
+          'Room' AS department,
+          CONCAT('Folio ', hfe.entry_type, ' - Booking #', hfe.booking_id, ' - ', hfe.description) AS description,
+          hfe.amount,
+          'Folio' AS mode,
+          'hotel_folio' AS source,
+          NULL AS narration
+        FROM hotel_folio_entries hfe
+        INNER JOIN guests g ON g.id = hfe.booking_id
+        WHERE COALESCE(hfe.amount, 0) > 0
+          AND (LOWER(COALESCE(g.guest_name, '')) = ? OR LOWER(COALESCE(g.guest_name, '')) LIKE ?)`,
+        [normalized, likeValue]
+      );
+    }
+  }
+
+  if (!parts.length) return { transactions: [], totals: { income: 0, expense: 0, net: 0 } };
+
+  const sql = parts.join(" UNION ALL ") + " ORDER BY sort_date DESC, id DESC";
+  const rows = await runQuery(sql, params);
+
+  const totals = rows.reduce(
+    (acc, row) => {
+      const amount = Number(row.amount || 0);
+      if (String(row.flow_type || "").toLowerCase() === "income") acc.income += amount;
+      else acc.expense += amount;
+      return acc;
+    },
+    { income: 0, expense: 0 }
+  );
+
+  return { transactions: rows, totals: { ...totals, net: totals.income - totals.expense } };
+};
+
+const savePaymentHistory = (data, callback) => {

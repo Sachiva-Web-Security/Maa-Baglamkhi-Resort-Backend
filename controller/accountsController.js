@@ -1032,3 +1032,43 @@ exports.getAllPaymentHistory = (req, res) => {
     res.json(rows || []);
   });
 };
+
+exports.getCustomerStatement = async (req, res) => {
+  try {
+    const by = req.query.by === "name" ? "name" : "mobile";
+    const value = String(req.query.value || "").trim();
+    if (!value) {
+      return res.status(400).json({ message: "Missing customer lookup value" });
+    }
+
+    const result = await AccountsModel.getCustomerStatement({ by, value });
+    res.json(result);
+  } catch (error) {
+    console.error("Error fetching customer statement:", error);
+    res.status(500).json({ message: "Error fetching customer statement" });
+  }
+};
+
+exports.getCustomerStatementByIdentifier = async (req, res) => {
+  try {
+    const identifier = String(req.params.identifier || "").trim();
+    if (!identifier) {
+      return res.status(400).json({ message: "Missing customer identifier" });
+    }
+
+    let result;
+    const asNumber = Number(identifier);
+    const isLikelyMobile = !Number.isNaN(asNumber) && asNumber >= 1000000000 && asNumber <= 9999999999999;
+
+    if (isLikelyMobile) {
+      result = await AccountsModel.getCustomerStatement({ by: "mobile", value: identifier });
+    } else {
+      result = await AccountsModel.getCustomerStatement({ by: "name", value: identifier });
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error("Error fetching customer statement by identifier:", error);
+    res.status(500).json({ message: "Error fetching customer statement" });
+  }
+};
