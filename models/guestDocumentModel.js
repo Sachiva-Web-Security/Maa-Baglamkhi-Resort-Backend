@@ -150,4 +150,11 @@ module.exports = {
   ensureSchema,
   getDocumentsByBookingId,
   getDocumentsByMobile,
+  deleteDocument: async (bookingId, documentId) => {
+    await ensureSchema();
+    return runQuery(
+      "DELETE FROM guest_documents WHERE id = ? AND booking_id = ?",
+      [Number(documentId), Number(bookingId)],
+    );
+  },
 };

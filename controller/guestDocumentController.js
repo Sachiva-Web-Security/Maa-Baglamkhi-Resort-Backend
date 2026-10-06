@@ -90,3 +90,19 @@ exports.listByBooking = async (req, res) => {
     res.status(500).json({ message: "Guest document fetch failed", error: error.message });
   }
 };
+
+exports.deleteDocument = async (req, res) => {
+  const { bookingId, documentId } = req.params;
+
+  if (!bookingId || !documentId) {
+    return res.status(400).json({ message: "bookingId and documentId are required" });
+  }
+
+  try {
+    await guestDocumentModel.deleteDocument(Number(bookingId), Number(documentId));
+    res.json({ message: "Document deleted" });
+  } catch (error) {
+    console.error("Guest document delete failed:", error);
+    res.status(500).json({ message: "Failed to delete document", error: error.message });
+  }
+};

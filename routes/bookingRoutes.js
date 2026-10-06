@@ -89,6 +89,12 @@ router.use("/guest", guestAdminRouter);
 // Hotel Invoice PDF → WhatsApp
 router.post("/invoice/pdf", whatsappInvoiceController.sendInvoiceWhatsApp);
 
+// Notify guest (email/SMS stub — hook up Twilio/nodemailer here)
+router.post("/notify/:bookingId", bookingController.notifyGuest);
+
+// Guest documents
+router.delete("/guest-documents/:bookingId/:documentId", guestDocumentController.deleteDocument);
+
 // Group Booking
 router.post("/group-booking",          groupBookingController.create);
 

@@ -396,3 +396,37 @@ exports.cancelAssignment = (req, res) => {
     res.json({ message: "Assignment cancelled, order returned to queue", assignmentId });
   });
 };
+
+exports.getReadyRoomOrders = (req, res) => {
+  const sql = `
+    SELECT ko.id AS kitchenOrderId, ko.room_number AS roomNumber, ko.status,
+           ko.total_amount AS totalAmount, ko.created_at AS createdAt,
+           GROUP_CONCAT(CONCAT(koi.item_name, ' x', koi.quantity) SEPARATOR ', ') AS items
+    FROM kitchen_orders ko
+    LEFT JOIN kitchen_order_items koi ON koi.order_id = ko.id
+    WHERE ko.order_type = 'room'
+      AND ko.status NOT IN ('cancelled','completed')
+    GROUP BY ko.id
+    ORDER BY ko.created_at DESC, ko.id DESC
+  `;
+  db.query(sql, (err, results) => {
+    if (err) return res.status(500).json(err);
+    res.json(results || []);
+  });
+};
+
+exports.getCancellationLog = (req, res) => {
+  const { kitchenOrderId } = req.params;
+  const sql = `
+    SELECT id, assignment_id AS assignmentId, status,
+           notes, delivered_at AS cancelledAt
+    FROM delivery_assignments
+    WHERE kitchen_order_id = ?
+    ORDER BY created_at DESC
+    LIMIT 50
+  `;
+  db.query(sql, [kitchenOrderId], (err, results) => {
+    if (err) return res.status(500).json(err);
+    res.json(results || []);
+  });
+};

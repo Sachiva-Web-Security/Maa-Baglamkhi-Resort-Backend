@@ -27,4 +27,7 @@ router.get("/waiter-queue", authMiddleware, controller.getWaiterQueue);
 router.post("/mark-delivered/:assignmentId", authMiddleware, controller.markDelivered);
 router.post("/cancel-assignment", authMiddleware, controller.cancelAssignment);
 
+router.get("/ready-room-orders", controller.getReadyRoomOrders);
+router.get("/cancellation-log/:kitchenOrderId", controller.getCancellationLog);
+
 module.exports = router;
