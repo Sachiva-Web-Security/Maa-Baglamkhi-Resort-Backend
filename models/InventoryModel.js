@@ -477,6 +477,127 @@ const ensureSchema = async () => {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS inventory_purchases (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      item_id INT NULL,
+      item_name VARCHAR(255) NOT NULL,
+      category VARCHAR(120) NULL,
+      quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+      rate DECIMAL(10,2) NOT NULL DEFAULT 0,
+      total_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+      vendor_name VARCHAR(180) NULL,
+      purchase_date DATE NOT NULL DEFAULT (CURRENT_DATE),
+      invoice_number VARCHAR(120) NULL,
+      notes TEXT NULL,
+      created_by VARCHAR(120) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_purchase_date (purchase_date),
+      INDEX idx_item_id (item_id)
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS inventory_stock_log (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      item_id INT NOT NULL,
+      item_name VARCHAR(255) NOT NULL,
+      category VARCHAR(120) NULL,
+      action_type ENUM('opening','purchase','transfer_in','transfer_out','waste','audit','adjustment') NOT NULL DEFAULT 'adjustment',
+      quantity_change DECIMAL(10,2) NOT NULL DEFAULT 0,
+      stock_before DECIMAL(10,2) NOT NULL DEFAULT 0,
+      stock_after DECIMAL(10,2) NOT NULL DEFAULT 0,
+      from_store VARCHAR(120) NULL,
+      to_store VARCHAR(120) NULL,
+      reference_id INT NULL,
+      notes TEXT NULL,
+      created_by VARCHAR(120) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_item_id (item_id),
+      INDEX idx_created_at (created_at)
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS inventory_stock_actions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      action_type ENUM('transfer','waste','audit','adjustment') NOT NULL,
+      item_id INT NULL,
+      item_name VARCHAR(255) NOT NULL,
+      quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+      from_store VARCHAR(120) NULL,
+      to_store VARCHAR(120) NULL,
+      reason TEXT NULL,
+      created_by VARCHAR(120) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_action_type (action_type),
+      INDEX idx_created_at (created_at)
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS inventory_setup_categories (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(120) NOT NULL UNIQUE,
+      label VARCHAR(180) NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS inventory_setup_vendors (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(180) NOT NULL UNIQUE,
+      contact_person VARCHAR(120) NULL,
+      phone VARCHAR(40) NULL,
+      email VARCHAR(180) NULL,
+      address TEXT NULL,
+      gstin VARCHAR(40) NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS inventory_setup_stores (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(120) NOT NULL UNIQUE,
+      location VARCHAR(180) NULL,
+      manager_name VARCHAR(120) NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+
+  await runQuery(
+    `INSERT IGNORE INTO inventory_setup_categories (name, label, sort_order) VALUES
+     ('raw_materials','Raw Materials',1),
+     ('spices','Spices & Seasonings',2),
+     ('dairy','Dairy',3),
+     ('beverages','Beverages',4),
+     ('packaging','Packaging',5),
+     ('cleaning','Cleaning Supplies',6),
+     ('fuel','Fuel & Gas',7)`
+  );
+  await runQuery(
+    `INSERT IGNORE INTO inventory_setup_vendors (name) VALUES
+     ('Local Market'),
+     ('Wholesale Supplier'),
+     ('Direct Farm')`
+  );
+  await runQuery(
+    `INSERT IGNORE INTO inventory_setup_stores (name) VALUES
+     ('Main Store'),
+     ('Kitchen Store'),
+     ('Bar Store')`
+  );
 };
 
 const Inventory = {
@@ -2091,6 +2212,281 @@ const Inventory = {
        FROM inventory_chef_issues
        WHERE id = ? LIMIT 1`,
       [id],
+      callback,
+    );
+  },
+
+  /* ─── Purchases ─────────────────────────────────────────────────────────────── */
+
+  createPurchase: (data, callback) => {
+    const sql = `
+      INSERT INTO inventory_purchases
+        (item_id, item_name, category, quantity, rate, total_amount,
+         vendor_name, purchase_date, invoice_number, notes, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    db.query(
+      sql,
+      [
+        data.itemId || null,
+        data.itemName || data.item || "",
+        data.category || null,
+        data.quantity || 0,
+        data.rate || data.price || 0,
+        (data.quantity || 0) * (data.rate || data.price || 0),
+        data.vendorName || null,
+        data.purchaseDate || new Date().toISOString().slice(0, 10),
+        data.invoiceNumber || null,
+        data.notes || null,
+        data.createdBy || "system",
+      ],
+      callback,
+    );
+  },
+
+  getPurchases: (filters = {}, callback) => {
+    const sql = `
+      SELECT id, item_id AS itemId, item_name AS itemName, category,
+             quantity, rate, total_amount AS totalAmount,
+             vendor_name AS vendorName, purchase_date AS purchaseDate,
+             invoice_number AS invoiceNumber, notes,
+             created_by AS createdBy, created_at AS createdAt, updated_at AS updatedAt
+      FROM inventory_purchases
+      WHERE 1=1
+      ORDER BY created_at DESC, id DESC
+    `;
+    db.query(sql, callback);
+  },
+
+  /* ─── Stock log ────────────────────────────────────────────────────────────── */
+
+  addStockLog: (data, callback) => {
+    const sql = `
+      INSERT INTO inventory_stock_log
+        (item_id, item_name, category, action_type, quantity_change,
+         stock_before, stock_after, from_store, to_store, reference_id, notes, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    db.query(
+      sql,
+      [
+        data.itemId || null,
+        data.itemName || data.item || "",
+        data.category || null,
+        data.actionType || "adjustment",
+        data.quantityChange || data.quantity || 0,
+        data.stockBefore || 0,
+        data.stockAfter || 0,
+        data.fromStore || null,
+        data.toStore || null,
+        data.referenceId || null,
+        data.notes || null,
+        data.createdBy || "system",
+      ],
+      callback,
+    );
+  },
+
+  getStock: (filters = {}, callback) => {
+    const sql = `
+      SELECT id, item_id AS itemId, item_name AS itemName, category,
+             action_type AS actionType, quantity_change AS quantityChange,
+             stock_before AS stockBefore, stock_after AS stockAfter,
+             from_store AS fromStore, to_store AS toStore,
+             reference_id AS referenceId, notes,
+             created_by AS createdBy, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i') AS createdAt
+      FROM inventory_stock_log
+      WHERE 1=1
+      ORDER BY created_at DESC, id DESC
+      LIMIT 200
+    `;
+    db.query(sql, callback);
+  },
+
+  /* ─── Stock actions ────────────────────────────────────────────────────────── */
+
+  createStockAction: (data, callback) => {
+    const sql = `
+      INSERT INTO inventory_stock_actions
+        (action_type, item_id, item_name, quantity, from_store, to_store, reason, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    db.query(
+      sql,
+      [
+        data.actionType || "adjustment",
+        data.itemId || null,
+        data.itemName || data.item || "",
+        data.quantity || 0,
+        data.fromStore || null,
+        data.toStore || null,
+        data.reason || data.notes || null,
+        data.createdBy || "system",
+      ],
+      callback,
+    );
+  },
+
+  /* ─── Setup tables ─────────────────────────────────────────────────────────── */
+
+  getSetupSections: (callback) => {
+    const sql = `
+      SELECT 'categories' AS section, name, label, is_active AS isActive, sort_order AS sortOrder,
+             DATE_FORMAT(created_at, '%Y-%m-%d') AS createdAt
+      FROM inventory_setup_categories
+      UNION ALL
+      SELECT 'vendors' AS section, name, contact_person AS label, is_active AS isActive, 0 AS sortOrder,
+             DATE_FORMAT(created_at, '%Y-%m-%d') AS createdAt
+      FROM inventory_setup_vendors
+      UNION ALL
+      SELECT 'stores' AS section, name, location AS label, is_active AS isActive, 0 AS sortOrder,
+             DATE_FORMAT(created_at, '%Y-%m-%d') AS createdAt
+      FROM inventory_setup_stores
+      ORDER BY section, sortOrder, name
+    `;
+    db.query(sql, callback);
+  },
+
+  getSetupList: (sectionKey, callback) => {
+    let table = "inventory_setup_categories";
+    if (sectionKey === "vendors") table = "inventory_setup_vendors";
+    else if (sectionKey === "stores") table = "inventory_setup_stores";
+    const sql = `SELECT * FROM ${table} ORDER BY name ASC`;
+    db.query(sql, callback);
+  },
+
+  createSetupRecord: (sectionKey, data, callback) => {
+    let table = "inventory_setup_categories";
+    let fields = "name, label, is_active";
+    let values = [data.name, data.label || data.name, data.isActive ? 1 : 0];
+    if (sectionKey === "vendors") {
+      fields = "name, contact_person, phone, email, address, gstin, is_active";
+      values = [
+        data.name,
+        data.contactPerson || null,
+        data.phone || null,
+        data.email || null,
+        data.address || null,
+        data.gstin || null,
+        data.isActive ? 1 : 0,
+      ];
+    } else if (sectionKey === "stores") {
+      fields = "name, location, manager_name, is_active";
+      values = [data.name, data.location || null, data.managerName || null, data.isActive ? 1 : 0];
+    }
+    const sql = `INSERT INTO ${table} (${fields}) VALUES (${values.map(() => "?").join(", ")})`;
+    db.query(sql, values, callback);
+  },
+
+  updateSetupRecord: (sectionKey, id, data, callback) => {
+    let table = "inventory_setup_categories";
+    let fields = [];
+    let values = [];
+    if (sectionKey === "vendors") {
+      table = "inventory_setup_vendors";
+      if (data.name !== undefined) { fields.push("name = ?"); values.push(data.name); }
+      if (data.contactPerson !== undefined) { fields.push("contact_person = ?"); values.push(data.contactPerson); }
+      if (data.phone !== undefined) { fields.push("phone = ?"); values.push(data.phone); }
+      if (data.email !== undefined) { fields.push("email = ?"); values.push(data.email); }
+      if (data.address !== undefined) { fields.push("address = ?"); values.push(data.address); }
+      if (data.gstin !== undefined) { fields.push("gstin = ?"); values.push(data.gstin); }
+      if (data.isActive !== undefined) { fields.push("is_active = ?"); values.push(data.isActive ? 1 : 0); }
+    } else if (sectionKey === "stores") {
+      table = "inventory_setup_stores";
+      if (data.name !== undefined) { fields.push("name = ?"); values.push(data.name); }
+      if (data.location !== undefined) { fields.push("location = ?"); values.push(data.location); }
+      if (data.managerName !== undefined) { fields.push("manager_name = ?"); values.push(data.managerName); }
+      if (data.isActive !== undefined) { fields.push("is_active = ?"); values.push(data.isActive ? 1 : 0); }
+    } else {
+      if (data.name !== undefined) { fields.push("name = ?"); values.push(data.name); }
+      if (data.label !== undefined) { fields.push("label = ?"); values.push(data.label); }
+      if (data.isActive !== undefined) { fields.push("is_active = ?"); values.push(data.isActive ? 1 : 0); }
+    }
+    if (!fields.length) return callback(null, { affectedRows: 0 });
+    values.push(id);
+    const sql = `UPDATE ${table} SET ${fields.join(", ")} WHERE id = ?`;
+    db.query(sql, values, callback);
+  },
+
+  deleteSetupRecord: (sectionKey, id, callback) => {
+    let table = "inventory_setup_categories";
+    if (sectionKey === "vendors") table = "inventory_setup_vendors";
+    else if (sectionKey === "stores") table = "inventory_setup_stores";
+    db.query(`DELETE FROM ${table} WHERE id = ?`, [id], callback);
+  },
+
+  /* ─── Stats ────────────────────────────────────────────────────────────────── */
+
+  getInventoryStats: (callback) => {
+    const sql = `
+      SELECT
+        (SELECT COUNT(*) FROM inventory) AS total_items,
+        (SELECT COALESCE(SUM(stock), 0) FROM inventory) AS total_stock,
+        (SELECT COUNT(*) FROM inventory WHERE stock <= reorder_point OR stock <= 5) AS low_stock_count,
+        (SELECT COUNT(*) FROM inventory_purchases WHERE purchase_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)) AS recent_purchases,
+        (SELECT COUNT(*) FROM inventory_waste_log WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)) AS recent_waste,
+        (SELECT COALESCE(SUM(total_amount), 0) FROM inventory_purchases WHERE MONTH(purchase_date) = MONTH(NOW()) AND YEAR(purchase_date) = YEAR(NOW())) AS monthly_spend
+    `;
+    db.query(sql, callback);
+  },
+
+  /* ─── Report endpoints (legacy InventoryFlow tabs) ─────────────────────────── */
+
+  getVendorSpendReport: (filters = {}, callback) => {
+    db.query(
+      `SELECT vendor_name AS vendorName, COALESCE(SUM(total_amount), 0) AS totalSpend,
+              COUNT(*) AS purchaseCount, MAX(purchase_date) AS lastPurchase
+       FROM inventory_purchases
+       WHERE 1=1
+       GROUP BY vendor_name
+       ORDER BY totalSpend DESC`,
+      callback,
+    );
+  },
+
+  getStockValueReport: (callback) => {
+    db.query(
+      `SELECT id, name AS itemName, category, stock, price,
+              (stock * price) AS stockValue,
+              reorder_point AS reorderPoint
+       FROM inventory
+       ORDER BY stockValue DESC`,
+      callback,
+    );
+  },
+
+  getExpiryBatchesReport: (callback) => {
+    db.query(
+      `SELECT id, name AS itemName, category, stock, expiry
+       FROM inventory
+       WHERE expiry IS NOT NULL AND expiry <> ''
+       ORDER BY expiry ASC`,
+      callback,
+    );
+  },
+
+  getConsumptionReport: (filters = {}, callback) => {
+    db.query(
+      `SELECT item_name AS itemName, category,
+              SUM(CASE WHEN action_type = 'waste' THEN quantity_change ELSE 0 END) AS wasted,
+              SUM(CASE WHEN action_type IN ('purchase','transfer_in') THEN quantity_change ELSE 0 END) AS received,
+              SUM(CASE WHEN action_type IN ('transfer_out','waste') THEN quantity_change ELSE 0 END) AS consumed
+       FROM inventory_stock_log
+       GROUP BY item_name, category
+       ORDER BY consumed DESC
+       LIMIT 100`,
+      callback,
+    );
+  },
+
+  getAuditTrailReport: (callback) => {
+    db.query(
+      `SELECT id, item_id AS itemId, item_name AS itemName, category, action_type AS actionType,
+              quantity_change AS quantityChange, stock_before AS stockBefore, stock_after AS stockAfter,
+              notes, created_by AS createdBy, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i') AS createdAt
+       FROM inventory_stock_log
+       ORDER BY created_at DESC, id DESC
+       LIMIT 200`,
       callback,
     );
   },

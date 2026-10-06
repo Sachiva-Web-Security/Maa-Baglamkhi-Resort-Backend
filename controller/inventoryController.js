@@ -346,6 +346,191 @@ exports.getChefIssueById = (req, res) => {
   });
 };
 
+/* ─── Flow: Purchases ───────────────────────────────────────────────────────── */
+
+exports.getPurchases = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.getPurchases(req.query || {}, (err, results) => {
+      if (err) return res.status(500).json({ message: "Failed to fetch purchases.", error: err });
+      res.json(results || []);
+    });
+  });
+};
+
+exports.createPurchase = (req, res) => {
+  const data = { ...req.body, createdBy: req.user?.username || "system" };
+  withInventorySchema(res, async () => {
+    Inventory.createPurchase(data, (err) => {
+      if (err) return res.status(500).json({ message: "Failed to record purchase.", error: err });
+      res.status(201).json({ message: "Purchase recorded." });
+    });
+  });
+};
+
+/* ─── Flow: Stock ───────────────────────────────────────────────────────────── */
+
+exports.getStock = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.getStock(req.query || {}, (err, results) => {
+      if (err) return res.status(500).json({ message: "Failed to fetch stock log.", error: err });
+      res.json(results || []);
+    });
+  });
+};
+
+exports.addStock = (req, res) => {
+  const data = { ...req.body, createdBy: req.user?.username || "system" };
+  withInventorySchema(res, async () => {
+    Inventory.addStockLog(data, (err) => {
+      if (err) return res.status(500).json({ message: "Failed to add stock entry.", error: err });
+      res.status(201).json({ message: "Stock entry added." });
+    });
+  });
+};
+
+/* ─── Flow: Stock actions ───────────────────────────────────────────────────── */
+
+exports.createStockAction = (req, res) => {
+  const data = { ...req.body, createdBy: req.user?.username || "system" };
+  withInventorySchema(res, async () => {
+    Inventory.createStockAction(data, (err) => {
+      if (err) return res.status(500).json({ message: "Failed to record stock action.", error: err });
+      res.status(201).json({ message: "Stock action recorded." });
+    });
+  });
+};
+
+/* ─── Flow: Stats ───────────────────────────────────────────────────────────── */
+
+exports.getInventoryStats = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.getInventoryStats((err, results) => {
+      if (err) return res.status(500).json({ message: "Failed to fetch stats.", error: err });
+      const row = results?.[0] || {};
+      res.json({
+        totalItems: Number(row.total_items || 0),
+        totalStock: Number(row.total_stock || 0),
+        lowStock: Number(row.low_stock_count || 0),
+        expiringSoon: Number(row.expiring_soon || 0),
+        recentPurchases: Number(row.recent_purchases || 0),
+        recentWaste: Number(row.recent_waste || 0),
+        monthlySpend: Number(row.monthly_spend || 0),
+      });
+    });
+  });
+};
+
+/* ─── Flow: Setup tabs ──────────────────────────────────────────────────────── */
+
+exports.getSetupSections = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.getSetupSections((err, results) => {
+      if (err) return res.status(500).json({ message: "Failed to load setup sections.", error: err });
+      res.json(results || []);
+    });
+  });
+};
+
+exports.getSetupList = (req, res) => {
+  const { sectionKey } = req.params;
+  if (!["categories", "vendors", "stores"].includes(sectionKey)) {
+    return res.status(400).json({ message: "Invalid section key." });
+  }
+  withInventorySchema(res, async () => {
+    Inventory.getSetupList(sectionKey, (err, results) => {
+      if (err) return res.status(500).json({ message: "Failed to load setup list.", error: err });
+      res.json(results || []);
+    });
+  });
+};
+
+exports.createSetupRecord = (req, res) => {
+  const { sectionKey } = req.params;
+  if (!["categories", "vendors", "stores"].includes(sectionKey)) {
+    return res.status(400).json({ message: "Invalid section key." });
+  }
+  const data = { ...req.body, createdBy: req.user?.username || "system" };
+  withInventorySchema(res, async () => {
+    Inventory.createSetupRecord(sectionKey, data, (err) => {
+      if (err) return res.status(500).json({ message: "Failed to create record.", error: err });
+      res.status(201).json({ message: "Record created." });
+    });
+  });
+};
+
+exports.updateSetupRecord = (req, res) => {
+  const { sectionKey, id } = req.params;
+  if (!["categories", "vendors", "stores"].includes(sectionKey)) {
+    return res.status(400).json({ message: "Invalid section key." });
+  }
+  withInventorySchema(res, async () => {
+    Inventory.updateSetupRecord(sectionKey, id, req.body, (err) => {
+      if (err) return res.status(500).json({ message: "Failed to update record.", error: err });
+      res.json({ message: "Record updated." });
+    });
+  });
+};
+
+exports.deleteSetupRecord = (req, res) => {
+  const { sectionKey, id } = req.params;
+  if (!["categories", "vendors", "stores"].includes(sectionKey)) {
+    return res.status(400).json({ message: "Invalid section key." });
+  }
+  withInventorySchema(res, async () => {
+    Inventory.deleteSetupRecord(sectionKey, id, (err) => {
+      if (err) return res.status(500).json({ message: "Failed to delete record.", error: err });
+      res.json({ message: "Record deleted." });
+    });
+  });
+};
+
+/* ─── Flow: Reports ─────────────────────────────────────────────────────────── */
+
+exports.getVendorSpendReport = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.getVendorSpendReport(req.query || {}, (err, results) => {
+      if (err) return res.status(500).json({ message: "Failed to fetch vendor spend report.", error: err });
+      res.json(results || []);
+    });
+  });
+};
+
+exports.getStockValueReport = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.getStockValueReport((err, results) => {
+      if (err) return res.status(500).json({ message: "Failed to fetch stock value report.", error: err });
+      res.json(results || []);
+    });
+  });
+};
+
+exports.getExpiryBatchesReport = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.getExpiryBatchesReport((err, results) => {
+      if (err) return res.status(500).json({ message: "Failed to fetch expiry report.", error: err });
+      res.json(results || []);
+    });
+  });
+};
+
+exports.getConsumptionReport = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.getConsumptionReport(req.query || {}, (err, results) => {
+      if (err) return res.status(500).json({ message: "Failed to fetch consumption report.", error: err });
+      res.json(results || []);
+    });
+  });
+};
+
+exports.getAuditTrailReport = (req, res) => {
+  withInventorySchema(res, async () => {
+    Inventory.getAuditTrailReport((err, results) => {
+      if (err) return res.status(500).json({ message: "Failed to fetch audit trail report.", error: err });
+      res.json(results || []);
+    });
+  });
+};
+
 exports.submitAudit = (req, res) => {
   const entries = req.body.entries || [];
   if (!entries.length) return res.status(400).json({ message: "No audit entries provided." });

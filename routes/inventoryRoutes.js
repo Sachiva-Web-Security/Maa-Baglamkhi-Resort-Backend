@@ -11,6 +11,13 @@ const {
   createVendorPayment, getVendorPayments, updateVendorPayment, deleteVendorPayment,
   getStockLedger, getStockFlowReport, getVendorInsights,
   createChefIssue, returnChefIssue, getChefIssues, getChefIssueById,
+  /* flow routes */
+  getPurchases, createPurchase,
+  getStock, addStock,
+  createStockAction,
+  getInventoryStats,
+  getSetupSections, getSetupList, createSetupRecord, updateSetupRecord, deleteSetupRecord,
+  getVendorSpendReport, getStockValueReport, getExpiryBatchesReport, getConsumptionReport, getAuditTrailReport,
 } = require("../controller/inventoryController");
 
 const authMiddleware = require("../middleware/authMiddleware");
@@ -59,6 +66,30 @@ router.get("/chef-issues", authMiddleware, roleMiddleware(READERS), getChefIssue
 router.post("/chef-issues", authMiddleware, roleMiddleware(["admin", "manager", "kitchen", "chef", "receptionist"]), createChefIssue);
 router.put("/chef-issues/:id/return", authMiddleware, roleMiddleware(["admin", "manager", "kitchen", "chef", "receptionist"]), returnChefIssue);
 router.get("/chef-issues/:id", authMiddleware, roleMiddleware(READERS), getChefIssueById);
+
+/* ─── Flow routes (must be above /:id catch-all) ─────────────────────────────── */
+
+router.get("/purchases", authMiddleware, roleMiddleware(READERS), getPurchases);
+router.post("/purchases", authMiddleware, roleMiddleware(EDITORS), createPurchase);
+
+router.get("/stock", authMiddleware, roleMiddleware(READERS), getStock);
+router.post("/stock", authMiddleware, roleMiddleware(EDITORS), addStock);
+
+router.post("/stock-action", authMiddleware, roleMiddleware(["admin", "manager", "kitchen", "chef", "receptionist"]), createStockAction);
+
+router.get("/stats", authMiddleware, roleMiddleware(READERS), getInventoryStats);
+
+router.get("/setup/sections", authMiddleware, roleMiddleware(READERS), getSetupSections);
+router.get("/setup/:sectionKey", authMiddleware, roleMiddleware(READERS), getSetupList);
+router.post("/setup/:sectionKey", authMiddleware, roleMiddleware(EDITORS), createSetupRecord);
+router.put("/setup/:sectionKey/:id", authMiddleware, roleMiddleware(EDITORS), updateSetupRecord);
+router.delete("/setup/:sectionKey/:id", authMiddleware, roleMiddleware(EDITORS), deleteSetupRecord);
+
+router.get("/reports/vendor-spend", authMiddleware, roleMiddleware(READERS), getVendorSpendReport);
+router.get("/reports/stock-value", authMiddleware, roleMiddleware(READERS), getStockValueReport);
+router.get("/reports/expiry-batches", authMiddleware, roleMiddleware(READERS), getExpiryBatchesReport);
+router.get("/reports/consumption", authMiddleware, roleMiddleware(READERS), getConsumptionReport);
+router.get("/reports/audit-trail", authMiddleware, roleMiddleware(READERS), getAuditTrailReport);
 
 router.get("/:id", authMiddleware, roleMiddleware(READERS), getItem);
 router.post("/", authMiddleware, roleMiddleware(EDITORS), createItem);
