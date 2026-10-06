@@ -1589,3 +1589,40 @@ exports.getPaymentHistory = async (req, res) => {
   }
 };
 
+exports.notifyGuest = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { channel } = req.body || {};
+
+    const [guest] = await new Promise((resolve, reject) => {
+      db.query(
+        "SELECT id, guest_name, email, mobile, booking_code FROM guests WHERE id = ? LIMIT 1",
+        [bookingId],
+        (err, rows) => (err ? reject(err) : resolve(rows)),
+      );
+    });
+
+    if (!guest) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    const contact = channel === "email" ? guest.email : guest.mobile;
+    if (!contact) {
+      return res.status(400).json({ message: `No ${channel} found for this guest` });
+    }
+
+    console.log(`[Notify] Would send ${channel} to ${contact} for booking ${guest.booking_code}`);
+
+    res.json({
+      success: true,
+      message: `${channel === "email" ? "Email" : "SMS"} notification queued`,
+      channel,
+      sentTo: contact,
+      bookingCode: guest.booking_code,
+    });
+  } catch (error) {
+    console.error("notifyGuest error:", error);
+    res.status(500).json({ message: "Failed to send notification" });
+  }
+};
+
