@@ -60,12 +60,7 @@ router.post("/chef-issues", authMiddleware, roleMiddleware(["admin", "manager", 
 router.put("/chef-issues/:id/return", authMiddleware, roleMiddleware(["admin", "manager", "kitchen", "chef", "receptionist"]), returnChefIssue);
 router.get("/chef-issues/:id", authMiddleware, roleMiddleware(READERS), getChefIssueById);
 
-router.get("/:id", authMiddleware, roleMiddleware(READERS), getItem);
-router.post("/", authMiddleware, roleMiddleware(EDITORS), createItem);
-router.put("/:id", authMiddleware, roleMiddleware(EDITORS), updateItem);
-router.delete("/:id", authMiddleware, roleMiddleware(EDITORS), deleteItem);
-
-// ── Setup / reference data ─────────────────────────────────────────────────
+// ── Specific routes MUST come before /:id ────────────────────────────────────
 router.get("/setup/categories", authMiddleware, roleMiddleware(READERS), (req, res) => {
   res.json([]);
 });
@@ -76,12 +71,10 @@ router.get("/setup/stores", authMiddleware, roleMiddleware(READERS), (req, res) 
   res.json([]);
 });
 
-// ── Stats ───────────────────────────────────────────────────────────────────
 router.get("/stats", authMiddleware, roleMiddleware(READERS), (req, res) => {
   res.json({ totalItems: 0, lowStockCount: 0, totalValue: 0 });
 });
 
-// ── Purchases ───────────────────────────────────────────────────────────────
 router.get("/purchases", authMiddleware, roleMiddleware(READERS), (req, res) => {
   res.json([]);
 });
@@ -89,7 +82,6 @@ router.post("/purchases", authMiddleware, roleMiddleware(EDITORS), (req, res) =>
   res.status(501).json({ message: "Not implemented yet" });
 });
 
-// ── Stock ───────────────────────────────────────────────────────────────────
 router.get("/stock", authMiddleware, roleMiddleware(READERS), (req, res) => {
   res.json([]);
 });
@@ -100,7 +92,6 @@ router.post("/stock-action", authMiddleware, roleMiddleware(EDITORS), (req, res)
   res.status(501).json({ message: "Not implemented yet" });
 });
 
-// ── Reports ─────────────────────────────────────────────────────────────────
 router.get("/reports/vendor-spend", authMiddleware, roleMiddleware(READERS), (req, res) => {
   res.json([]);
 });
@@ -116,6 +107,12 @@ router.get("/reports/consumption", authMiddleware, roleMiddleware(READERS), (req
 router.get("/reports/audit-trail", authMiddleware, roleMiddleware(READERS), (req, res) => {
   res.json([]);
 });
+
+// Catch-all /:id MUST be last
+router.get("/:id", authMiddleware, roleMiddleware(READERS), getItem);
+router.post("/", authMiddleware, roleMiddleware(EDITORS), createItem);
+router.put("/:id", authMiddleware, roleMiddleware(EDITORS), updateItem);
+router.delete("/:id", authMiddleware, roleMiddleware(EDITORS), deleteItem);
 
 router.get("/reports/vendor-spend", authMiddleware, roleMiddleware(READERS), (req, res) => {
   res.json([]);

@@ -47,7 +47,7 @@ router.post("/mark-delivered/:assignmentId", async (req, res) => {
   try {
     const { assignmentId } = req.params;
     const [result] = await db.query(
-      `UPDATE room_service_orders SET status = 'delivered', delivered_at = NOW() WHERE id = ? LIMIT 1`,
+      `UPDATE room_service_orders SET status = 'delivered' WHERE id = ? LIMIT 1`,
       [assignmentId]
     );
     if (!result.affectedRows) {
