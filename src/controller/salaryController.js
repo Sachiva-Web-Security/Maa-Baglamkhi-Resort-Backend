@@ -227,7 +227,8 @@ exports.recalculateAttendance = async (req, res) => {
       return res.status(404).json({ message: "Employee not found" });
     }
 
-    const records = await AttendanceRecordsModel.findByEmployeeAndMonth(employee.id);
+    const now = new Date();
+    const records = await AttendanceRecordsModel.findByEmployeeAndMonth(employee.id, now.getMonth() + 1, now.getFullYear());
 
     // attendance_records in v4 has no salary_amount column; derive the computed
     // amount per record and return it rather than persisting a non-existent field.

@@ -65,4 +65,69 @@ router.post("/", authMiddleware, roleMiddleware(EDITORS), createItem);
 router.put("/:id", authMiddleware, roleMiddleware(EDITORS), updateItem);
 router.delete("/:id", authMiddleware, roleMiddleware(EDITORS), deleteItem);
 
+// ── Setup / reference data ─────────────────────────────────────────────────
+router.get("/setup/categories", authMiddleware, roleMiddleware(READERS), (req, res) => {
+  res.json([]);
+});
+router.get("/setup/vendors", authMiddleware, roleMiddleware(READERS), (req, res) => {
+  res.json([]);
+});
+router.get("/setup/stores", authMiddleware, roleMiddleware(READERS), (req, res) => {
+  res.json([]);
+});
+
+// ── Stats ───────────────────────────────────────────────────────────────────
+router.get("/stats", authMiddleware, roleMiddleware(READERS), (req, res) => {
+  res.json({ totalItems: 0, lowStockCount: 0, totalValue: 0 });
+});
+
+// ── Purchases ───────────────────────────────────────────────────────────────
+router.get("/purchases", authMiddleware, roleMiddleware(READERS), (req, res) => {
+  res.json([]);
+});
+router.post("/purchases", authMiddleware, roleMiddleware(EDITORS), (req, res) => {
+  res.status(501).json({ message: "Not implemented yet" });
+});
+
+// ── Stock ───────────────────────────────────────────────────────────────────
+router.get("/stock", authMiddleware, roleMiddleware(READERS), (req, res) => {
+  res.json([]);
+});
+router.post("/stock", authMiddleware, roleMiddleware(EDITORS), (req, res) => {
+  res.status(501).json({ message: "Not implemented yet" });
+});
+router.post("/stock-action", authMiddleware, roleMiddleware(EDITORS), (req, res) => {
+  res.status(501).json({ message: "Not implemented yet" });
+});
+
+// ── Reports ─────────────────────────────────────────────────────────────────
+router.get("/reports/vendor-spend", authMiddleware, roleMiddleware(READERS), (req, res) => {
+  res.json([]);
+});
+router.get("/reports/stock-value", authMiddleware, roleMiddleware(READERS), (req, res) => {
+  res.json([]);
+});
+router.get("/reports/expiry-batches", authMiddleware, roleMiddleware(READERS), (req, res) => {
+  res.json([]);
+});
+router.get("/reports/consumption", authMiddleware, roleMiddleware(READERS), (req, res) => {
+  res.json([]);
+});
+router.get("/reports/audit-trail", authMiddleware, roleMiddleware(READERS), (req, res) => {
+  res.json([]);
+});
+
+router.get("/reports/vendor-spend", authMiddleware, roleMiddleware(READERS), (req, res) => {
+  res.json([]);
+});
+router.get("/reports/stock-value", authMiddleware, roleMiddleware(READERS), (req, res) => {
+  res.json([]);
+});
+router.get("/reports/expiry-batches", authMiddleware, roleMiddleware(READERS), (req, res) => {
+  res.json([]);
+});
+router.get("/reports/consumption", authMiddleware, roleMiddleware(READERS), (req, res) => {
+  res.json([]);
+});
+
 module.exports = router;

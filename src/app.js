@@ -85,6 +85,7 @@ app.use("/api/web/dining", require("./routes/diningRoutes"));
 app.use("/api/dining", require("./routes/diningRoutes"));  // alias
 app.use("/api/room-service", require("./routes/roomServiceRoutes"));
 app.use("/api/roomservice", require("./routes/roomServiceRoutes"));  // alias
+app.use("/api/room-service-delivery", require("./routes/roomServiceDeliveryRoutes"));
 app.use("/api/waiter", require("./routes/waiterRoutes"));
 app.use("/api/accounts", require("./routes/accountsRoutes"));
 app.use("/api/banquet", require("./routes/banquetRoutes"));

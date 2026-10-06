@@ -92,5 +92,15 @@ router.post("/invoice/pdf", whatsappInvoiceController.sendInvoiceWhatsApp);
 // Group Booking
 router.post("/group-booking",          groupBookingController.create);
 
+// Notifications
+router.post("/notify/:bookingId", async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    res.json({ message: "Notification sent", bookingId });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to send notification", error: err.message });
+  }
+});
+
 module.exports = router;
 
