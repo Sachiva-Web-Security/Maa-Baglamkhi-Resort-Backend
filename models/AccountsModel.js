@@ -965,7 +965,7 @@ const getCustomerStatement = async ({ by = "mobile", value = "" }) => {
           NULL AS narration
         FROM invoices i
         WHERE ${invoiceConfig.paidStatusExpr} = 'paid'
-          AND LOWER(COALESCE(i.customer_mobile, i.mobile, '')) = ?`,
+          AND LOWER(COALESCE(i.phone, '')) = ?`,
         [normalized]
       );
     } else {
@@ -1005,7 +1005,7 @@ const getCustomerStatement = async ({ by = "mobile", value = "" }) => {
           NULL AS narration
         FROM restaurant_bills rb
         WHERE COALESCE(rb.total, 0) > 0
-          AND LOWER(COALESCE(rb.mobile, '')) = ?`,
+          AND LOWER(COALESCE(rb.phone, '')) = ?`,
         [normalized]
       );
     } else {
@@ -1113,7 +1113,7 @@ const getCustomerStatement = async ({ by = "mobile", value = "" }) => {
         FROM banquet_bookings bb
         WHERE COALESCE(bb.invoice_no, '') <> ''
           AND LOWER(COALESCE(bb.payment_status, 'pending')) = 'paid'
-          AND LOWER(COALESCE(bb.customer_mobile, '')) = ?`,
+          AND LOWER(COALESCE(bb.mobile, '')) = ?`,
         [normalized]
       );
     } else {
