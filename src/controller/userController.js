@@ -114,7 +114,12 @@ exports.createUser = async (req, res) => {
 
 exports.getUsers = async (req, res) => {
   try {
-    const rows = await UsersModel.findAll();
+    const [rows] = await db.query(
+      `SELECT u.id, u.name, u.email, u.phone, u.avatar_url, u.status, u.last_login_at, u.created_at, u.updated_at,
+              COALESCE(r.name, 'staff') AS role
+       FROM users u
+       LEFT JOIN roles r ON r.id = u.role_id`
+    );
     res.json(rows);
   } catch (err) {
     console.error("Error fetching users:", err);

@@ -49,12 +49,21 @@ exports.login = async (req, res) => {
       return res.status(400).json({ message: "Invalid Email" });
     }
 
-    const user = await UsersModel.findByEmail(candidateEmails[index]).then((rows) => rows[0] || null);
+    const [userRows] = await db.query(
+      `SELECT u.id, u.name, u.email, u.password_hash, u.role_id,
+              COALESCE(r.name, 'staff') AS role_name
+       FROM users u
+       LEFT JOIN roles r ON r.id = u.role_id
+       WHERE LOWER(u.email) = LOWER(?) AND u.status = 'active'
+       LIMIT 1`,
+      [candidateEmails[index]],
+    );
+    const user = userRows[0] || null;
     if (!user) {
       return tryLookup(index + 1);
     }
 
-    const match = await bcrypt.compare(password, user.password_hash || user.password);
+    const match = await bcrypt.compare(password, user.password_hash);
 
     if (!match) {
       req.setAuditContext?.({
@@ -70,7 +79,7 @@ exports.login = async (req, res) => {
       newValue: {
         id: user.id,
         email: user.email,
-        role: String(user.role_id || user.role || "").toLowerCase(),
+        role: user.role_name,
       },
     });
 
@@ -79,7 +88,7 @@ exports.login = async (req, res) => {
         id: user.id,
         email: user.email,
         name: user.name,
-        role: String(user.role_id || user.role || "").toLowerCase(),
+        role: user.role_name,
       },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN },
@@ -98,8 +107,9 @@ exports.login = async (req, res) => {
 
     return res.json({
       token,
+      id: user.id,
       name: user.name,
-      role: String(user.role_id || user.role || "").toLowerCase(),
+      role: user.role_name,
       email: user.email,
     });
   };

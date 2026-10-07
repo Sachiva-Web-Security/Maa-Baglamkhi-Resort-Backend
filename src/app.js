@@ -58,9 +58,12 @@ io.on("connection", () => {
   console.log("User connected");
 });
 
+const isProd = process.env.NODE_ENV === "production";
+
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
+    contentSecurityPolicy: false,
   }),
 );
 app.use(cors(corsOptions));

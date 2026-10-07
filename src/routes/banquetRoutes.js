@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const upload = require("../utils/upload");
+const db = require("../config/db");
 
 const {
   getBanquetPricingConfig,
@@ -23,6 +24,22 @@ const { sendBanquetInvoiceWhatsApp } = require("../controller/banquetWhatsappCon
 router.get("/config", getBanquetPricingConfig);
 router.put("/config", updateBanquetPricingConfig);
 router.get("/", getBanquetDashboard);
+router.get("/halls", async (req, res) => {
+  try {
+    const [rows] = await db.query("SELECT * FROM banquet_halls ORDER BY id ASC");
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to load halls", error: err.message });
+  }
+});
+router.get("/bookings", async (req, res) => {
+  try {
+    const [rows] = await db.query("SELECT * FROM banquet_bookings ORDER BY id DESC");
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to load bookings", error: err.message });
+  }
+});
 router.post("/", createBanquetBooking);
 router.put("/:id", updateBanquetBooking);
 router.put("/:id/cancel", cancelBanquetBooking);

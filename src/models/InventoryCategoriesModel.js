@@ -21,6 +21,24 @@ class InventoryCategories {
   KEY \`idx_parent\` (\`parent_id\`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 
+      await conn.query(`CREATE TABLE IF NOT EXISTS \`inventory_menu_categories\` (
+            \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  \`name\` VARCHAR(120) NOT NULL,
+  \`description\` TEXT,
+  \`is_active\` TINYINT(1) DEFAULT 1,
+  \`created_at\` TIMESTAMP,
+  PRIMARY KEY (\`id\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+
+      await conn.query(`CREATE TABLE IF NOT EXISTS \`inventory_stock_categories\` (
+            \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  \`name\` VARCHAR(120) NOT NULL,
+  \`description\` TEXT,
+  \`is_active\` TINYINT(1) DEFAULT 1,
+  \`created_at\` TIMESTAMP,
+  PRIMARY KEY (\`id\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+
       await conn.commit()
     } catch (err) {
       await conn.rollback()

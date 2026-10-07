@@ -7,6 +7,8 @@ const SECTIONS = [
   { key: "vendors", label: "Vendors", table: "inventory_vendors" },
   { key: "locations", label: "Locations", table: "inventory_locations" },
   { key: "categories", label: "Categories", table: "inventory_categories" },
+  { key: "menu-categories", label: "Menu Categories", table: "inventory_menu_categories" },
+  { key: "stock-categories", label: "Stock Categories", table: "inventory_stock_categories" },
 ];
 
 const getSection = (sectionKey) => SECTIONS.find((s) => s.key === sectionKey);
