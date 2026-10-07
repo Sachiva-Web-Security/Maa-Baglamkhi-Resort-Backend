@@ -34,50 +34,38 @@ exports.login = async (req, res) => {
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const candidateEmails = buildCandidateEmails(normalizedEmail);
 
-  console.log("[LOGIN DEBUG] Raw email:", email, "Normalized:", normalizedEmail, "Candidates:", candidateEmails);
-  console.log("[LOGIN DEBUG] Request body keys:", Object.keys(req.body || {}));
-
   req.setAuditContext?.({
     action: "login",
     newValue: normalizedEmail ? { email: normalizedEmail } : null,
   });
 
   if (!normalizedEmail || !password) {
-    console.log("[LOGIN DEBUG] Missing email or password");
     return res.status(400).json({ message: "Email and password required" });
   }
 
   for (let i = 0; i < candidateEmails.length; i++) {
     const lookupEmail = candidateEmails[i];
-    console.log("[LOGIN DEBUG] Trying candidate:", lookupEmail, "(index:", i, ")");
 
     let result;
     try {
       result = await UserModel.findUserByEmail(lookupEmail);
     } catch (err) {
-      console.log("[LOGIN DEBUG] DB error on findUserByEmail:", err.message);
       return res.status(500).json({ message: "DB Error" });
     }
 
-    console.log("[LOGIN DEBUG] DB result for", lookupEmail, ":", result ? "found 1 user" : "not found");
-
     if (!result) {
-      console.log("[LOGIN DEBUG] No user found for", lookupEmail, ", trying next candidate");
       continue;
     }
 
     const user = result;
-    console.log("[LOGIN DEBUG] User found: id=", user.id, "email=", user.email, "role=", user.role);
 
     const match = await bcrypt.compare(password, user.password);
-    console.log("[LOGIN DEBUG] Password match for", user.email, ":", match);
 
     if (!match) {
       req.setAuditContext?.({
         action: "login_failed",
         userId: user.id,
       });
-      console.log("[LOGIN DEBUG] Password mismatch for", user.email);
       return res.status(400).json({ message: "Invalid Password" });
     }
 
@@ -102,11 +90,8 @@ exports.login = async (req, res) => {
       { expiresIn: JWT_EXPIRES_IN },
     );
 
-    console.log("[LOGIN DEBUG] Login success for", user.email, "role:", user.role);
-
-    // Set httpOnly cookie for browser-based sessions
     const isProd = process.env.NODE_ENV === "production";
-    const cookieMaxAgeMs = 7 * 24 * 60 * 60 * 1000; // 7 days
+    const cookieMaxAgeMs = 7 * 24 * 60 * 60 * 1000;
     res.cookie("token", token, {
       httpOnly: true,
       secure: isProd,
@@ -124,7 +109,6 @@ exports.login = async (req, res) => {
     });
   }
 
-  console.log("[LOGIN DEBUG] All candidates exhausted, returning Invalid Email");
   return res.status(400).json({ message: "Invalid Email" });
 };
 
