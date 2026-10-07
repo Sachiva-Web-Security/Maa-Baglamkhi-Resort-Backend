@@ -1,4 +1,6 @@
 const AssignmentModel = require("../models/AssignmentModel");
+const db = require("../config/db");
+const { getRequestActor, namesMatch } = require("../utils/requestActor");
 
 const query = (sql, params = []) =>
   new Promise((resolve, reject) =>

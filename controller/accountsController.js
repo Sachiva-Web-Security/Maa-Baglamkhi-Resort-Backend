@@ -1072,3 +1072,17 @@ exports.getCustomerStatementByIdentifier = async (req, res) => {
     res.status(500).json({ message: "Error fetching customer statement" });
   }
 };
+
+exports.getAllCustomers = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit, 10) || 20));
+    const search = String(req.query.search || "").trim();
+
+    const result = await AccountsModel.getAllCustomers({ page, limit, search });
+    res.json(result);
+  } catch (error) {
+    console.error("Error fetching all customers:", error);
+    res.status(500).json({ message: "Error fetching customers" });
+  }
+};

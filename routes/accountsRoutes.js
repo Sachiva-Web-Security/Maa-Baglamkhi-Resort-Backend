@@ -52,6 +52,7 @@ const {
   getAllPaymentHistory,
   getCustomerStatement,
   getCustomerStatementByIdentifier,
+  getAllCustomers,
 } = require("../controller/accountsController");
 
 router.get("/transactions", getTransactions);
@@ -106,5 +107,6 @@ router.delete("/payment-settings/:id", deletePaymentGatewaySetting);
 router.get("/payment-history", getAllPaymentHistory);
 router.get("/customer-statement", getCustomerStatement);
 router.get("/customer-statement/:identifier", getCustomerStatementByIdentifier);
+router.get("/customers", getAllCustomers);
 
 module.exports = router;

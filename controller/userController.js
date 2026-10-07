@@ -109,17 +109,14 @@ exports.createUser = async (req, res) => {
 
 // ================= GET USERS =================
 
-exports.getUsers = (req, res) => {
-  UserModel.getAllUsers((err, result) => {
-    if (err) {
-      console.error("Error fetching users:", err);
-      return res.status(500).json({
-        message: "Error fetching users",
-      });
-    }
-
+exports.getUsers = async (req, res) => {
+  try {
+    const result = await UserModel.getAllUsers();
     res.json(result);
-  });
+  } catch (err) {
+    console.error("Error fetching users:", err);
+    res.status(500).json({ message: "Error fetching users" });
+  }
 };
 
 exports.deleteUser = (req, res) => {

@@ -998,7 +998,7 @@ const getCustomerStatement = async ({ by = "mobile", value = "" }) => {
           COALESCE(rb.paid_at, rb.created_at) AS sort_date,
           'Income' AS flow_type,
           'Restaurant' AS department,
-          CONCAT('Restaurant bill ', COALESCE(rb.reference, CONCAT('#', rb.id)), ' - ', COALESCE(NULLIF(rb.customerName, ''), 'Walk-in')) AS description,
+          CONCAT('Restaurant bill ', COALESCE(NULLIF(rb.modern_bill_id, 0), CONCAT('#', rb.id)), ' - ', COALESCE(NULLIF(rb.customerName, ''), 'Walk-in')) AS description,
           COALESCE(rb.total, 0) AS amount,
           COALESCE(NULLIF(rb.paymentMethod, ''), 'Pending') AS mode,
           'restaurant_bill' AS source,
@@ -1016,7 +1016,7 @@ const getCustomerStatement = async ({ by = "mobile", value = "" }) => {
           COALESCE(rb.paid_at, rb.created_at) AS sort_date,
           'Income' AS flow_type,
           'Restaurant' AS department,
-          CONCAT('Restaurant bill ', COALESCE(rb.reference, CONCAT('#', rb.id)), ' - ', COALESCE(NULLIF(rb.customerName, ''), 'Walk-in')) AS description,
+          CONCAT('Restaurant bill ', COALESCE(NULLIF(rb.modern_bill_id, 0), CONCAT('#', rb.id)), ' - ', COALESCE(NULLIF(rb.customerName, ''), 'Walk-in')) AS description,
           COALESCE(rb.total, 0) AS amount,
           COALESCE(NULLIF(rb.paymentMethod, ''), 'Pending') AS mode,
           'restaurant_bill' AS source,
@@ -1206,6 +1206,40 @@ const getCustomerStatement = async ({ by = "mobile", value = "" }) => {
   return { transactions: rows, totals: { ...totals, net: totals.income - totals.expense } };
 };
 
+const getAllCustomers = async ({ page = 1, limit = 20, search = "" }) => {
+  const offset = (page - 1) * limit;
+  const whereClause = search
+    ? "WHERE LOWER(g.guest_name) LIKE ? OR LOWER(g.mobile) LIKE ?"
+    : "";
+  const params = search ? [`%${search.toLowerCase()}%`, `%${search.toLowerCase()}%`] : [];
+
+  const customers = await runQuery(
+    `SELECT g.id, g.guest_name, g.mobile, g.guest_email, g.booking_status, g.check_in, g.check_out,
+            COUNT(DISTINCT ph.id) AS payment_count,
+            COALESCE(SUM(ph.amount), 0) AS total_payments,
+            COUNT(DISTINCT rb.id) AS restaurant_bills_count,
+            COALESCE(SUM(rb.total), 0) AS total_restaurant_spend,
+            COUNT(DISTINCT at.id) AS transaction_count
+     FROM guests g
+     LEFT JOIN payment_history ph ON ph.booking_id = g.id AND ph.is_deleted = 0
+     LEFT JOIN restaurant_bills rb ON LOWER(rb.customerName) LIKE LOWER(CONCAT('%', g.guest_name, '%')) AND COALESCE(rb.total, 0) > 0
+     LEFT JOIN accounts_transactions at ON at.is_deleted = 0 AND (LOWER(at.customer_name) = LOWER(g.guest_name) OR LOWER(at.customer_mobile) = LOWER(g.mobile))
+     ${whereClause}
+     GROUP BY g.id, g.guest_name, g.mobile, g.guest_email, g.booking_status, g.check_in, g.check_out
+     ORDER BY g.id DESC
+     LIMIT ? OFFSET ?`,
+    [...params, limit, offset]
+  );
+
+  const countRow = await runQuery(
+    `SELECT COUNT(DISTINCT g.id) as total FROM guests g ${whereClause}`,
+    params
+  );
+  const total = Number(countRow[0]?.total || 0);
+
+  return { customers, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
+};
+
 const savePaymentHistory = (data, callback) => {
   const sql = `
     INSERT INTO payment_history
@@ -1244,4 +1278,5 @@ module.exports = {
   getAllPaymentHistory,
   savePaymentHistory,
   getCustomerStatement,
+  getAllCustomers,
 };

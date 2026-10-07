@@ -1379,8 +1379,15 @@ exports.cancelBooking = async (req, res) => {
       return res.status(400).json({ message: "Cancellation reason is required" });
     }
 
-    if (String(booking.booking_status || "").toLowerCase().includes("checked in")) {
+    const currentStatus = String(booking.booking_status || "").toLowerCase();
+    if (currentStatus.includes("checked in")) {
       return res.status(400).json({ message: "Checked-in booking cannot be cancelled from this flow" });
+    }
+    if (currentStatus.includes("cancelled")) {
+      return res.status(400).json({ message: "Booking is already cancelled" });
+    }
+    if (currentStatus.includes("checked out")) {
+      return res.status(400).json({ message: "Checked-out booking cannot be cancelled" });
     }
 
     await query(

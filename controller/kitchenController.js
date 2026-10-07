@@ -284,10 +284,16 @@ exports.cancelOrder = async (req, res) => {
 
   const { id } = req.params;
   try {
-    const result = await q("UPDATE kitchen_orders SET status = 'Cancelled' WHERE id = ?", [id]);
-    if (!result.affectedRows) {
+    // Check current status first to distinguish "already cancelled" from "not found"
+    const existing = await q("SELECT status FROM kitchen_orders WHERE id = ? LIMIT 1", [id]);
+    if (!existing || existing.length === 0) {
       return res.status(404).json({ message: "Kitchen order not found" });
     }
+    if (String(existing[0].status || "").toLowerCase() === "cancelled") {
+      return res.status(200).json({ message: "Order is already cancelled" });
+    }
+
+    await q("UPDATE kitchen_orders SET status = 'Cancelled' WHERE id = ?", [id]);
     res.json({ message: "Order cancelled" });
   } catch (err) {
     res.status(500).json({ message: "Failed to cancel kitchen order", error: err.message });
