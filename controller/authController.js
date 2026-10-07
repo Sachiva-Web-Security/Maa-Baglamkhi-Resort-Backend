@@ -29,10 +29,13 @@ const buildCandidateEmails = (email) => {
   });
 };
 
-exports.login = (req, res) => {
+exports.login = async (req, res) => {
   const { email, password } = req.body;
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const candidateEmails = buildCandidateEmails(normalizedEmail);
+
+  console.log("[LOGIN DEBUG] Raw email:", email, "Normalized:", normalizedEmail, "Candidates:", candidateEmails);
+  console.log("[LOGIN DEBUG] Request body keys:", Object.keys(req.body || {}));
 
   req.setAuditContext?.({
     action: "login",
@@ -40,75 +43,89 @@ exports.login = (req, res) => {
   });
 
   if (!normalizedEmail || !password) {
+    console.log("[LOGIN DEBUG] Missing email or password");
     return res.status(400).json({ message: "Email and password required" });
   }
 
-  const tryLookup = (index) => {
-    if (index >= candidateEmails.length) {
-      return res.status(400).json({ message: "Invalid Email" });
+  for (let i = 0; i < candidateEmails.length; i++) {
+    const lookupEmail = candidateEmails[i];
+    console.log("[LOGIN DEBUG] Trying candidate:", lookupEmail, "(index:", i, ")");
+
+    let result;
+    try {
+      result = await UserModel.findUserByEmail(lookupEmail);
+    } catch (err) {
+      console.log("[LOGIN DEBUG] DB error on findUserByEmail:", err.message);
+      return res.status(500).json({ message: "DB Error" });
     }
 
-    UserModel.findUserByEmail(candidateEmails[index], async (err, result) => {
-      if (err) return res.status(500).json({ message: "DB Error" });
+    console.log("[LOGIN DEBUG] DB result for", lookupEmail, ":", result ? "found 1 user" : "not found");
 
-      if (!result || result.length === 0) {
-        return tryLookup(index + 1);
-      }
+    if (!result) {
+      console.log("[LOGIN DEBUG] No user found for", lookupEmail, ", trying next candidate");
+      continue;
+    }
 
-      const user = result[0];
-      const match = await bcrypt.compare(password, user.password);
+    const user = result;
+    console.log("[LOGIN DEBUG] User found: id=", user.id, "email=", user.email, "role=", user.role);
 
-      if (!match) {
-        req.setAuditContext?.({
-          action: "login_failed",
-          userId: user.id,
-        });
-        return res.status(400).json({ message: "Invalid Password" });
-      }
+    const match = await bcrypt.compare(password, user.password);
+    console.log("[LOGIN DEBUG] Password match for", user.email, ":", match);
 
+    if (!match) {
       req.setAuditContext?.({
+        action: "login_failed",
         userId: user.id,
-        action: "login",
-        newValue: {
-          id: user.id,
-          email: user.email,
-          role: String(user.role || "").toLowerCase(),
-        },
       });
+      console.log("[LOGIN DEBUG] Password mismatch for", user.email);
+      return res.status(400).json({ message: "Invalid Password" });
+    }
 
-      const token = jwt.sign(
-        {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: String(user.role || "").toLowerCase(),
-        },
-        JWT_SECRET,
-        { expiresIn: JWT_EXPIRES_IN },
-      );
+    req.setAuditContext?.({
+      userId: user.id,
+      action: "login",
+      newValue: {
+        id: user.id,
+        email: user.email,
+        role: String(user.role || "").toLowerCase(),
+      },
+    });
 
-      // Set httpOnly cookie for browser-based sessions
-      const isProd = process.env.NODE_ENV === "production";
-      const cookieMaxAgeMs = 7 * 24 * 60 * 60 * 1000; // 7 days
-      res.cookie("token", token, {
-        httpOnly: true,
-        secure: isProd,
-        sameSite: isProd ? "none" : "lax",
-        partitioned: isProd,
-        maxAge: cookieMaxAgeMs,
-        path: "/",
-      });
-
-      return res.json({
-        token,
+    const token = jwt.sign(
+      {
+        id: user.id,
+        email: user.email,
         name: user.name,
         role: String(user.role || "").toLowerCase(),
-        email: user.email,
-      });
-    });
-  };
+      },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN },
+    );
 
-  return tryLookup(0);
+    console.log("[LOGIN DEBUG] Login success for", user.email, "role:", user.role);
+
+    // Set httpOnly cookie for browser-based sessions
+    const isProd = process.env.NODE_ENV === "production";
+    const cookieMaxAgeMs = 7 * 24 * 60 * 60 * 1000; // 7 days
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? "none" : "lax",
+      partitioned: isProd,
+      maxAge: cookieMaxAgeMs,
+      path: "/",
+    });
+
+    return res.json({
+      token,
+      name: user.name,
+      role: String(user.role || "").toLowerCase(),
+      email: user.email,
+    });
+  }
+
+  console.log("[LOGIN DEBUG] All candidates exhausted, returning Invalid Email");
+  return res.status(400).json({ message: "Invalid Email" });
 };
 
 /**
