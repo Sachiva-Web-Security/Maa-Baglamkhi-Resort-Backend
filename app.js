@@ -258,6 +258,10 @@ async function initializeDatabase(options = {}) {
       await printLogModel.ensureSchema();
     });
     await bootstrapSchema("Default staff login bootstrap", ensureDefaultStaffLogins);
+    await bootstrapSchema("Salary payments schema init", async () => {
+      const { ensureSalaryPaymentsSchema } = require("./models/salaryPaymentsModel");
+      await ensureSalaryPaymentsSchema();
+    });
   } catch (error) {
     console.error(
       `Database connection failed (${getDbConnectionLabel()}):`,

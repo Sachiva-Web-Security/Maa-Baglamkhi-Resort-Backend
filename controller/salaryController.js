@@ -160,3 +160,85 @@ exports.recalculateAttendance = async (req, res) => {
     return res.status(500).json({ message: "Failed to recalculate" });
   }
 };
+/**
+ * ADMIN: List salary payment records with optional filters.
+ * GET /api/salary/payments?userId=&year=&month=
+ */
+exports.listSalaryPayments = async (req, res) => {
+  try {
+    const { userId, year, month } = req.query;
+    const filters = {};
+    if (userId) filters.userId = Number(userId);
+    if (year) filters.year = Number(year);
+    if (month) filters.month = Number(month);
+    const rows = await SalaryModel.getSalaryPayments(filters);
+    return res.json(rows);
+  } catch (err) {
+    console.error("listSalaryPayments error:", err);
+    return res.status(500).json({ message: "Failed to fetch payments" });
+  }
+};
+
+/**
+ * ADMIN: Get month summary for a specific employee.
+ * GET /api/salary/:userId/month-summary?year=&month=
+ */
+exports.getEmployeeMonthSummary = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const now = new Date();
+    const year = Number(req.query.year || now.getFullYear());
+    const month = Number(req.query.month || now.getMonth() + 1);
+    const data = await SalaryModel.getEmployeeMonthSummary(Number(userId), year, month);
+    return res.json(data);
+  } catch (err) {
+    console.error("getEmployeeMonthSummary error:", err);
+    return res.status(500).json({ message: "Failed to fetch month summary" });
+  }
+};
+
+/**
+ * ADMIN: Mark salary as paid / update payment status.
+ * POST /api/salary/:userId/pay
+ * body: { year, month, status, amount_paid, payment_mode, paid_on, notes }
+ */
+exports.markSalaryPaid = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { year, month, status, amount_paid, payment_mode, paid_on, notes } = req.body || {};
+    if (!userId || !year || !month) {
+      return res.status(400).json({ message: "userId, year and month are required" });
+    }
+    const result = await SalaryModel.upsertSalaryPayment({
+      userId: Number(userId),
+      year: Number(year),
+      month: Number(month),
+      status: status || "Paid",
+      amountPaid: amount_paid ?? 0,
+      paymentMode: payment_mode || null,
+      paidOn: paid_on || new Date().toISOString().slice(0, 10),
+      notes: notes || null,
+      createdBy: req.user?.id || null,
+    });
+    const record = await SalaryModel.getSalaryPayment(Number(userId), Number(year), Number(month));
+    return res.json({ message: "Salary payment updated", record });
+  } catch (err) {
+    console.error("markSalaryPaid error:", err);
+    return res.status(500).json({ message: "Failed to update payment" });
+  }
+};
+
+/**
+ * ADMIN: Get payment history for an employee.
+ * GET /api/salary/:userId/payment-history
+ */
+exports.getSalaryPaymentHistory = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const rows = await SalaryModel.getSalaryPaymentHistory(Number(userId));
+    return res.json(rows);
+  } catch (err) {
+    console.error("getSalaryPaymentHistory error:", err);
+    return res.status(500).json({ message: "Failed to fetch history" });
+  }
+};

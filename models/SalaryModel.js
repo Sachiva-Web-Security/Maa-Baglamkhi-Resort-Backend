@@ -164,6 +164,124 @@ const getMonthlySalarySummary = (userId, year, month) => {
   });
 };
 
+/* ==================== SALARY PAYMENT TRACKING ==================== */
+
+/**
+ * Get all salary payment records (optionally filtered by user/month).
+ */
+const getSalaryPayments = (filters = {}) => {
+  return new Promise((resolve, reject) => {
+    const params = [];
+    const where = [];
+    if (filters.userId) { where.push("user_id = ?"); params.push(filters.userId); }
+    if (filters.year) { where.push("year = ?"); params.push(filters.year); }
+    if (filters.month) { where.push("month = ?"); params.push(filters.month); }
+    const sql = `SELECT * FROM salary_payments ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY year DESC, month DESC, user_id`;
+    db.query(sql, params, (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows);
+    });
+  });
+};
+
+/**
+ * Get a single salary payment record by user + year + month.
+ */
+const getSalaryPayment = (userId, year, month) => {
+  return new Promise((resolve, reject) => {
+    db.query(
+      "SELECT * FROM salary_payments WHERE user_id = ? AND year = ? AND month = ?",
+      [userId, year, month],
+      (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows?.[0] || null);
+      }
+    );
+  });
+};
+
+/**
+ * Create or update a salary payment record.
+ */
+const upsertSalaryPayment = ({ userId, year, month, status, amountPaid, paymentMode, paidOn, notes, createdBy }) => {
+  return new Promise((resolve, reject) => {
+    db.query(
+      `INSERT INTO salary_payments (user_id, year, month, status, amount_paid, payment_mode, paid_on, notes, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE status = VALUES(status), amount_paid = VALUES(amount_paid),
+       payment_mode = VALUES(payment_mode), paid_on = VALUES(paid_on), notes = VALUES(notes), updated_at = CURRENT_TIMESTAMP`,
+      [userId, year, month, status || "Pending", amountPaid ?? 0, paymentMode || null, paidOn || null, notes || null, createdBy || null],
+      (err, result) => {
+        if (err) return reject(err);
+        resolve(result);
+      }
+    );
+  });
+};
+
+/**
+ * Get a combined month summary for an employee:
+ * monthly salary, attendance-based earned amount, and payment status.
+ */
+const getEmployeeMonthSummary = (userId, year, month) => {
+  return new Promise((resolve, reject) => {
+    const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const endDate = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+
+    Promise.all([
+      getSalaryByUserId(userId),
+      new Promise((res, rej) => {
+        db.query(
+          `SELECT status, COUNT(*) as days, SUM(salary_amount) as earned
+           FROM attendance_records
+           WHERE user_id = ? AND date BETWEEN ? AND ?
+           GROUP BY status`,
+          [userId, startDate, endDate],
+          (err, rows) => { if (err) return rej(err); res(rows); }
+        );
+      }),
+      getSalaryPayment(userId, year, month),
+    ]).then(([user, attendance, payment]) => {
+      const monthlySalary = parseFloat(user?.salary || 0);
+      const totalEarned = attendance.reduce((s, r) => s + parseFloat(r.earned || 0), 0);
+      const totalPresent = attendance.find(r => r.status === "Present")?.days || 0;
+      const totalAbsent = attendance.find(r => r.status === "Absent")?.days || 0;
+      const totalLate = attendance.find(r => r.status === "Late")?.days || 0;
+      const totalHalfDay = attendance.find(r => r.status === "Half Day")?.days || 0;
+      resolve({
+        user,
+        payment,
+        summary: {
+          monthlySalary,
+          totalEarned: parseFloat(totalEarned.toFixed(2)),
+          totalPresent,
+          totalAbsent,
+          totalLate,
+          totalHalfDay,
+          status: payment?.status || "Pending",
+          amountPaid: parseFloat(payment?.amount_paid || 0),
+          paidOn: payment?.paid_on || null,
+          paymentMode: payment?.payment_mode || null,
+        },
+      });
+    }).catch(reject);
+  });
+};
+
+/**
+ * Get payment history for an employee across months.
+ */
+const getSalaryPaymentHistory = (userId, limit = 12) => {
+  return new Promise((resolve, reject) => {
+    const sql = "SELECT * FROM salary_payments WHERE user_id = ? ORDER BY year DESC, month DESC LIMIT ?";
+    db.query(sql, [userId, limit], (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows);
+    });
+  });
+};
+
 module.exports = {
   calculateDaySalary,
   setSalary,
@@ -172,4 +290,9 @@ module.exports = {
   updateAttendanceSalary,
   getAttendanceByUserId,
   getMonthlySalarySummary,
+  getSalaryPayments,
+  getSalaryPayment,
+  upsertSalaryPayment,
+  getEmployeeMonthSummary,
+  getSalaryPaymentHistory,
 };

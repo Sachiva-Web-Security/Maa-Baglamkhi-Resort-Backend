@@ -16,7 +16,7 @@ const ensureSchema = async () => {
   await runQuery(`
     CREATE TABLE IF NOT EXISTS payment_history (
       id INT AUTO_INCREMENT PRIMARY KEY,
-      booking_id INT NOT NULL,
+      booking_id INT NULL,
       amount DECIMAL(10,2) NOT NULL DEFAULT 0,
       discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
       payment_mode VARCHAR(100) DEFAULT 'Cash',

@@ -21,4 +21,13 @@ router.get("/me/attendance", authMiddleware, salaryController.getMyAttendanceWit
 // Admin: Recalculate attendance salary for a user
 router.post("/:userId/recalculate", authMiddleware, roleMiddleware(["admin"]), salaryController.recalculateAttendance);
 
+// Admin: List all salary payments (with optional filters)
+router.get("/payments", authMiddleware, roleMiddleware(["admin"]), salaryController.listSalaryPayments);
+
+// Admin: Get month summary for an employee
+router.get("/:userId/month-summary", authMiddleware, roleMiddleware(["admin"]), salaryController.getEmployeeMonthSummary);
+
+// Admin: Mark salary as paid / update payment status
+router.post("/:userId/pay", authMiddleware, roleMiddleware(["admin"]), salaryController.markSalaryPaid);
+
 module.exports = router;
