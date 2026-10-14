@@ -135,8 +135,13 @@ async function testBookingLifecycle() {
   check("response carries a booking id", Boolean(bookingId), JSON.stringify(created.body).slice(0, 160));
 
   if (bookingId) {
+    // Bookings are audited, not deleted — there is no DELETE route. The cancel
+    // step below soft-closes the row, so cleanup only needs to cover the case
+    // where the test failed before reaching it.
     onCleanup(async () => {
-      await api("DELETE", `/api/hotel/booking/${bookingId}`).catch(() => {});
+      await api("PUT", `/api/hotel/booking/${bookingId}/cancel`, {
+        reason: "lifecycle test cleanup",
+      }).catch(() => {});
     });
   }
 
@@ -159,19 +164,48 @@ async function testBookingLifecycle() {
     JSON.stringify(fetched.body).slice(0, 200)
   );
 
-  // --- Update (pax) ---
-  // v4 stores pax counts on booking_rooms, so the handler requires a room that
-  // is actually attached to the booking.
-  const attachedRoom = await api("GET", `/api/hotel/full-booking/${bookingId}`);
-  const roomNumber =
-    attachedRoom.body?.rooms?.[0]?.room_number ||
-    attachedRoom.body?.roomNumber ||
-    attachedRoom.body?.rooms?.[0] ||
-    null;
+  // --- Attach a room (tariff) ---
+  // createGuest writes the booking header only; the room row on booking_rooms is
+  // created by the tariff step. Pax counts live on that row, so it must exist first.
+  const roomsSetup = await api("GET", "/api/hotel/rooms/setup");
+  const firstRoom = Array.isArray(roomsSetup.body)
+    ? roomsSetup.body.flatMap((c) => c.rooms || c.roomDetails || []).find(Boolean)
+    : null;
+  const roomNumber = String(
+    firstRoom?.room_number || firstRoom?.roomNumber || firstRoom?.number || firstRoom || ""
+  ).trim();
 
+  let roomAttached = false;
   if (roomNumber) {
+    const tariff = await api("POST", `/api/hotel/room-tariff/${bookingId}`, {
+      roomNumber,
+      room_number: roomNumber,
+      rate: 1500,
+      ratePerNight: 1500,
+      price: 1500,
+    });
+    roomAttached = [200, 201].includes(tariff.status);
+    check(
+      "POST /api/hotel/room-tariff/:id attaches a room",
+      roomAttached,
+      `got ${tariff.status} ${JSON.stringify(tariff.body).slice(0, 140)}`
+    );
+
+    const afterTariff = await api("GET", `/api/hotel/full-booking/${bookingId}`);
+    check(
+      "booking reports the attached room",
+      JSON.stringify(afterTariff.body).includes(roomNumber),
+      JSON.stringify(afterTariff.body).slice(0, 200)
+    );
+  } else {
+    check("POST /api/hotel/room-tariff/:id attaches a room", false, "no rooms in inventory to attach");
+  }
+
+  // --- Update (pax) ---
+  if (roomAttached && roomNumber) {
     const paxUpdate = await api("POST", `/api/hotel/pax/${bookingId}`, {
-      roomNumber: String(roomNumber),
+      roomNumber,
+      room_number: roomNumber,
       adults: 3,
       children: 1,
     });
@@ -191,7 +225,7 @@ async function testBookingLifecycle() {
     check(
       "POST /api/hotel/pax/:id accepted",
       false,
-      "no room attached to the booking, so pax has no target row"
+      "skipped: no room row attached to the booking"
     );
   }
 

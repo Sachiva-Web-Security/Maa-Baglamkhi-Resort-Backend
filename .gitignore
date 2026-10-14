@@ -138,3 +138,7 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 live_database.sql
+
+# Generated print/invoice output
+src/uploads/thermal/
+src/uploads/invoices/invoice_ADV-999999999.pdf

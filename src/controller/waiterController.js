@@ -131,7 +131,7 @@ exports.pickupOrder = async (req, res) => {
     }
 
     // Atomic update — only succeeds if still Ready
-    const updated = await db.query(
+    const [updated] = await db.query(
       `UPDATE kitchen_orders
        SET status = 'Picked Up', picked_up_at = NOW(), waiter_name = ?
        WHERE id = ? AND status = 'Ready'`,

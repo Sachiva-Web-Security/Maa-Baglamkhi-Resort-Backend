@@ -175,7 +175,7 @@ const getRoomSetup = async ({ checkIn = null, checkOut = null } = {}) => {
 // ─── addRoom ──────────────────────────────────────────────────────────────────
 const addRoom = async ({ categoryId, roomNumber }) => {
   await ensureSchema();
-  const result = await runQuery(
+  const [result] = await runQuery(
     "INSERT INTO rooms (category_id, room_number) VALUES (?, ?)",
     [categoryId, String(roomNumber || "").trim()],
   );

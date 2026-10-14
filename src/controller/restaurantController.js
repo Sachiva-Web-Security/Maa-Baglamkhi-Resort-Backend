@@ -224,7 +224,7 @@ exports.deleteTable = async (req, res) => {
     );
     if (activeTokens?.length) {
       return res.status(409).json({
-        message: "Active token wali table remove nahi ho sakti.",
+        message: "Tables with active tokens cannot be removed.",
       });
     }
 
@@ -234,17 +234,17 @@ exports.deleteTable = async (req, res) => {
     );
     if (pendingOrders?.length) {
       return res.status(409).json({
-        message: "Pending order wali table remove nahi ho sakti.",
+        message: "Tables with pending orders cannot be removed.",
       });
     }
 
     const [pendingBills] = await db.query(
-      "SELECT id FROM bills WHERE table_number = ? AND COALESCE(invoice_status, 'Saved') <> 'Paid' LIMIT 1",
+      "SELECT id FROM bills WHERE table_number = ? AND COALESCE(payment_status, 'Unpaid') <> 'Paid' LIMIT 1",
       [tableNumber],
     );
     if (pendingBills?.length) {
       return res.status(409).json({
-        message: "Pending bill wali table remove nahi ho sakti.",
+        message: "Tables with pending bills cannot be removed.",
       });
     }
 

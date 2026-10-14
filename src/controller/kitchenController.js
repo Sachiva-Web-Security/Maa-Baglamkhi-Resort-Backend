@@ -299,7 +299,7 @@ exports.removeOrder = async (req, res) => {
 
   const { id } = req.params;
   try {
-    const result = await db.query("DELETE FROM kitchen_orders WHERE id = ?", [id]);
+    const [result] = await db.query("DELETE FROM kitchen_orders WHERE id = ?", [id]);
     if (!result.affectedRows) {
       return res.status(404).json({ message: "Kitchen order not found" });
     }

@@ -435,7 +435,7 @@ exports.deleteTable = async (id, callback) => {
       [tableNumber],
     );
     if (activeTokens?.length) {
-      const error = new Error("Active token wali table remove nahi ho sakti.");
+      const error = new Error("Tables with active tokens cannot be removed.");
       error.statusCode = 409;
       throw error;
     }
@@ -445,17 +445,17 @@ exports.deleteTable = async (id, callback) => {
       [tableNumber],
     );
     if (pendingOrders?.length) {
-      const error = new Error("Pending order wali table remove nahi ho sakti.");
+      const error = new Error("Tables with pending orders cannot be removed.");
       error.statusCode = 409;
       throw error;
     }
 
     const [pendingBills] = await run(
-      "SELECT id FROM bills WHERE tableNumber = ? AND COALESCE(invoiceStatus, 'Saved') <> 'Paid' LIMIT 1",
+      "SELECT id FROM bills WHERE tableNumber = ? AND COALESCE(paymentStatus, 'Unpaid') <> 'Paid' LIMIT 1",
       [tableNumber],
     );
     if (pendingBills?.length) {
-      const error = new Error("Pending bill wali table remove nahi ho sakti.");
+      const error = new Error("Tables with pending bills cannot be removed.");
       error.statusCode = 409;
       throw error;
     }
