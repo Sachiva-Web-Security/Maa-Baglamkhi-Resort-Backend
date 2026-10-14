@@ -781,8 +781,11 @@ const Housekeeping = {
 
       await syncOperationalStatus(roomNo, status);
 
+      // runQuery here returns rows only, so the OkPacket is at result[0].
+      const okPacket = Array.isArray(result) ? result[0] : result;
+
       callback(null, {
-        ...result,
+        insertId: okPacket?.insertId,
         updatedExisting: false,
       });
     } catch (error) {

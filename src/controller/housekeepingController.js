@@ -364,7 +364,7 @@ exports.sendMessage = async (req, res) => {
   }
 
   try {
-    const result = await query(
+    const [result] = await db.query(
       `INSERT INTO hk_messages
         (room_id, room_no, assigned_to, receptionist, message, task_label, due_at, status, sent_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'New', NOW())`,
@@ -452,7 +452,7 @@ exports.logAmenity = async (req, res) => {
   const cost = parseFloat(unitCost) || 0;
   const by = String(loggedBy || "Staff").trim();
   try {
-    const result = await query(
+    const [result] = await db.query(
       `INSERT INTO hk_amenities_consumption
         (room_id, room_no, category, item_name, quantity, unit_cost, total_cost, notes, logged_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -494,7 +494,7 @@ exports.createInspection = async (req, res) => {
     return res.status(400).json({ message: "inspector_name is required" });
   }
   try {
-    const result = await query(
+    const [result] = await db.query(
       `INSERT INTO hk_inspections
         (room_id, room_no, inspector_name, priority, checklist_json, score, notes)
         VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -537,12 +537,12 @@ exports.createLostFound = async (req, res) => {
     return res.status(400).json({ message: "found_by is required" });
   }
   try {
-    const result = await query(
+    const [result] = await db.query(
       `INSERT INTO hk_lost_found
         (found_date, found_room, room_id, found_by, category, description, guest_name, storage_location, status, notes)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [foundDate || new Date().toISOString().slice(0, 10), roomNo || null, roomId || null, by,
-        category || null, description || null, guestName || null, storageLocation || null, status || "Found", notes || null]
+        category || "Uncategorized", description || "", guestName || null, storageLocation || null, status || "Found", notes || null]
     );
     res.json({ message: "Item reported", id: result.insertId });
   } catch (err) {
@@ -638,7 +638,7 @@ exports.logCost = async (req, res) => {
   const computedTotal = staffCost + linenCost + toiletryCost + miscCost;
   const finalTotal = totalCost != null ? parseFloat(totalCost) : computedTotal;
   try {
-    const result = await query(
+    const [result] = await db.query(
       `INSERT INTO hk_room_costing
         (room_id, room_no, staff_cost, linen_cost, toiletrie_cost, misc_cost, total_cost, logged_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -726,7 +726,7 @@ exports.createCompletedCleaningLog = async (req, res) => {
 
   try {
     await ensureCompletedCleaningLogSchema();
-    const result = await query(
+    const [result] = await db.query(
       `INSERT INTO hk_completed_cleaning_logs
         (room_id, room_no, assignee, guest_status, final_status, completed_at)
         VALUES (?, ?, ?, ?, ?, ?)`,

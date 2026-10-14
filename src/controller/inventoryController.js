@@ -710,6 +710,14 @@ exports.updateItem = async (req, res) => {
 exports.deleteItem = async (req, res) => {
   try {
     await ensureSchema();
+
+    // The stock ledger is the audit trail, but it references items that may
+    // not exist in the inventory table (item_id is nullable). Clearing the
+    // matching ledger rows keeps the two tables from drifting apart.
+    await db.query(
+      "DELETE FROM inventory_stock_ledger WHERE item_id = ? OR item_name = (SELECT name FROM inventory WHERE id = ?)",
+      [req.params.id, req.params.id]
+    );
     await db.query("DELETE FROM inventory WHERE id = ?", [req.params.id]);
     res.json({ message: "Item deleted successfully." });
   } catch (error) {
@@ -976,7 +984,7 @@ exports.createPurchaseOrder = async (req, res) => {
       return res.status(400).json({ message: "poNumber, vendor, itemName and quantity are required." });
     }
     await ensureSchema();
-    const result = await db.query(
+    const [result] = await db.query(
       `INSERT INTO inventory_purchase_orders (po_number, vendor, item_name, quantity, unit, rate, expected_date, status, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -1023,15 +1031,44 @@ exports.updatePurchaseOrder = async (req, res) => {
       return res.status(400).json({ message: "Nothing to update." });
     }
     await ensureSchema();
-    const existingRows = await db.query(
-      "SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS createdDate FROM inventory_purchase_orders WHERE id = ? LIMIT 1",
+
+    // po_number / vendor / item_name are NOT NULL, so a partial update must
+    // merge over the stored row instead of writing nulls into them.
+    const [existingRows] = await db.query(
+      "SELECT po_number, vendor, item_name, quantity, unit, rate, expected_date, status, DATE_FORMAT(created_at, '%Y-%m-%d') AS createdDate FROM inventory_purchase_orders WHERE id = ? LIMIT 1",
       [req.params.id],
     );
+    const existing = existingRows[0];
+    if (!existing) {
+      return res.status(404).json({ message: "Purchase order not found." });
+    }
+
+    const merged = {
+      poNumber: data.poNumber ?? existing.po_number,
+      vendor: data.vendor ?? existing.vendor,
+      itemName: data.itemName ?? existing.item_name,
+      quantity: data.quantity ?? existing.quantity,
+      unit: data.unit ?? existing.unit,
+      rate: data.rate ?? existing.rate,
+      expectedDate: data.expectedDate ?? existing.expected_date,
+      status: data.status ?? existing.status,
+    };
+
     await db.query(
       `UPDATE inventory_purchase_orders SET po_number=?, vendor=?, item_name=?, quantity=?, unit=?, rate=?, expected_date=?, status=? WHERE id=?`,
-      [data.poNumber, data.vendor, data.itemName, data.quantity, data.unit || null, data.rate, data.expectedDate || null, data.status, req.params.id],
+      [
+        merged.poNumber,
+        merged.vendor,
+        merged.itemName,
+        merged.quantity,
+        merged.unit || null,
+        merged.rate,
+        merged.expectedDate || null,
+        merged.status,
+        req.params.id,
+      ],
     );
-    await syncAccountsPurchaseOrder(req.params.id, data, existingRows[0]?.createdDate || null);
+    await syncAccountsPurchaseOrder(req.params.id, merged, existing.createdDate || null);
     res.json({ message: "Purchase order updated." });
   } catch (error) {
     res.status(500).json({ message: "Failed to update purchase order.", error });
@@ -1328,7 +1365,7 @@ exports.createVendorPayment = async (req, res) => {
     }
 
     await ensureSchema();
-    const result = await db.query(
+    const [result] = await db.query(
       `INSERT INTO inventory_vendor_payments (vendor_name, invoice_ref, payment_date, amount, payment_mode, status, notes, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [

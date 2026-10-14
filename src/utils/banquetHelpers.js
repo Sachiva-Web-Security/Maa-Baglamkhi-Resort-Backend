@@ -57,15 +57,17 @@ const validateBookingPayload = ({
 let hallRateColumnPromise = null;
 
 const getHallRateColumn = async () => {
+  // The v4 schema settles on rate_per_hour; kept as a resolver so older
+  // databases that used ratePerHour keep working.
   if (!hallRateColumnPromise) {
     hallRateColumnPromise = (async () => {
-      const snake = await runQuery(
+      const [snake] = await runQuery(
         "SHOW COLUMNS FROM banquet_halls LIKE ?",
         ["rate_per_hour"]
       );
       if (snake.length) return "rate_per_hour";
 
-      const camel = await runQuery(
+      const [camel] = await runQuery(
         "SHOW COLUMNS FROM banquet_halls LIKE ?",
         ["ratePerHour"]
       );
@@ -81,7 +83,8 @@ const getHallRateColumn = async () => {
 };
 
 const getBookingById = async (id) => {
-  const rows = await runQuery(
+  // poolPromise.runQuery returns the mysql2 tuple [rows, fields].
+  const [rows] = await runQuery(
     `SELECT * FROM banquet_bookings WHERE id = ? LIMIT 1`,
     [id]
   );
@@ -89,9 +92,14 @@ const getBookingById = async (id) => {
   return rows[0] || null;
 };
 
-const getHallById = async (id, hallRateColumn) => {
+const getHallById = async (id) => {
   const rows = await runQuery(
-    `SELECT id, name, capacity, ${hallRateColumn} AS ratePerHour, is_ac, image, status
+    `SELECT id, name, description,
+            capacity_min AS capacityMin, capacity_max AS capacityMax,
+            rate_per_hour AS ratePerHour, rate_per_day AS ratePerDay,
+            is_ac AS isAc, has_projector AS hasProjector,
+            has_sound_system AS hasSoundSystem, has_stage AS hasStage,
+            has_dance_floor AS hasDanceFloor, image_url AS imageUrl, status
      FROM banquet_halls WHERE id = ? LIMIT 1`,
     [id]
   );

@@ -109,13 +109,14 @@ const buildFinancialSnapshot = (payload = {}, existingBooking = null) => {
 };
 
 const checkBookingOverlap = async ({ hallId, date, startTime, endTime, excludeId = null }) => {
+  // status is an enum of inquiry|confirmed|in_progress|completed|cancelled
   const [conflicts] = await db.query(
     `
     SELECT id, start_time, end_time
     FROM banquet_bookings
     WHERE hall_id = ?
-      AND date = ?
-      AND status IN ('Confirmed', 'Completed', 'Billed')
+      AND event_date = ?
+      AND status IN ('confirmed', 'in_progress', 'completed')
       ${excludeId ? "AND id <> ?" : ""}
     `,
     excludeId ? [hallId, date, excludeId] : [hallId, date]
@@ -331,11 +332,11 @@ const createBanquetBooking = async (req, res) => {
         hall_id,
         customer_name,
         phone,
-        guest_email,
+        email,
         event_title,
         event_type,
-        guests,
-        menu_package_id,
+        guest_count,
+        menu_package,
         meal_section,
         custom_menu_items,
         lighting_system,
@@ -345,45 +346,38 @@ const createBanquetBooking = async (req, res) => {
         hall_charge,
         meal_charge,
         decoration_fee,
-        notes,
-        date,
+        event_date,
         start_time,
         end_time,
         discount,
         gst_percent,
-        subtotal_amount,
+        subtotal,
         gst_amount,
-        grand_total,
-        invoice_no,
-        status,
+        total,
         advance,
-        refund_amount,
-        net_received,
-        balance_due,
-        payment_mode,
-        payment_status,
-        payment_reference_no
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        balance,
+        status,
+        created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         hallId,
         customerName,
         phone || "",
-        guestEmail || "",
+        guestEmail || null,
         eventTitle || "",
-        eventType,
+        eventType || null,
         Number(guests),
-        menuPackageId || "standard",
-        mealSection || "",
-        customMenuItems || "",
-        lightingSystem || "classic",
+        menuPackageId || null,
+        mealSection || null,
+        customMenuItems || null,
+        lightingSystem || null,
         financials.customMenuCharge,
         financials.lightingCharge,
         financials.eventSupportFee,
         financials.hallCharge,
         financials.mealCharge,
         financials.decorationFee,
-        notes || "",
         date,
         startTime,
         endTime,
@@ -392,15 +386,10 @@ const createBanquetBooking = async (req, res) => {
         financials.subtotalAmount,
         financials.gstAmount,
         financials.grandTotal,
-        null,
-        "Confirmed",
         financials.advance,
-        financials.refundAmount,
-        financials.netReceived,
         financials.balanceDue,
-        financials.paymentMode,
-        financials.paymentStatus,
-        financials.paymentReferenceNo,
+        "confirmed",
+        req.user?.id || null,
       ]
     );
 
@@ -410,7 +399,7 @@ const createBanquetBooking = async (req, res) => {
     });
   } catch (error) {
     console.error("createBanquetBooking error:", error);
-    res.status(500).json({ message: "Failed to create booking" });
+    res.status(500).json({ message: "Failed to create booking", error: error.message });
   }
 };
 
@@ -519,11 +508,11 @@ const updateBanquetBooking = async (req, res) => {
       SET hall_id = ?,
           customer_name = ?,
           phone = ?,
-          guest_email = ?,
+          email = ?,
           event_title = ?,
           event_type = ?,
-          guests = ?,
-          menu_package_id = ?,
+          guest_count = ?,
+          menu_package = ?,
           meal_section = ?,
           custom_menu_items = ?,
           lighting_system = ?,
@@ -533,22 +522,16 @@ const updateBanquetBooking = async (req, res) => {
           hall_charge = ?,
           meal_charge = ?,
           decoration_fee = ?,
-          notes = ?,
-          date = ?,
+          event_date = ?,
           start_time = ?,
           end_time = ?,
           discount = ?,
           gst_percent = ?,
-          subtotal_amount = ?,
+          subtotal = ?,
           gst_amount = ?,
-          grand_total = ?,
+          total = ?,
           advance = ?,
-          refund_amount = ?,
-          net_received = ?,
-          balance_due = ?,
-          payment_mode = ?,
-          payment_status = ?,
-          payment_reference_no = ?,
+          balance = ?,
           invoice_no = ?
       WHERE id = ?
       `,
@@ -556,21 +539,20 @@ const updateBanquetBooking = async (req, res) => {
         hallId,
         customerName,
         phone || "",
-        guestEmail || "",
+        guestEmail || null,
         eventTitle || "",
-        eventType,
+        eventType || null,
         Number(guests),
-        menuPackageId || "standard",
-        mealSection || "",
-        customMenuItems || "",
-        lightingSystem || "classic",
+        menuPackageId || null,
+        mealSection || null,
+        customMenuItems || null,
+        lightingSystem || null,
         financials.customMenuCharge,
         financials.lightingCharge,
         financials.eventSupportFee,
         financials.hallCharge,
         financials.mealCharge,
         financials.decorationFee,
-        notes || "",
         date,
         startTime,
         endTime,
@@ -580,12 +562,7 @@ const updateBanquetBooking = async (req, res) => {
         financials.gstAmount,
         financials.grandTotal,
         financials.advance,
-        financials.refundAmount,
-        financials.netReceived,
         financials.balanceDue,
-        financials.paymentMode,
-        financials.paymentStatus,
-        financials.paymentReferenceNo,
         invoiceNo || existingBooking.invoice_no || null,
         id,
       ]
@@ -598,7 +575,7 @@ const updateBanquetBooking = async (req, res) => {
     res.status(200).json({ message: "Booking updated successfully" });
   } catch (error) {
     console.error("updateBanquetBooking error:", error);
-    res.status(500).json({ message: "Failed to update booking" });
+    res.status(500).json({ message: "Failed to update booking", error: error.message });
   }
 };
 
@@ -608,7 +585,7 @@ const cancelBanquetBooking = async (req, res) => {
     const { id } = req.params;
 
     const [result] = await db.query(
-      `UPDATE banquet_bookings SET status = 'Cancelled' WHERE id = ?`,
+      `UPDATE banquet_bookings SET status = 'cancelled' WHERE id = ?`,
       [id]
     );
 
@@ -653,14 +630,13 @@ const refundBanquetBooking = async (req, res) => {
     const nextStatus =
       advancePaid > 0 && totalRefund >= advancePaid ? "Refunded" : booking.status;
 
-    const nextMeta = {
-      ...existingMeta,
-      advance: advancePaid,
-      refundAmount: totalRefund,
-    };
-    const grandTotal = Number(booking.grand_total || booking.total_amount || 0);
+    // The v4 table has no notes/refund_amount/net_received columns, so refund
+    // state lives in the enum: fully refunded bookings become 'cancelled',
+    // and the balance/advance columns carry the remaining figures.
+    const grandTotal = Number(booking.total || 0);
     const netReceived = Math.max(0, advancePaid - totalRefund);
     const balanceDue = Math.max(0, grandTotal - netReceived);
+    const nextEnumStatus = nextStatus === "Refunded" ? "cancelled" : booking.status;
     const nextPaymentStatus =
       nextStatus === "Refunded"
         ? "Refunded"
@@ -668,35 +644,24 @@ const refundBanquetBooking = async (req, res) => {
             grandTotal,
             advance: advancePaid,
             refundAmount: totalRefund,
-            explicitStatus: booking.payment_status,
+            explicitStatus: null,
           });
 
     await db.query(
       `
       UPDATE banquet_bookings
       SET status = ?,
-          notes = ?,
-          refund_amount = ?,
-          net_received = ?,
-          balance_due = ?,
-          payment_status = ?
+          advance = ?,
+          balance = ?
       WHERE id = ?
       `,
-      [
-        nextStatus,
-        buildBanquetNotes(booking.notes || "", nextMeta),
-        totalRefund,
-        netReceived,
-        balanceDue,
-        nextPaymentStatus,
-        id,
-      ]
+      [nextEnumStatus, netReceived, balanceDue, id]
     );
 
     res.status(200).json({
       message: "Refund recorded successfully",
       refundAmount: totalRefund,
-      status: nextStatus,
+      status: nextEnumStatus,
       paymentStatus: nextPaymentStatus,
       netReceived,
       balanceDue,
@@ -717,7 +682,8 @@ const deleteBanquetBooking = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    if (!["Cancelled", "Refunded"].includes(String(booking.status || ""))) {
+    // status is an enum of inquiry|confirmed|in_progress|completed|cancelled
+    if (!["cancelled", "refunded"].includes(String(booking.status || "").toLowerCase())) {
       return res.status(400).json({
         message: "Only cancelled or refunded bookings can be deleted",
       });
@@ -738,7 +704,7 @@ const completeBanquetBooking = async (req, res) => {
     const { id } = req.params;
 
     const [result] = await db.query(
-      `UPDATE banquet_bookings SET status = 'Completed' WHERE id = ?`,
+      `UPDATE banquet_bookings SET status = 'completed' WHERE id = ?`,
       [id]
     );
 

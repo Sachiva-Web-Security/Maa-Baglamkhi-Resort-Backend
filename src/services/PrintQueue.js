@@ -10,6 +10,16 @@
  */
 
 const db = require("../config/db");
+
+// Print job reference number, e.g. PRN-20260414-123456
+const buildPrintNo = () =>
+  `PRN-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${String(Date.now()).slice(-6)}`;
+
+// print_logs.printed_by is a bigint FK, but callers pass labels like "System".
+const numericUserId = (value) => {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
 const { ensureSchema } = require("../models/PrintLogsModel");
 const PrintConfig = require("../PrintConfig");
 
@@ -139,26 +149,20 @@ class PrintQueue {
       const printNo = `PRN-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${String(Date.now()).slice(-6)}`;
       await db.query(
         `INSERT INTO print_logs
-          (print_no, invoice_no, kot_no, print_type, printer_name, print_count, printed_by, printed_at, status, metadata)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'success', ?)`,
+          (print_type, reference_id, reference_type, printer_name, printed_by, printed_at, status, error_message)
+         VALUES (?, ?, ?, ?, ?, ?, 'completed', ?)`,
         [
-          printNo,
-          result.invoiceNo || null,
-          result.kotNo || null,
+          job.print_type,
+          job.id,
           job.print_type,
           job.printer_name,
-          result.printCount || 1,
-          result.printedBy || null,
+          numericUserId(result.printedBy),
           new Date(),
-          JSON.stringify({
-            jobId: job.job_id,
-            durationMs: Date.now() - startTime,
-            payload: job.payload || {},
-          }),
+          null,
         ],
       );
 
-      this.logger(`Job completed: ${job.job_id} in ${Date.now() - startTime}ms`);
+      this.logger(`Job completed: ${job.job_id} in ${Date.now() - startTime}ms (${printNo})`);
     } catch (err) {
       this.logger(`Job failed: ${job.job_id} error=${err.message}`);
 
@@ -174,19 +178,16 @@ class PrintQueue {
         // Log failure
         await db.query(
           `INSERT INTO print_logs
-            (print_no, invoice_no, kot_no, print_type, printer_name, print_count, printed_by, printed_at, status, error_message, metadata)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'failed', ?, ?)`,
+            (print_type, reference_id, reference_type, printer_name, printed_by, printed_at, status, error_message)
+           VALUES (?, ?, ?, ?, ?, ?, 'failed', ?)`,
           [
-            buildPrintNo(),
-            null,
-            null,
+            job.print_type,
+            job.id,
             job.print_type,
             job.printer_name,
-            1,
             null,
             new Date(),
             err.message,
-            JSON.stringify({ jobId: job.job_id, retryCount: newRetryCount }),
           ],
         );
       } else {

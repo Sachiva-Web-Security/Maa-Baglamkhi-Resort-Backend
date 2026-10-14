@@ -553,6 +553,531 @@ async function testAccountsLifecycle() {
 // ---------------------------------------------------------------------------
 // Module 4 — Auth & user lifecycle
 // ---------------------------------------------------------------------------
+// Module 5 — Inventory lifecycle (stock movements)
+// ---------------------------------------------------------------------------
+async function testInventoryLifecycle() {
+  const suite = createSuite("Inventory lifecycle");
+  const s = suite.name;
+  const { check, onCleanup } = suite;
+  console.log(`\n[${s}]`);
+
+  const stamp = crypto.randomBytes(3).toString("hex");
+  const itemName = `Lifecycle Item ${stamp}`;
+  const poNumber = `PO-${stamp}`;
+
+  // --- Create item ---
+  const item = await api("POST", "/api/inventory", {
+    name: itemName,
+    category: "Lifecycle",
+    unit: "kg",
+    price: 50,
+    stock: 100,
+    reorderPoint: 10,
+  });
+  check(
+    "POST /api/inventory returns 201",
+    item.status === 201,
+    `got ${item.status} ${JSON.stringify(item.body).slice(0, 140)}`
+  );
+  const itemId = item.body?.id;
+  check("create returns a real numeric id", Number.isInteger(itemId), `got ${JSON.stringify(item.body).slice(0, 120)}`);
+
+  if (itemId) {
+    onCleanup(async () => {
+      await api("DELETE", `/api/inventory/${itemId}`).catch(() => {});
+    });
+
+    const items = await api("GET", "/api/inventory");
+    const found = Array.isArray(items.body) && items.body.find((i) => i.id === itemId);
+    check("new item appears in GET /api/inventory", Boolean(found), "not found in list");
+    check(
+      "item round-trips its stock quantity",
+      found && Number(found.stock) === 100,
+      `got ${found?.stock}`
+    );
+
+    // --- Waste: deducts stock via the ledger ---
+    const waste = await api("POST", "/api/inventory/waste", {
+      itemId,
+      itemName,
+      quantity: 5,
+      unit: "kg",
+      reason: "lifecycle test spoilage",
+      store: "Main Store",
+    });
+    check(
+      "POST /api/inventory/waste returns 201",
+      [200, 201].includes(waste.status),
+      `got ${waste.status} ${JSON.stringify(waste.body).slice(0, 140)}`
+    );
+
+    // --- Purchase order ---
+    const po = await api("POST", "/api/inventory/purchase-orders", {
+      poNumber,
+      vendor: "Lifecycle Vendor",
+      itemName,
+      quantity: 20,
+      unit: "kg",
+      rate: 45,
+      expectedDate: "2026-04-01",
+      status: "Draft",
+    });
+    check(
+      "POST /api/inventory/purchase-orders returns 201",
+      [200, 201].includes(po.status),
+      `got ${po.status} ${JSON.stringify(po.body).slice(0, 140)}`
+    );
+    const poId = po.body?.id;
+    check("PO returns a real numeric id", Number.isInteger(poId), `got ${JSON.stringify(po.body).slice(0, 120)}`);
+
+    if (poId) {
+      onCleanup(async () => {
+        await api("DELETE", `/api/inventory/purchase-orders/${poId}`).catch(() => {});
+      });
+
+      const poList = await api("GET", "/api/inventory/purchase-orders");
+      const poFound = Array.isArray(poList.body) && poList.body.find((p) => p.id === poId);
+      check("PO appears in GET /api/inventory/purchase-orders", Boolean(poFound), "not found in list");
+
+      // The handler requires one of poNumber/vendor/itemName to be present.
+      const poUpdate = await api("PUT", `/api/inventory/purchase-orders/${poId}`, {
+        status: "Ordered",
+        itemName,
+      });
+      check(
+        "PUT /api/inventory/purchase-orders/:id accepted",
+        [200, 201].includes(poUpdate.status),
+        `got ${poUpdate.status} ${JSON.stringify(poUpdate.body).slice(0, 120)}`
+      );
+    }
+
+    // --- Transfer: two ledger legs (OUT + IN) ---
+    const transfer = await api("POST", "/api/inventory/transfers", {
+      itemId,
+      itemName,
+      fromStore: "Main Store",
+      toStore: "Kitchen Store",
+      quantity: 10,
+      unit: "kg",
+    });
+    check(
+      "POST /api/inventory/transfers returns 201",
+      [200, 201].includes(transfer.status),
+      `got ${transfer.status} ${JSON.stringify(transfer.body).slice(0, 140)}`
+    );
+    const transferId = transfer.body?.id;
+    if (transferId) {
+      onCleanup(async () => {
+        await api("DELETE", `/api/inventory/transfers/${transferId}`).catch(() => {});
+      });
+      const transferList = await api("GET", "/api/inventory/transfers");
+      const transferFound = Array.isArray(transferList.body) && transferList.body.find((t) => t.id === transferId);
+      check("transfer appears in GET /api/inventory/transfers", Boolean(transferFound), "not found in list");
+    }
+
+    // --- Ledger consistency ---
+    const ledger = await api("GET", "/api/inventory/stock-ledger");
+    if (Array.isArray(ledger.body)) {
+      const ourLegs = ledger.body.filter((e) => e.itemId === itemId || e.item_id === itemId);
+      check("stock ledger records our movements", ourLegs.length > 0, `got ${ourLegs.length} legs`);
+
+      const outs = ourLegs.filter((e) => String(e.direction).toUpperCase() === "OUT");
+      const ins = ourLegs.filter((e) => String(e.direction).toUpperCase() === "IN");
+      check(
+        "waste + transfer-out produced OUT legs",
+        outs.length >= 2,
+        `got ${outs.length} OUT legs`
+      );
+      check(
+        "transfer produced a matching IN leg",
+        ins.length >= 1,
+        `got ${ins.length} IN legs`
+      );
+    } else {
+      check("inventory stock-ledger readable", false, `got ${ledger.status}`);
+    }
+  }
+
+  // --- Validation guards ---
+  const noName = await api("POST", "/api/inventory/purchase-orders", {
+    vendor: "x",
+    itemName: "y",
+    quantity: 1,
+  });
+  check(
+    "PO without poNumber is rejected (400)",
+    noName.status === 400,
+    `got ${noName.status} ${JSON.stringify(noName.body).slice(0, 120)}`
+  );
+
+  const badTransfer = await api("POST", "/api/inventory/transfers", {
+    itemName: "x",
+    fromStore: "A",
+    quantity: 0,
+  });
+  check(
+    "transfer with quantity 0 is rejected (400)",
+    badTransfer.status === 400,
+    `got ${badTransfer.status} ${JSON.stringify(badTransfer.body).slice(0, 120)}`
+  );
+
+  await suite.runCleanup();
+  return summarize(suite);
+}
+
+// ---------------------------------------------------------------------------
+// Module 6 — Housekeeping lifecycle (room state)
+// ---------------------------------------------------------------------------
+async function testHousekeepingLifecycle() {
+  const suite = createSuite("Housekeeping lifecycle");
+  const s = suite.name;
+  const { check, onCleanup } = suite;
+  console.log(`\n[${s}]`);
+
+  const stamp = crypto.randomBytes(3).toString("hex");
+  const roomNo = `HK-${stamp}`;
+
+  // --- Create room ---
+  const created = await api("POST", "/api/housekeeping", {
+    roomNo,
+    type: "Accommodation",
+    building: "Test Wing",
+    floor: "1",
+    section: "A",
+    status: "Vacant Dirty",
+    assignee: "Lifecycle Tester",
+    priority: "Normal",
+    notes: "lifecycle test room",
+  });
+  check(
+    "POST /api/housekeeping/rooms accepted",
+    [200, 201].includes(created.status),
+    `got ${created.status} ${JSON.stringify(created.body).slice(0, 140)}`
+  );
+  const roomId = created.body?.id;
+  check(
+    "create returns a real numeric id (was undefined before the insertId fix)",
+    Number.isInteger(roomId),
+    `got ${JSON.stringify(created.body).slice(0, 120)}`
+  );
+
+  if (roomId) {
+    onCleanup(async () => {
+      await api("DELETE", `/api/housekeeping/${roomId}`).catch(() => {});
+    });
+
+    const rooms = await api("GET", "/api/housekeeping");
+    const found = Array.isArray(rooms.body) && rooms.body.find((r) => r.id === roomId);
+    check("new room appears in GET /api/housekeeping/rooms", Boolean(found), "not found in list");
+    check(
+      "room round-trips its roomNo",
+      found && String(found.roomNo) === roomNo,
+      `got ${found?.roomNo}`
+    );
+
+    // --- Status transition ---
+    const status = await api("PUT", `/api/housekeeping/status/${roomId}`, {
+      status: "Vacant Clean",
+    });
+    check(
+      "PUT /api/housekeeping/status/:id accepted",
+      [200, 201].includes(status.status),
+      `got ${status.status} ${JSON.stringify(status.body).slice(0, 120)}`
+    );
+
+    const afterStatus = await api("GET", "/api/housekeeping");
+    const updated = Array.isArray(afterStatus.body) && afterStatus.body.find((r) => r.id === roomId);
+    check(
+      "status change is persisted",
+      updated && String(updated.status).toLowerCase().includes("clean"),
+      `got ${updated?.status}`
+    );
+
+    // --- Assignee reassignment ---
+    const assignee = await api("PUT", `/api/housekeeping/assignee/${roomId}`, {
+      assignee: "Lifecycle Tester 2",
+    });
+    check(
+      "PUT /api/housekeeping/assignee/:id accepted",
+      [200, 201].includes(assignee.status),
+      `got ${assignee.status} ${JSON.stringify(assignee.body).slice(0, 120)}`
+    );
+  }
+
+  // --- Lost & found ---
+  const lf = await api("POST", "/api/housekeeping/lost-found", {
+    itemName: `Lifecycle Lost ${stamp}`,
+    roomNo,
+    foundBy: "Lifecycle Tester",
+    foundDate: "2026-03-01",
+    description: "lifecycle test item",
+    status: "Stored",
+  });
+  check(
+    "POST /api/housekeeping/lost-found accepted",
+    [200, 201].includes(lf.status),
+    `got ${lf.status} ${JSON.stringify(lf.body).slice(0, 140)}`
+  );
+  const lfId = lf.body?.id;
+  if (lfId) {
+    onCleanup(async () => {
+      await api("DELETE", `/api/housekeeping/lost-found/${lfId}`).catch(() => {});
+    });
+    const lfList = await api("GET", "/api/housekeeping/lost-found");
+    const lfFound = Array.isArray(lfList.body) && lfList.body.find((r) => r.id === lfId);
+    check("lost-found item appears in GET list", Boolean(lfFound), "not found in list");
+  }
+
+  // --- Amenity log ---
+  const amenity = await api("POST", "/api/housekeeping/amenities", {
+    roomNo,
+    itemName: "Lifecycle Amenity",
+    quantity: 2,
+    usedBy: "Lifecycle Tester",
+  });
+  check(
+    "POST /api/housekeeping/amenities accepted",
+    [200, 201].includes(amenity.status),
+    `got ${amenity.status} ${JSON.stringify(amenity.body).slice(0, 140)}`
+  );
+  const amenityId = amenity.body?.id;
+  if (amenityId) {
+    onCleanup(async () => {
+      await api("DELETE", `/api/housekeeping/amenities/${amenityId}`).catch(() => {});
+    });
+  }
+
+  // --- Validation guard ---
+  const noRoom = await api("POST", "/api/housekeeping", {
+    type: "Accommodation",
+  });
+  check(
+    "housekeeping room without roomNo is rejected (400)",
+    noRoom.status === 400,
+    `got ${noRoom.status} ${JSON.stringify(noRoom.body).slice(0, 120)}`
+  );
+
+  await suite.runCleanup();
+  return summarize(suite);
+}
+
+// ---------------------------------------------------------------------------
+// Module 7 — Banquet lifecycle (hall + booking + refund)
+// ---------------------------------------------------------------------------
+async function testBanquetLifecycle() {
+  const suite = createSuite("Banquet lifecycle");
+  const s = suite.name;
+  const { check, onCleanup } = suite;
+  console.log(`\n[${s}]`);
+
+  const stamp = crypto.randomBytes(3).toString("hex");
+  const hallName = `Lifecycle Hall ${stamp}`;
+  const customerName = `Lifecycle Banquet ${stamp}`;
+
+  // --- Create a hall (the table may be empty on a fresh install) ---
+  const hallCreate = await api("POST", "/api/banquet/halls", {
+    name: hallName,
+    capacity: 200,
+    ratePerHour: 2000,
+    is_ac: true,
+  });
+  check(
+    "POST /api/banquet/halls accepted",
+    [200, 201].includes(hallCreate.status),
+    `got ${hallCreate.status} ${JSON.stringify(hallCreate.body).slice(0, 140)}`
+  );
+
+  const hallId = hallCreate.body?.id;
+  check(
+    "hall create returns a real numeric id (was undefined before the insertId fix)",
+    Number.isInteger(hallId),
+    `got ${JSON.stringify(hallCreate.body).slice(0, 140)}`
+  );
+
+  if (!hallId) {
+    await suite.runCleanup();
+    return summarize(suite);
+  }
+
+  onCleanup(async () => {
+    await api("DELETE", `/api/banquet/halls/${hallId}`).catch(() => {});
+  });
+
+  const halls = await api("GET", "/api/banquet/halls");
+  const hall = Array.isArray(halls.body) && halls.body.find((h) => h.id === hallId);
+  check("new hall appears in GET /api/banquet/halls", Boolean(hall), "not found in list");
+  check(
+    "hall round-trips its name and capacity",
+    hall &&
+      String(hall.name) === hallName &&
+      Number(hall.capacityMin ?? hall.capacity) === 200,
+    `got name=${hall?.name} capacityMin=${hall?.capacityMin} capacity=${hall?.capacity}`
+  );
+
+  // --- Create booking ---
+  const booking = await api("POST", "/api/banquet", {
+    hallId,
+    customerName,
+    phone: "9999999999",
+    guestEmail: `${stamp}@test.com`,
+    eventTitle: "Lifecycle Event",
+    eventType: "Wedding",
+    guests: 50,
+    date: "2026-05-15",
+    startTime: "10:00",
+    endTime: "14:00",
+    hallCharge: 20000,
+    mealCharge: 30000,
+    lightingCharge: 5000,
+    eventSupportFee: 2000,
+    decorationFee: 3000,
+    discount: 1000,
+    gstPercent: 5,
+    advance: 10000,
+    paymentMode: "Cash",
+    paymentStatus: "Partial",
+  });
+  check(
+    "POST /api/banquet/bookings accepted",
+    [200, 201].includes(booking.status),
+    `got ${booking.status} ${JSON.stringify(booking.body).slice(0, 160)}`
+  );
+
+  const bookingId = booking.body?.id || booking.body?.bookingId || booking.body?.insertId;
+  check("banquet booking returns a real numeric id", Number.isInteger(bookingId), `got ${JSON.stringify(booking.body).slice(0, 140)}`);
+
+  if (bookingId) {
+    // Only cancelled/refunded bookings can be deleted, so cancel first.
+    onCleanup(async () => {
+      await api("PUT", `/api/banquet/${bookingId}/cancel`, {
+        reason: "lifecycle test cleanup",
+      }).catch(() => {});
+      await api("DELETE", `/api/banquet/${bookingId}`).catch(() => {});
+    });
+
+    const bookings = await api("GET", "/api/banquet/bookings");
+    const found = Array.isArray(bookings.body) && bookings.body.find((b) => b.id === bookingId);
+    check("booking appears in GET /api/banquet/bookings", Boolean(found), "not found in list");
+    check(
+      "booking round-trips its customer name",
+      found && String(found.customer_name || found.customerName) === customerName,
+      `got ${found?.customer_name || found?.customerName}`
+    );
+    check(
+      "booking round-trips guest count",
+      found && Number(found.guest_count ?? found.guests) === 50,
+      `got ${found?.guest_count ?? found?.guests}`
+    );
+
+    // --- Update ---
+    // updateBanquetBooking is a full replace, not a patch — validateBookingPayload
+    // requires the whole set.
+    const update = await api("PUT", `/api/banquet/${bookingId}`, {
+      hallId,
+      customerName,
+      phone: "9999999999",
+      eventType: "Wedding",
+      guests: 75,
+      date: "2026-05-15",
+      startTime: "10:00",
+      endTime: "14:00",
+      hallCharge: 20000,
+      mealCharge: 30000,
+      advance: 10000,
+    });
+    check(
+      "PUT /api/banquet/bookings/:id accepted",
+      [200, 201].includes(update.status),
+      `got ${update.status} ${JSON.stringify(update.body).slice(0, 120)}`
+    );
+
+    const afterUpdate = await api("GET", "/api/banquet/bookings");
+    const updated = Array.isArray(afterUpdate.body) && afterUpdate.body.find((b) => b.id === bookingId);
+    check(
+      "guest count update is persisted",
+      updated && Number(updated.guest_count ?? updated.guests) === 75,
+      `got ${updated?.guest_count ?? updated?.guests}`
+    );
+
+    // --- Refund path (money) ---
+    // Refund must not exceed the received advance — check the stored figure
+    // first, since the update above rewrote it.
+    const current = await api("GET", "/api/banquet/bookings");
+    const currentBooking = Array.isArray(current.body) && current.body.find((b) => b.id === bookingId);
+    const advancePaid = Number(currentBooking?.advance ?? 0);
+    const refundAmount = advancePaid > 0 ? Math.min(2000, advancePaid) : 0;
+
+    const refund = await api("PUT", `/api/banquet/${bookingId}/refund`, {
+      refundAmount,
+      reason: "lifecycle test refund",
+    });
+    check(
+      "PUT /api/banquet/bookings/:id/refund accepted",
+      [200, 201].includes(refund.status),
+      `got ${refund.status} (advance=${advancePaid}) ${JSON.stringify(refund.body).slice(0, 140)}`
+    );
+
+    // Refunding more than the advance must be refused, not silently applied.
+    const overRefund = await api("PUT", `/api/banquet/${bookingId}/refund`, {
+      refundAmount: refundAmount + (advancePaid > 0 ? advancePaid + 1 : 1),
+      reason: "lifecycle over-refund",
+    });
+    check(
+      "refund exceeding the advance is rejected (400)",
+      overRefund.status === 400,
+      `got ${overRefund.status} ${JSON.stringify(overRefund.body).slice(0, 120)}`
+    );
+
+    // --- Complete ---
+    const complete = await api("PUT", `/api/banquet/${bookingId}/complete`, {});
+    check(
+      "PUT /api/banquet/bookings/:id/complete accepted",
+      [200, 201].includes(complete.status),
+      `got ${complete.status} ${JSON.stringify(complete.body).slice(0, 120)}`
+    );
+
+    // A completed booking still has to be cancellable before it can be deleted.
+    const cancelForCleanup = await api("PUT", `/api/banquet/${bookingId}/cancel`, {
+      reason: "lifecycle test cleanup",
+    });
+    check(
+      "completed booking can still be cancelled",
+      [200, 201].includes(cancelForCleanup.status),
+      `got ${cancelForCleanup.status} ${JSON.stringify(cancelForCleanup.body).slice(0, 120)}`
+    );
+  }
+
+  // --- Validation guards ---
+  const noHall = await api("POST", "/api/banquet", {
+    hallId: 999999999,
+    customerName: "Should Fail",
+    eventType: "Wedding",
+    guests: 10,
+    date: "2026-05-20",
+    startTime: "10:00",
+    endTime: "14:00",
+  });
+  check(
+    "booking with invalid hallId is rejected (400)",
+    noHall.status === 400,
+    `got ${noHall.status} ${JSON.stringify(noHall.body).slice(0, 120)}`
+  );
+
+  const missingFields = await api("POST", "/api/banquet", {
+    hallId,
+    customerName: "Incomplete",
+  });
+  check(
+    "booking missing required fields is rejected (400)",
+    missingFields.status === 400,
+    `got ${missingFields.status} ${JSON.stringify(missingFields.body).slice(0, 120)}`
+  );
+
+  await suite.runCleanup();
+  return summarize(suite);
+}
+
+// ---------------------------------------------------------------------------
 async function testAuthLifecycle() {
   const suite = createSuite("Auth & user lifecycle");
   const s = suite.name;
@@ -576,7 +1101,12 @@ async function testAuthLifecycle() {
     `got ${reg.status} ${JSON.stringify(reg.body).slice(0, 140)}`
   );
 
-  const userId = reg.body?.id || reg.body?.user?.id || reg.body?.insertId;
+  // register returns the id, but fall back to looking the user up by email.
+  let userId = reg.body?.id || reg.body?.user?.id;
+  if (!userId) {
+    const users = await api("GET", "/api/users");
+    userId = Array.isArray(users.body) && users.body.find((u) => u.email === email)?.id;
+  }
   if (userId) {
     onCleanup(async () => {
       await api("DELETE", `/api/users/${userId}`).catch(() => {});
@@ -663,6 +1193,9 @@ async function main() {
     testBookingLifecycle,
     testRestaurantLifecycle,
     testAccountsLifecycle,
+    testInventoryLifecycle,
+    testHousekeepingLifecycle,
+    testBanquetLifecycle,
     testAuthLifecycle,
   ];
 

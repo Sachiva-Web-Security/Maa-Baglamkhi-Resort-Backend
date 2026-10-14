@@ -158,12 +158,16 @@ exports.register = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const roleId = await resolveRoleId(role_id, role);
-    await db.query(
+    const [result] = await db.query(
       "INSERT INTO users (name, email, password_hash, role_id, status) VALUES (?, ?, ?, ?, 'active')",
       [name, email, hashedPassword, roleId]
     );
 
-    return res.json({ message: "Registered successfully" });
+    return res.status(201).json({
+      message: "Registered successfully",
+      id: result.insertId,
+      user: { id: result.insertId, name, email },
+    });
   } catch (hashErr) {
     console.error("Register error:", hashErr);
     return res.status(500).json({ message: "Internal server error" });
