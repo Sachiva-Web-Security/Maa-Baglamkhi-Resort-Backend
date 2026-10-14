@@ -1,5 +1,5 @@
 const db = require("../config/db");
-const roomInventoryModel = require("../models/RoomsModel");
+const roomInventoryModel = require("../models/hotelRoomInventoryModel");
 
 
 exports.bootstrap = async (_req, _res, next) => {

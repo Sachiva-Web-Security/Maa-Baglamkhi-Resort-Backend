@@ -9,9 +9,8 @@
     "init:prod": "node initialize.js",
     "seed": "node seed-runner.js",
     "repair:payments": "node repair-payments.js",
-    "test": "jest --runInBand --forceExit",
-    "test:db": "jest --runInBand --forceExit",
-    "test:coverage": "jest --runInBand --coverage --forceExit"
+    "test": "node test/api-routes.test.js",
+    "test:routes": "node test/api-routes.test.js"
   },
   "keywords": [],
   "author": "",

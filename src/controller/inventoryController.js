@@ -21,8 +21,8 @@ const tableExists = async (tableName) => {
 };
 
 const getConnection = async () => {
-  const [conn] = await db.getConnection();
-  return conn;
+  // db.getConnection() resolves to the connection itself, not a [connection, fields] tuple
+  return await db.getConnection();
 };
 
 const queryWithConnection = async (connection, sql, params = []) => {
