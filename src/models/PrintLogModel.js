@@ -66,6 +66,14 @@ const createPrintLog = async (logData) => {
 
   const printNo = logData.printNo || buildPrintNo();
 
+  // print_logs.printed_by is a bigint FK to users.id. Services fall back to a
+  // human label like "System" when there is no authenticated actor, so coerce
+  // anything non-numeric to NULL rather than failing the INSERT.
+  const printedByRaw = logData.printedBy;
+  const printedByNum = Number(printedByRaw);
+  const printedBy =
+    Number.isInteger(printedByNum) && printedByNum > 0 ? printedByNum : null;
+
   const [result] = await runQuery(
     `INSERT INTO print_logs
       (print_no, invoice_no, kot_no, print_type, printer_name, print_count, printed_by, printed_at, status, error_message, metadata)
@@ -77,7 +85,7 @@ const createPrintLog = async (logData) => {
       logData.printType,
       logData.printerName,
       logData.printCount || 1,
-      logData.printedBy || null,
+      printedBy,
       logData.printedAt || new Date(),
       logData.status || "success",
       logData.errorMessage || null,

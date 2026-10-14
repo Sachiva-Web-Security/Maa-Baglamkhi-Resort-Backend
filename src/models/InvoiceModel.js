@@ -152,6 +152,11 @@ const ensureSchema = async () => {
   await ensureColumn("invoices", "food_charge", "DECIMAL(12,2) DEFAULT 0 AFTER price_per_day");
   await ensureColumn("invoices", "extra_charge", "DECIMAL(12,2) DEFAULT 0 AFTER food_charge");
   await ensureColumn("invoices", "subtotal", "DECIMAL(12,2) DEFAULT 0 AFTER extra_charge");
+  // gst/discount exist in CREATE TABLE but had no ensureColumn, so tables created
+  // before them (using tax_amount/discount_amount) never gained the columns and
+  // the INSERT failed with "Unknown column 'discount'".
+  await ensureColumn("invoices", "gst", "DECIMAL(12,2) DEFAULT 0 AFTER subtotal");
+  await ensureColumn("invoices", "discount", "DECIMAL(12,2) DEFAULT 0 AFTER gst");
   await ensureColumn("invoices", "final_total", "DECIMAL(12,2) DEFAULT 0 AFTER discount");
   await ensureColumn("invoices", "payment_status", "VARCHAR(50) DEFAULT 'Pending' AFTER payment_mode");
   await ensureColumn("invoices", "notes", "TEXT NULL AFTER status");

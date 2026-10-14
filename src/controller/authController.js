@@ -122,6 +122,27 @@ exports.login = async (req, res) => {
  * - Allowed if ALLOW_REGISTER=true OR there are no users in DB yet.
  * - Creates user in `register` with hashed password.
  */
+/**
+ * Resolve a role from either an id (role_id) or a name (role).
+ * The frontend sends a role *name* (e.g. "reception"), so a bare Number() cast
+ * would produce NaN and break the INSERT with "Unknown column 'NaN'".
+ */
+const resolveRoleId = async (roleIdInput, roleNameInput) => {
+  const numericId = Number(roleIdInput);
+  if (Number.isInteger(numericId) && numericId > 0) {
+    const [rows] = await db.query("SELECT id FROM roles WHERE id = ? LIMIT 1", [numericId]);
+    if (rows.length) return rows[0].id;
+  }
+
+  const roleName = String(roleNameInput || "").trim().toLowerCase();
+  if (roleName) {
+    const [byName] = await db.query("SELECT id FROM roles WHERE LOWER(name) = ? LIMIT 1", [roleName]);
+    if (byName.length) return byName[0].id;
+  }
+
+  return 1; // default role
+};
+
 exports.register = async (req, res) => {
   const { name, email, password, role_id, role } = req.body || {};
 
@@ -136,7 +157,7 @@ exports.register = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const roleId = Number(role_id || role || 1);
+    const roleId = await resolveRoleId(role_id, role);
     await db.query(
       "INSERT INTO users (name, email, password_hash, role_id, status) VALUES (?, ?, ?, ?, 'active')",
       [name, email, hashedPassword, roleId]

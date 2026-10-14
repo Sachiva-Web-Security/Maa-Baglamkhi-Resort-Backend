@@ -56,6 +56,10 @@ class PrintLogs {
 
   async createPrintLog(logData = {}) {
     const printNo = logData.printNo || await this.buildPrintNo()
+    // printed_by is a bigint FK to users.id; coerce label fallbacks ("System") to NULL
+    const printedByRaw = logData.printedBy || logData.printed_by
+    const printedByNum = Number(printedByRaw)
+    const printedBy = Number.isInteger(printedByNum) && printedByNum > 0 ? printedByNum : null
     const [result] = await this.pool.execute(
       `INSERT INTO print_logs
         (print_type, reference_id, reference_type, status, printer_name, error_message, printed_by, printed_at)
@@ -67,7 +71,7 @@ class PrintLogs {
         logData.status || 'pending',
         logData.printerName || logData.printer_name || null,
         logData.errorMessage || logData.error_message || null,
-        logData.printedBy || logData.printed_by || null,
+        printedBy,
         logData.printedAt || logData.printed_at || new Date(),
       ]
     )

@@ -65,27 +65,38 @@ exports.markAllAsRead = async (req, res) => {
   }
 };
 
+/**
+ * Internal insert — takes a plain payload, returns the inserted id.
+ * Used by controllers that emit domain notifications (e.g. a new kitchen
+ * order) without going through HTTP.
+ */
+const insertNotification = async (payload) => {
+  const [result] = await db.query(
+    `INSERT INTO notifications (user_id, user_role, type, title, message, data) VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      payload.user_id || null,
+      payload.user_role || null,
+      payload.type || "general",
+      payload.title || "",
+      payload.message || "",
+      payload.data ? JSON.stringify(payload.data) : null,
+    ]
+  );
+  return result.insertId;
+};
+
 exports.createNotification = async (req, res) => {
   try {
-    const payload = req.body || {};
-    const [result] = await db.query(
-      `INSERT INTO notifications (user_id, user_role, type, title, message, data) VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        payload.user_id || null,
-        payload.user_role || null,
-        payload.type || "general",
-        payload.title || "",
-        payload.message || "",
-        payload.data ? JSON.stringify(payload.data) : null,
-      ]
-    );
-    res.json({ success: true, id: result.insertId });
+    const id = await insertNotification(req.body || {});
+    res.json({ success: true, id });
   } catch (error) {
     res.status(500).json({ message: "Failed to create notification", error: error.message });
   }
 };
 
-exports._createNotification = exports.createNotification;
+// Internal API: called with a data object, not (req, res).
+// Callers wrap this in their own try/catch — it must throw, never respond.
+exports._createNotification = insertNotification;
 
 exports.deleteNotification = async (req, res) => {
   try {
