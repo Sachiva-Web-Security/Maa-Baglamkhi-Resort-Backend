@@ -131,7 +131,7 @@ exports.updateStatus = async (req, res) => {
 
     // When completing a block, reset the room to Available
     if (status === "Completed" || status === "Cancelled") {
-      const blocks = await db.query("SELECT * FROM hotel_room_blocks ORDER BY blocked_from DESC");
+      const [blocks] = await db.query("SELECT * FROM hotel_room_blocks ORDER BY blocked_from DESC");
       const block = blocks.find((b) => Number(b.id) === Number(blockId));
 
       if (block) {

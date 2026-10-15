@@ -144,7 +144,8 @@ exports.create = async (req, res) => {
   if (!task) return res.status(400).json({ message: "task is required" });
 
   try {
-    const result = await query(
+    // query() returns rows-only, so insertId has to come from db.query.
+    const [result] = await db.query(
       `INSERT INTO assignments (staff_name, room_number, task, priority, assigned_by, due_time, notes, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending')`,
       [
