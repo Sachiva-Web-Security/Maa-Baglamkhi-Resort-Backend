@@ -53,20 +53,52 @@ exports.avatarUpload = multer({
 
 // ================= CREATE USER =================
 
+// Roles live in the `roles` table; this map is only a fallback for when that
+// lookup fails. It must stay in sync with the table (verified by the tests).
+//
+// The keys include the display names the frontend sends (CreateUser.jsx offers
+// Admin / Manager / Staff / Receptionist / Housekeeping / Accountant / Waiter /
+// Kitchen) as well as the raw table names. Missing one here used to silently
+// fall back to `accounts`, which gave receptionists accountant permissions.
 const ROLE_NAME_TO_ID = {
   admin: 1,
+  administrator: 1,
   manager: 2,
+  management: 2,
   reception: 3,
+  receptionist: 3,
+  frontdesk: 3,
   accounts: 4,
+  accountant: 4,
+  accounting: 4,
   housekeeping: 5,
+  housekeeper: 5,
   waiter: 6,
+  server: 6,
   kitchen: 7,
+  chef: 7,
 };
 
+// `staff` is a generic label, not a role in the `roles` table. Treat it as the
+// least-privileged real role so a mislabelled account cannot gain access.
+const STAFF_ROLE_ID = 3; // reception
+
+const DEFAULT_ROLE_ID = 4; // accounts
+
+// Resolve a role name (or id) to a role_id. An unknown name must never reach
+// the query as NaN: `Number("staff")` is NaN, and `NaN ?? default` keeps NaN
+// because ?? only catches null/undefined — which is how this used to fail.
 const resolveRoleId = (raw) => {
   if (Number.isInteger(raw)) return raw;
+
   const normalized = String(raw || "").trim().toLowerCase();
-  return ROLE_NAME_TO_ID[normalized] ?? Number(normalized) ?? 4;
+  if (normalized in ROLE_NAME_TO_ID) return ROLE_NAME_TO_ID[normalized];
+  if (normalized === "staff") return STAFF_ROLE_ID;
+
+  const asNumber = Number(normalized);
+  if (Number.isInteger(asNumber) && asNumber > 0) return asNumber;
+
+  return DEFAULT_ROLE_ID;
 };
 
 exports.createUser = async (req, res) => {

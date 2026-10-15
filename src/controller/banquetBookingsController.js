@@ -744,7 +744,7 @@ const generateBanquetBill = async (req, res) => {
     const [result] = await db.query(
       `
       UPDATE banquet_bookings
-      SET invoice_no = ?, status = 'Billed', billed_at = NOW(), payment_status = ?
+      SET invoice_no = ?, status = 'completed', billed_at = NOW(), payment_status = ?
       WHERE id = ?
       `,
       [invoiceNo, paymentStatus, id]
