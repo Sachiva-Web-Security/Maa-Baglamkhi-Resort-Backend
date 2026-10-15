@@ -277,7 +277,7 @@ const getAllHalls = async () => {
 };
 
 const createHall = async ({ name, capacity, ratePerHour, is_ac, image }) => {
-  const [result] = await runQuery(
+  const result = await runQuery(
     `
     INSERT INTO banquet_halls (
       name,
@@ -291,7 +291,7 @@ const createHall = async ({ name, capacity, ratePerHour, is_ac, image }) => {
     [name, Number(capacity), Number(ratePerHour), is_ac ? 1 : 0, image || null, "Available"],
   );
 
-  const [rows] = await runQuery("SELECT * FROM banquet_halls WHERE id = ?", [result.insertId]);
+  const rows = await runQuery("SELECT * FROM banquet_halls WHERE id = ?", [result.insertId]);
   return rows[0];
 };
 

@@ -38,7 +38,7 @@ exports.updateGuestPhone = async (req, res) => {
       return res.status(400).json({ error: "Phone number must have at least 10 digits" });
     }
 
-    const [result] = await query(
+    const result = await query(
       "UPDATE guests SET mobile = ? WHERE id = ?",
       [mobile, bookingId],
     );

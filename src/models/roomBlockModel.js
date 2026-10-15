@@ -61,7 +61,7 @@ const createBlock = async ({
     throw new Error("room_number, blocked_from, and blocked_until are required");
   }
 
-  const [result] = await runQuery(
+  const result = await runQuery(
     `INSERT INTO hotel_room_blocks
        (room_number, block_type, reason, blocked_from, blocked_until, blocked_by, status)
      VALUES (?, ?, ?, ?, ?, ?, 'Active')`,

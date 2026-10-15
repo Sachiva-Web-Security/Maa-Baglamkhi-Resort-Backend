@@ -175,7 +175,11 @@ const getRoomSetup = async ({ checkIn = null, checkOut = null } = {}) => {
 // ─── addRoom ──────────────────────────────────────────────────────────────────
 const addRoom = async ({ categoryId, roomNumber }) => {
   await ensureSchema();
-  const [result] = await runQuery(
+  // runQuery resolves with mysql2's OkPacket for a write, which is an object
+  // (not an array) — destructuring it as [result] throws
+  // "(intermediate value) is not iterable", which the controller turns into a
+  // blanket "Failed to add room" and hid the real cause.
+  const result = await runQuery(
     "INSERT INTO rooms (category_id, room_number) VALUES (?, ?)",
     [categoryId, String(roomNumber || "").trim()],
   );

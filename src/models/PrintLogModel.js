@@ -74,7 +74,7 @@ const createPrintLog = async (logData) => {
   const printedBy =
     Number.isInteger(printedByNum) && printedByNum > 0 ? printedByNum : null;
 
-  const [result] = await runQuery(
+  const result = await runQuery(
     `INSERT INTO print_logs
       (print_no, invoice_no, kot_no, print_type, printer_name, print_count, printed_by, printed_at, status, error_message, metadata)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
