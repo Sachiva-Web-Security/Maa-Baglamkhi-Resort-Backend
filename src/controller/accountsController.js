@@ -343,11 +343,19 @@ const getSummary = async (req, res) => {
     );
 
     // Operational payments (money actually collected) — the real operational
-    // money table in v4.
+    // money table in v4. Refunds are money going OUT, so they must not be
+    // summed as if they were receipts.
     const payments = await queryOne(
-      `SELECT COALESCE(SUM(amount), 0) AS total
+      `SELECT COALESCE(SUM(CASE WHEN payment_type = 'refund' THEN 0 ELSE amount END), 0) AS total
          FROM payments
         WHERE status = 'completed'`,
+    );
+
+    // Money returned to guests, tracked separately so the UI can show it.
+    const refunds = await queryOne(
+      `SELECT COALESCE(SUM(amount), 0) AS total
+         FROM payments
+        WHERE status = 'completed' AND payment_type = 'refund'`,
     );
 
     // GST payable derived from issued invoices' tax_amount that has not yet
@@ -371,6 +379,7 @@ const getSummary = async (req, res) => {
       expense,
       net,
       gstPayable: round2(toNumber(gst?.gst_payable)),
+      refunds: round2(toNumber(refunds?.total)),
     });
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch summary", error: error.message });
@@ -796,6 +805,8 @@ const getPaymentHistory = async (req, res) => {
       p.amount,
       p.reference_no,
       p.status,
+      p.payment_type,
+      CASE WHEN p.payment_type = 'refund' THEN -p.amount ELSE p.amount END AS signed_amount,
       p.created_at,
       DATE_FORMAT(p.created_at, '%Y-%m-%d') AS date,
       pm.name AS payment_mode,

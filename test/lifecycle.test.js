@@ -139,7 +139,7 @@ async function testBookingLifecycle() {
     // step below soft-closes the row, so cleanup only needs to cover the case
     // where the test failed before reaching it.
     onCleanup(async () => {
-      await api("PUT", `/api/hotel/booking/${bookingId}/cancel`, {
+      await api("PUT", `/api/hotel/cancel/${bookingId}`, {
         reason: "lifecycle test cleanup",
       }).catch(() => {});
     });
@@ -268,12 +268,14 @@ async function testBookingLifecycle() {
   check("GET /api/accounts/hotel-billing returns 200", billing.status === 200, `got ${billing.status}`);
 
   // --- Cancel (soft delete) ---
-  const cancel = await api("PUT", `/api/hotel/booking/${bookingId}/cancel`, {
+  // The route is /cancel/:id, not /booking/:id/cancel — a 404 here means the
+  // cleanup silently failed and the booking stays open, so don't accept it.
+  const cancel = await api("PUT", `/api/hotel/cancel/${bookingId}`, {
     reason: "lifecycle test cleanup",
   });
   check(
-    "PUT /api/hotel/booking/:id/cancel accepted",
-    [200, 201].includes(cancel.status) || cancel.status === 404,
+    "PUT /api/hotel/cancel/:id accepted",
+    [200, 201].includes(cancel.status),
     `got ${cancel.status} ${JSON.stringify(cancel.body).slice(0, 120)}`
   );
 
@@ -568,6 +570,36 @@ async function testBookingV4Lifecycle() {
     "status moved to cancelled",
     String(afterCancel.body?.booking_status || "") === "cancelled",
     `got ${JSON.stringify(afterCancel.body?.booking_status)}`
+  );
+
+  // --- Refund idempotency ---
+  // The cancel above already refunded the advance. Cancelling again — a
+  // double-click or a retried request — must not refund a second time.
+  const paymentsAfterCancel = await api("GET", `/api/booking/payment-history/${bookingId}`);
+  const refundRows = (Array.isArray(paymentsAfterCancel.body)
+    ? paymentsAfterCancel.body
+    : paymentsAfterCancel.body?.payments || []
+  ).filter((p) => String(p.payment_type || p.paymentType || "") === "refund");
+
+  const secondCancel = await api("PUT", `/api/booking/cancel/${bookingId}`, {
+    reason: "lifecycle test cleanup (second cancel)",
+  });
+  check(
+    "re-cancelling an already-cancelled booking is accepted (idempotent)",
+    [200, 201].includes(secondCancel.status),
+    `got ${secondCancel.status} ${JSON.stringify(secondCancel.body).slice(0, 120)}`
+  );
+
+  const paymentsAfterSecond = await api("GET", `/api/booking/payment-history/${bookingId}`);
+  const refundRowsAfterSecond = (Array.isArray(paymentsAfterSecond.body)
+    ? paymentsAfterSecond.body
+    : paymentsAfterSecond.body?.payments || []
+  ).filter((p) => String(p.payment_type || p.paymentType || "") === "refund");
+
+  check(
+    "second cancel does NOT create a second refund row",
+    refundRowsAfterSecond.length === refundRows.length,
+    `refunds went ${refundRows.length} -> ${refundRowsAfterSecond.length}`
   );
 
   await suite.runCleanup();

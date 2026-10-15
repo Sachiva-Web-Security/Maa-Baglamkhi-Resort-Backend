@@ -1784,14 +1784,29 @@ exports.cancelBooking = async (req, res) => {
       return res.status(400).json({ message: "Checked-in booking cannot be cancelled from this flow" });
     }
 
+    // Re-cancelling an already-cancelled booking must not refund again — the
+    // advance is only ever returned once. Without this guard a double-click or
+    // a retried request silently doubles the refund amount.
+    if (String(booking.booking_status || "").toLowerCase() === "cancelled") {
+      return res.status(200).json({
+        message: "Booking is already cancelled",
+        alreadyCancelled: true,
+        refunded: false,
+      });
+    }
+
     await query(
       "UPDATE bookings SET status = 'cancelled', cancellation_reason = ? WHERE id = ?",
       [cancelReason, req.params.id],
     );
 
+    // Refund only what has actually been received and not yet returned, so a
+    // partial refund followed by a cancellation tops up rather than duplicates.
     const bookingAdvance = await new Promise((resolve) => {
       query(
-        `SELECT SUM(CASE WHEN payment_type = 'refund' THEN 0 ELSE amount END) AS amount
+        `SELECT
+           SUM(CASE WHEN payment_type = 'refund' THEN 0 ELSE amount END) AS received,
+           SUM(CASE WHEN payment_type = 'refund' THEN amount ELSE 0 END) AS alreadyRefunded
          FROM payments WHERE booking_id = ? AND status = 'completed'`,
         [req.params.id],
       )
@@ -1799,7 +1814,10 @@ exports.cancelBooking = async (req, res) => {
         .catch(() => resolve(null));
     });
 
-    const advanceAmount = Number(bookingAdvance?.amount || 0);
+    const advanceAmount = Math.max(
+      0,
+      Number(bookingAdvance?.received || 0) - Number(bookingAdvance?.alreadyRefunded || 0),
+    );
     if (advanceAmount > 0) {
       const methodRows = await query("SELECT id FROM payment_methods ORDER BY id ASC LIMIT 1");
       const methodId = methodRows[0]?.id || null;
