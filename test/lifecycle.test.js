@@ -167,12 +167,17 @@ async function testBookingLifecycle() {
   // --- Attach a room (tariff) ---
   // createGuest writes the booking header only; the room row on booking_rooms is
   // created by the tariff step. Pax counts live on that row, so it must exist first.
+  // Pick a room that is actually free for these dates — the overlap guard now
+  // works, so attaching an occupied room correctly returns 409.
   const roomsSetup = await api("GET", "/api/hotel/rooms/setup");
-  const firstRoom = Array.isArray(roomsSetup.body)
-    ? roomsSetup.body.flatMap((c) => c.rooms || c.roomDetails || []).find(Boolean)
-    : null;
   const roomNumber = String(
-    firstRoom?.room_number || firstRoom?.roomNumber || firstRoom?.number || firstRoom || ""
+    Array.isArray(roomsSetup.body)
+      ? roomsSetup.body
+          .flatMap((c) => c.roomDetails || c.rooms || [])
+          .find((r) => r && r.status !== "occupied" && !r.guest)?.roomNumber ||
+          roomsSetup.body.flatMap((c) => c.roomDetails || c.rooms || [])[0]?.roomNumber ||
+          ""
+      : ""
   ).trim();
 
   let roomAttached = false;
@@ -277,7 +282,300 @@ async function testBookingLifecycle() {
 }
 
 // ---------------------------------------------------------------------------
-// Module 2 — Restaurant / KOT lifecycle
+// Module 2 — Booking (v4 wizard / edit / check-in-out) lifecycle
+// ---------------------------------------------------------------------------
+async function testBookingV4Lifecycle() {
+  const suite = createSuite("Booking v4 lifecycle");
+  const s = suite.name;
+  const { check, onCleanup } = suite;
+  console.log(`\n[${s}]`);
+
+  const stamp = crypto.randomBytes(3).toString("hex");
+  const guestName = `Lifecycle V4 ${stamp}`;
+  const mobile = `90000${String(Math.floor(Math.random() * 100000)).padStart(5, "0")}`;
+
+  // --- Create a booking ---
+  const create = await api("POST", "/api/booking/guest", {
+    guestName,
+    mobile,
+    guestEmail: `v4-${stamp}@test.com`,
+    checkIn: "2026-07-01",
+    checkOut: "2026-07-04",
+    adults: 2,
+    specialRequests: "lifecycle test",
+  });
+  check(
+    "POST /api/booking/guest accepted",
+    [200, 201].includes(create.status),
+    `got ${create.status} ${JSON.stringify(create.body).slice(0, 140)}`
+  );
+
+  const bookingId = create.body?.bookingId || create.body?.id || create.body?.insertId;
+  check(
+    "booking create returns a real numeric id",
+    Number.isInteger(bookingId),
+    `got ${JSON.stringify(create.body).slice(0, 140)}`
+  );
+
+  if (!bookingId) {
+    await suite.runCleanup();
+    return summarize(suite);
+  }
+
+  onCleanup(async () => {
+    await api("PUT", `/api/booking/cancel/${bookingId}`, { reason: "cleanup" }).catch(() => {});
+  });
+
+  // --- Read it back via both shapes ---
+  const byId = await api("GET", `/api/booking/booking/${bookingId}`);
+  check(
+    "GET /api/booking/booking/:id returns 200",
+    byId.status === 200,
+    `got ${byId.status} ${JSON.stringify(byId.body).slice(0, 120)}`
+  );
+  check(
+    "booking round-trips its guest name",
+    String(byId.body?.guest_name || "") === guestName,
+    `got ${JSON.stringify(byId.body?.guest_name)}`
+  );
+  check(
+    "booking round-trips check_in",
+    String(byId.body?.check_in || "").slice(0, 10) === "2026-07-01",
+    `got ${JSON.stringify(byId.body?.check_in)}`
+  );
+
+  const wizard = await api("GET", `/api/booking/wizard/${bookingId}`);
+  check(
+    "GET /api/booking/wizard/:id returns 200",
+    wizard.status === 200,
+    `got ${wizard.status} ${JSON.stringify(wizard.body).slice(0, 120)}`
+  );
+  check(
+    "wizard carries a guest object with the name we sent",
+    wizard.body?.guest && String(wizard.body.guest.guestName || "") === guestName,
+    `got ${JSON.stringify(wizard.body?.guest?.guestName)}`
+  );
+
+  const inList = await api("GET", "/api/booking/all-bookings");
+  const listed = Array.isArray(inList.body) && inList.body.find((b) => b.bookingId === bookingId);
+  check(
+    "booking appears in GET /api/booking/all-bookings",
+    Boolean(listed),
+    `got ${Array.isArray(inList.body) ? inList.body.length : inList.status} rows`
+  );
+
+  // --- Attach a room ---
+  // getRoomSetup returns an array of categories, each with a roomDetails array.
+  const setup = await api("GET", "/api/booking/rooms/setup");
+  const categories = Array.isArray(setup.body) ? setup.body : [];
+  const roomNumber = categories
+    .flatMap((c) => c.roomDetails || [])
+    .find((r) => r && !r.guest && r.status !== "occupied")?.roomNumber;
+  if (roomNumber) {
+    check("rooms/setup exposes rooms", true, `using ${roomNumber}`);
+
+    const tariff = await api("POST", `/api/booking/room-tariff/${bookingId}`, {
+      roomNumber,
+      tariff: 2500,
+      total: 7500,
+    });
+    check(
+      "POST /api/booking/room-tariff/:id accepted",
+      [200, 201].includes(tariff.status),
+      `got ${tariff.status} ${JSON.stringify(tariff.body).slice(0, 120)}`
+    );
+
+    // Re-attaching the same room to the SAME booking is an upsert (an edit),
+    // not a double-booking — the tariff must change, not 409.
+    const reattach = await api("POST", `/api/booking/room-tariff/${bookingId}`, {
+      roomNumber,
+      tariff: 3000,
+      total: 9000,
+    });
+    check(
+      "re-attaching the same room to the same booking upserts (not a 409)",
+      [200, 201].includes(reattach.status),
+      `got ${reattach.status} ${JSON.stringify(reattach.body).slice(0, 120)}`
+    );
+
+    const afterReattach = await api("GET", `/api/booking/full-booking/${bookingId}`);
+    const edited = Array.isArray(afterReattach.body?.rooms) && afterReattach.body.rooms.find(
+      (r) => String(r.roomNumber || r.room_number || "") === String(roomNumber)
+    );
+    check(
+      "upsert replaced the tariff rather than adding a duplicate line",
+      Boolean(edited) && Number(edited.ratePerNight ?? edited.tariff) === 3000,
+      `got ${JSON.stringify(edited)}`
+    );
+
+    // Pax — this reads affectedRows, which was undefined until the rows-only
+    // query() helper was swapped for a direct db.query call.
+    const pax = await api("POST", `/api/booking/pax/${bookingId}`, {
+      roomNumber,
+      adults: 3,
+      children: 1,
+    });
+    check(
+      "POST /api/booking/pax/:id accepted (was a 404 from an undefined affectedRows)",
+      [200, 201].includes(pax.status),
+      `got ${pax.status} ${JSON.stringify(pax.body).slice(0, 120)}`
+    );
+
+    const paxRows = await api("GET", `/api/booking/full-booking/${bookingId}`);
+    const line = Array.isArray(paxRows.body?.rooms) && paxRows.body.rooms.find(
+      (r) => String(r.roomNumber || r.room_number || "") === String(roomNumber)
+    );
+    check(
+      "pax update is persisted on the room line",
+      Boolean(line) && Number(line.adults) === 3 && Number(line.children) === 1,
+      `got adults=${line?.adults} children=${line?.children}`
+    );
+  } else {
+    check("rooms/setup exposes rooms", false, "no rooms available to attach");
+  }
+
+  // --- Advance payment ---
+  const advance = await api("POST", `/api/booking/advance/${bookingId}`, {
+    amount: 1000,
+    paymentMode: "Cash",
+  });
+  check(
+    "POST /api/booking/advance/:id accepted",
+    [200, 201].includes(advance.status),
+    `got ${advance.status} ${JSON.stringify(advance.body).slice(0, 120)}`
+  );
+
+  const paymentHistory = await api("GET", `/api/booking/payment-history/${bookingId}`);
+  check(
+    "GET /api/booking/payment-history/:id returns 200",
+    paymentHistory.status === 200,
+    `got ${paymentHistory.status}`
+  );
+
+  // --- Cross-booking overlap guard ---
+  // A *second* booking trying to take the same room for the same dates must be
+  // refused (409) — this is the case the overlap check actually protects.
+  if (roomNumber) {
+    const second = await api("POST", "/api/booking/guest", {
+      guestName: `Lifecycle Overlap ${stamp}`,
+      mobile: `90001${String(Math.floor(Math.random() * 100000)).padStart(5, "0")}`,
+      checkIn: "2026-07-01",
+      checkOut: "2026-07-04",
+      adults: 2,
+    });
+    const secondId = second.body?.bookingId || second.body?.id;
+
+    if (secondId) {
+      onCleanup(async () => {
+        await api("PUT", `/api/booking/cancel/${secondId}`, { reason: "cleanup" }).catch(() => {});
+      });
+
+      const clash = await api("POST", `/api/booking/room-tariff/${secondId}`, {
+        roomNumber,
+        tariff: 2500,
+        total: 7500,
+      });
+      check(
+        "a second booking cannot take the same room for overlapping dates (409)",
+        clash.status === 409,
+        `got ${clash.status} ${JSON.stringify(clash.body).slice(0, 140)}`
+      );
+    }
+  }
+
+  // --- Reference + company ---
+  const reference = await api("POST", `/api/booking/reference/${bookingId}`, {
+    sourceId: 1,
+    referenceNo: `REF-${stamp}`,
+  });
+
+  const company = await api("POST", `/api/booking/company/${bookingId}`, {
+    companyName: `Lifecycle Co ${stamp}`,
+    gstNumber: "29ABCDE1234F1Z5",
+  });
+  check(
+    "POST /api/booking/company/:id accepted and returns an id (was undefined before the insertId fix)",
+    [200, 201].includes(company.status) && Number.isInteger(company.body?.id),
+    `got ${company.status} ${JSON.stringify(company.body).slice(0, 120)}`
+  );
+
+  // --- Folio ---
+  const folioAdd = await api("POST", `/api/booking/folio/${bookingId}`, {
+    entryType: "Extra Charge",
+    description: "Lifecycle folio entry",
+    amount: 250,
+  });
+  check(
+    "POST /api/booking/folio/:bookingId accepted",
+    [200, 201].includes(folioAdd.status),
+    `got ${folioAdd.status} ${JSON.stringify(folioAdd.body).slice(0, 120)}`
+  );
+
+  const folio = await api("GET", `/api/booking/folio/${bookingId}`);
+  check(
+    "GET /api/booking/folio/:bookingId returns 200",
+    folio.status === 200,
+    `got ${folio.status} ${JSON.stringify(folio.body).slice(0, 120)}`
+  );
+  const folioRows = Array.isArray(folio.body) ? folio.body : folio.body?.entries || [];
+  check(
+    "folio lists the entry we just added",
+    folioRows.some((e) => Number(e.amount) === 250),
+    `got ${folioRows.length} entries`
+  );
+
+  // --- Check-in / check-out ---
+  const checkIn = await api("PUT", `/api/booking/check-in/${bookingId}`, {});
+  check(
+    "PUT /api/booking/check-in/:id accepted",
+    [200, 201].includes(checkIn.status),
+    `got ${checkIn.status} ${JSON.stringify(checkIn.body).slice(0, 120)}`
+  );
+
+  const afterCheckIn = await api("GET", `/api/booking/booking/${bookingId}`);
+  check(
+    "status moved to checked_in",
+    String(afterCheckIn.body?.booking_status || "") === "checked_in",
+    `got ${JSON.stringify(afterCheckIn.body?.booking_status)}`
+  );
+
+  const checkOut = await api("PUT", `/api/booking/check-out/${bookingId}`, {});
+  check(
+    "PUT /api/booking/check-out/:id accepted",
+    [200, 201].includes(checkOut.status),
+    `got ${checkOut.status} ${JSON.stringify(checkOut.body).slice(0, 120)}`
+  );
+
+  const afterCheckOut = await api("GET", `/api/booking/booking/${bookingId}`);
+  check(
+    "status moved to checked_out",
+    String(afterCheckOut.body?.booking_status || "") === "checked_out",
+    `got ${JSON.stringify(afterCheckOut.body?.booking_status)}`
+  );
+
+  // --- Cancel (cleanup path) ---
+  const cancel = await api("PUT", `/api/booking/cancel/${bookingId}`, {
+    reason: "lifecycle test cleanup",
+  });
+  check(
+    "PUT /api/booking/cancel/:id accepted",
+    [200, 201].includes(cancel.status),
+    `got ${cancel.status} ${JSON.stringify(cancel.body).slice(0, 120)}`
+  );
+
+  const afterCancel = await api("GET", `/api/booking/booking/${bookingId}`);
+  check(
+    "status moved to cancelled",
+    String(afterCancel.body?.booking_status || "") === "cancelled",
+    `got ${JSON.stringify(afterCancel.body?.booking_status)}`
+  );
+
+  await suite.runCleanup();
+  return summarize(suite);
+}
+
+// ---------------------------------------------------------------------------
+// Module 3 — Restaurant / KOT lifecycle
 // ---------------------------------------------------------------------------
 async function testRestaurantLifecycle() {
   const suite = createSuite("Restaurant / KOT lifecycle");
@@ -1191,6 +1489,7 @@ async function main() {
 
   const modules = [
     testBookingLifecycle,
+    testBookingV4Lifecycle,
     testRestaurantLifecycle,
     testAccountsLifecycle,
     testInventoryLifecycle,
