@@ -60,12 +60,12 @@ const resolveBillSource = async (rangeConditionBuilder) => {
     const source = { tableName, totalColumn, createdColumn };
     if (!fallback) fallback = source;
 
-    const countRows = await db.query(`
+    const [countRows] = await db.query(`
       SELECT COUNT(*) AS count
       FROM ${tableName}
       WHERE ${rangeConditionBuilder(createdColumn)}
     `);
-    const [countData] = countRows;
+    const countData = countRows[0];
     if (Number(countData?.count || 0) > 0) {
       return source;
     }

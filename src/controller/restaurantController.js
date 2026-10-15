@@ -1310,7 +1310,7 @@ exports.payBill = async (req, res) => {
         const { InvoicePrintService } = require("../services/InvoicePrintService");
 
         const [billForPrint] = await db.query("SELECT * FROM bills WHERE id = ? LIMIT 1", [result.billId]);
-        const tokenItemsRows = await db.query(
+        const [tokenItemsRows] = await db.query(
           "SELECT item_name, qty, rate FROM token_items WHERE token_id = (SELECT token_id FROM bills WHERE id = ?)",
           [result.billId],
         );

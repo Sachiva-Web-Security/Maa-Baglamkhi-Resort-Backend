@@ -50,7 +50,7 @@ const fireWhatsAppInvoice = async (bookingId) => {
     // Resolve admin phone from register table (not from env/ADMIN_WHATSAPP_NUMBER)
     let adminNumber = "";
     try {
-      const adminRows = await db.query(
+      const [adminRows] = await db.query(
         "SELECT id, name, email, phone FROM register WHERE LOWER(role) = 'admin' AND phone IS NOT NULL AND TRIM(phone) <> '' ORDER BY id ASC LIMIT 1"
       );
       adminNumber = adminRows?.[0]?.phone || "";

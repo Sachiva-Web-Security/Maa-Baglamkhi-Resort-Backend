@@ -22,7 +22,7 @@ exports.uploadByBooking = async (req, res) => {
   }
 
   try {
-    const guestRows = await db.query(
+    const [guestRows] = await db.query(
       "SELECT id, mobile, guest_name, booking_code FROM guests WHERE id = ? LIMIT 1",
       [bookingId],
     );
