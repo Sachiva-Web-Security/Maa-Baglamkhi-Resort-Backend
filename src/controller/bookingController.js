@@ -892,6 +892,7 @@ exports.updateCompany = async (req, res) => {
 
 exports.updatePax = async (req, res) => {
   const data = { booking_id: req.params.id, ...req.body };
+  const bookingId = Number(req.params.id);
   const roomNumber = String(data.room_number || data.roomNumber || "").trim();
 
   try {
@@ -909,15 +910,30 @@ exports.updatePax = async (req, res) => {
       return res.status(404).json({ message: `Room ${roomNumber} not found in inventory` });
     }
 
+    // `guestCapacity` is the form field ("Adults + Children"). When the caller
+    // only supplies that (as the New Booking flow does), split it across the
+    // booking's rooms so a 4-person booking over 2 rooms records 2 adults each
+    // instead of silently defaulting every line to 1.
+    const roomCountRow = await query(
+      "SELECT COUNT(*) AS n FROM booking_rooms WHERE booking_id = ?",
+      [bookingId],
+    );
+    const roomCount = Number(roomCountRow[0]?.n || 0) || 1;
+
+    const hasExplicitCounts =
+      data.adults !== undefined && data.adults !== null && data.adults !== "";
+    const capacity = Number(data.guestCapacity);
+    const adults = hasExplicitCounts
+      ? Number(data.adults) || 1
+      : Number.isFinite(capacity) && capacity > 0
+        ? Math.max(1, Math.floor(capacity / roomCount))
+        : 1;
+    const children = Number(data.children || 0);
+
     const updated = await query(
       `UPDATE booking_rooms SET adults = ?, children = ?
        WHERE booking_id = ? AND room_id = ?`,
-      [
-        Number(data.adults || 1),
-        Number(data.children || 0),
-        data.booking_id,
-        roomId,
-      ],
+      [adults, children, bookingId, roomId],
     );
 
     if (!updated.affectedRows) {
@@ -926,6 +942,9 @@ exports.updatePax = async (req, res) => {
 
     res.json({ message: "Pax Added" });
   } catch (err) {
+    if (process.env.NODE_ENV !== "test") {
+      console.error("updatePax failed:", err);
+    }
     res.status(500).json({ message: "Pax save failed" });
   }
 };
