@@ -166,6 +166,22 @@ const paymentsJoin = `
   ) pay ON pay.booking_id = b.id
   LEFT JOIN payment_methods pm ON pm.id = pay.lastMethodId`;
 
+
+const guestIdJoin = `
+  LEFT JOIN (
+    -- One row per booking: the earliest ID entry captured for it. Uses
+    -- MIN()/SUBSTRING_INDEX(GROUP_CONCAT(...)) rather than a bare LIMIT 1,
+    -- which in a derived table would return a single row for the WHOLE
+    -- result set instead of one row per booking.
+    SELECT
+      gi.booking_id,
+      SUBSTRING_INDEX(GROUP_CONCAT(gi.id_type ORDER BY gi.id ASC), ',', 1)   AS id_proof_type,
+      SUBSTRING_INDEX(GROUP_CONCAT(gi.id_number ORDER BY gi.id ASC), ',', 1) AS id_proof_number
+    FROM guest_identifications gi
+    WHERE gi.booking_id IS NOT NULL
+    GROUP BY gi.booking_id
+  ) gid ON gid.booking_id = b.id`;
+
 const bookingRoomsTotalJoin = `
   LEFT JOIN (
     SELECT booking_id, SUM(total) AS totalAmount
@@ -472,6 +488,31 @@ const updateRoomsForBooking = async (booking, nextStatus) => {
   }
 };
 
+// ─── ID proof helpers ─────────────────────────────────────────────────────────
+// guest_identifications.id_type is ENUM('aadhaar','passport','driving_license',
+// 'voter_id','other'), but the New Booking form presents human labels
+// (BookingFlow.jsx ID_PROOF_TYPE_OPTIONS: "Aadhar Card", "Voter ID", ...).
+// On this non-strict server MySQL silently coerces an unrecognised enum value
+// to '' rather than erroring, which is exactly why the ID Proof used to come
+// back blank. Map the label onto its enum member, storing the original label
+// separately so the UI can keep showing what the user picked.
+const mapIdProofLabelToEnum = (label) => {
+  const key = String(label || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+
+  if (!key) return "other";
+  if (["aadhar", "aadharcard", "aadharnumber", "adhaar", "adharcard", "uid", "uidai"].includes(key))
+    return "aadhaar";
+  if (["passport", "passportnumber"].includes(key)) return "passport";
+  if (["drivinglicense", "drivinglicence", "dl", "dlno", "dlc"].includes(key))
+    return "driving_license";
+  if (["voterid", "voter", "voteridcard", "electioncard", "epic"].includes(key)) return "voter_id";
+  if (["pan", "pancard", "pannumber"].includes(key)) return "other";
+  return "other";
+};
+
 exports.createGuest = async (req, res) => {
   const bookedBy =
     (req.user && (req.user.name || req.user.email)) ||
@@ -541,6 +582,82 @@ exports.createGuest = async (req, res) => {
          VALUES (?, ?, 1, ?, ?)`,
         [bookingId, guestResult.insertId, firstName || "Guest", lastName],
       );
+
+      // ID proof / ID number. The frontend sends these as `idProofType` and
+      // `idProofNumber` (BookingFlow.jsx) and displays them back from
+      // `id_proof_type` / `id_proof_number` on /hotel/full-booking/:id.
+      // Nothing in this controller used to read them, so the values were
+      // dropped on the floor at insert time and the Guest Information panel
+      // always rendered "-" no matter what the user typed.
+      //
+      // The UI offers human-readable labels ("Aadhar Card", "Voter ID"), but
+      // guest_identifications.id_type is an ENUM of
+      // ('aadhaar','passport','driving_license','voter_id','other'). MySQL
+      // silently coerces an unknown enum value to '' on this non-strict
+      // server, which is how the ID proof used to come back blank — so the
+      // label is mapped to its enum member here and the original label is
+      // what the frontend already shows.
+      const idProofLabel = String(
+        body.idProofType || body.id_proof_type || body.idProof || "",
+      ).trim();
+      const idProofNumber = String(
+        body.idProofNumber || body.id_proof_number || body.idNumber || "",
+      ).trim();
+
+      if (idProofNumber || idProofLabel) {
+        const idType = mapIdProofLabelToEnum(idProofLabel);
+        await db.query(
+          `INSERT INTO guest_identifications
+             (booking_id, guest_profile_id, id_type, id_number)
+           VALUES (?, ?, ?, ?)`,
+          [
+            bookingId,
+            guestResult.insertId,
+            idType,
+            idProofNumber || null,
+          ],
+        );
+      }
+    }
+
+    // v4: also persist the room the user selected so booking_rooms, and
+    // therefore the invoice, has the room line. Without this the invoice
+    // shows an empty room_no and no line items — the room is booked but
+    // the booking_rooms row is never written by createGuest.
+    if (body.roomNumber) {
+      // `query` unwraps mysql2's [rows, fields] tuple; a bare `await db.query`
+      // would leave roomRows holding the OkPacket/tuple instead of the rows.
+      const roomRows = await query(
+        `SELECT r.id AS room_id, r.category_id
+         FROM rooms r
+         WHERE CAST(r.room_number AS CHAR) = CAST(? AS CHAR)
+         LIMIT 1`,
+        [String(body.roomNumber).trim()],
+      );
+      if (roomRows[0]) {
+        const tariff = Number(body.tariff || body.price || body.roomCharge || 0);
+        const nights = (() => {
+          const ci = new Date(body.checkIn);
+          const co = new Date(body.checkOut);
+          return Math.max(1, Math.round((co - ci) / (1000 * 60 * 60 * 24)));
+        })();
+        const total = tariff * nights;
+        await query(
+          `INSERT INTO booking_rooms
+             (booking_id, room_id, category_id, rate_per_night, nights, room_charge, total, guest_name)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            bookingId,
+            roomRows[0].room_id,
+            roomRows[0].category_id,
+            tariff,
+            nights,
+            total,
+            total,
+            fullName || null,
+          ],
+        );
+      }
     }
 
     const result = { insertId: bookingId, bookingCode };
@@ -1222,12 +1339,15 @@ exports.getFullBooking = async (req, res) => {
             (IFNULL(pay.paidAmount, 0) - IFNULL(pay.refundAmount, 0))
           ) AS remainingAmount,
           brp.adults,
-          brp.children
+          brp.children,
+          gid.id_proof_type,
+          gid.id_proof_number
         FROM bookings b
         LEFT JOIN booking_sources bs ON bs.id = b.source_id
         LEFT JOIN special_requests sr ON sr.booking_id = b.id
         ${primaryGuestJoin}
         ${roomGuestJoin}
+        ${guestIdJoin}
         ${paymentsJoin}
         ${bookingRoomsTotalJoin}
         LEFT JOIN (
@@ -1341,6 +1461,8 @@ exports.updateFullBooking = async (req, res) => {
     address,
     guestNotes,
     internalNotes,
+    idProofType,
+    idProofNumber,
   } = req.body;
 
   const roomList = Array.isArray(rooms)
@@ -1592,6 +1714,40 @@ exports.updateFullBooking = async (req, res) => {
           }),
         ),
       );
+    }
+
+    // ID proof: upsert into guest_identifications.  Unlike guest_profiles
+    // (which always has exactly one primary row per booking), there may be
+    // zero, one, or several ID rows — so we REPLACE the oldest row rather
+    // than INSERT blindly, which would create duplicates on every save.
+    if (idProofType !== undefined || idProofNumber !== undefined) {
+      const rawLabel = String(idProofType ?? "").trim();
+      const idNumber = String(idProofNumber ?? "").trim();
+      const idType = rawLabel ? mapIdProofLabelToEnum(rawLabel) : null;
+      // `query` returns the rows array; `await db.query` would return
+      // [rows, fields], which is how this used to silently mis-read.
+      const existingIdRows = await query(
+        "SELECT id FROM guest_identifications WHERE booking_id = ? ORDER BY id ASC LIMIT 1",
+        [id],
+      );
+      const existingId = existingIdRows[0] || null;
+
+      if (existingId) {
+        await query(
+          `UPDATE guest_identifications SET id_type = ?, id_number = ? WHERE id = ?`,
+          [idType, idNumber || null, existingId.id],
+        );
+      } else if (rawLabel || idNumber) {
+        const primaryGuestRows = await query(
+          "SELECT guest_profile_id FROM booking_guests WHERE booking_id = ? AND is_primary = 1 LIMIT 1",
+          [id],
+        );
+        await query(
+          `INSERT INTO guest_identifications (booking_id, guest_profile_id, id_type, id_number)
+           VALUES (?, ?, ?, ?)`,
+          [id, primaryGuestRows[0]?.guest_profile_id || null, idType, idNumber || null],
+        );
+      }
     }
 
     res.json({ message: "Full Booking Updated" });

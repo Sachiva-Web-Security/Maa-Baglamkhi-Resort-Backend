@@ -9,6 +9,45 @@ const runQuery = (sql, params = []) =>
 
 const roundMoney = (value) => Number((Number(value || 0)).toFixed(2));
 
+// ─── payment_status normalisation ─────────────────────────────────────────────
+// `invoices.payment_status` is ENUM('unpaid','partial','paid','overdue','refunded')
+// (see InvoiceController.js), but this model's callers hand around the free-text
+// labels "Pending"/"Unpaid"/"Partially Paid". This server runs without
+// STRICT_TRANS_TABLES, so MySQL silently coerces an out-of-range enum value to ''
+// instead of erroring — the save appears to succeed while writing an empty
+// string that accountsController/dashboardController then read as a blank
+// status. Turning strict mode on would have flipped every one of these writes
+// into a hard failure.
+//
+// The sibling `status` column is a plain VARCHAR and keeps the human-readable
+// label, so the UI still shows "Pending" while payment_status stays a valid
+// enum member.
+const PAYMENT_STATUS_ENUM = [
+  "unpaid",
+  "partial",
+  "paid",
+  "overdue",
+  "refunded",
+];
+
+const normalizePaymentStatus = (value) => {
+  const key = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+
+  if (!key) return "unpaid";
+  if (PAYMENT_STATUS_ENUM.includes(key)) return key;
+
+  if (["pending", "unpaid", "due", "notpaid", "unsettled"].includes(key)) return "unpaid";
+  if (["partial", "partiallypaid", "partpaid", "advance"].includes(key)) return "partial";
+  if (["paid", "settled", "fullypaid", "complete", "completed"].includes(key)) return "paid";
+  if (["overdue", "late"].includes(key)) return "overdue";
+  if (["refunded", "refund", "cancelled", "canceled"].includes(key)) return "refunded";
+
+  return "unpaid";
+};
+
 const tableExists = async (tableName) => {
   const rows = await runQuery("SHOW TABLES LIKE ?", [tableName]);
   return Array.isArray(rows) && rows.length > 0;
@@ -159,6 +198,11 @@ const ensureSchema = async () => {
   await ensureColumn("invoices", "discount", "DECIMAL(12,2) DEFAULT 0 AFTER gst");
   await ensureColumn("invoices", "final_total", "DECIMAL(12,2) DEFAULT 0 AFTER discount");
   await ensureColumn("invoices", "payment_status", "VARCHAR(50) DEFAULT 'Pending' AFTER payment_mode");
+  // `status` was declared in the CREATE TABLE but never given an ensureColumn(),
+  // so any invoices table created before that column was added never gained it.
+  // The bootstrap below positions the later "AFTER status" columns correctly, so
+  // it has to run before them.
+  await ensureColumn("invoices", "status", "VARCHAR(50) DEFAULT 'Pending' AFTER payment_mode");
   await ensureColumn("invoices", "notes", "TEXT NULL AFTER status");
   await ensureColumn("invoices", "items_json", "LONGTEXT NULL AFTER notes");
   await ensureColumn("invoices", "booking_id", "INT DEFAULT NULL AFTER notes");
@@ -173,40 +217,89 @@ const ensureSchema = async () => {
   );
 };
 
+// ROOT CAUSE (v1 -> v4 schema drift): this query used to read from
+//   guests g / other_booking ob / advance_payment a / room_tariff rt / companies c
+// None of those tables exist any more — the project moved to the v4 schema
+// (bookings / booking_guests / guest_profiles / payments / booking_rooms /
+// room_categories), so every call failed with "Table 'X' doesn't exist". That
+// error was invisible until now because it sat *behind* the missing `status`
+// column: the SELECT that fetched this row died first with
+// "Unknown column 'status' in 'invoices'", so the invoice was never written and
+// bookingController's catch logged only that first message.
+//
+// The join below mirrors the `primaryGuestJoin` / `roomsJoin` / `paymentsJoin`
+// fragments in bookingController.js, so the invoice is built from exactly the
+// same source the booking screen shows. Every join is a LEFT JOIN so a booking
+// with no linked guest, rooms or payments still yields one row.
 const getBookingInvoiceBase = async (customerId) => {
   const rows = await runQuery(
     `
       SELECT
-        g.id AS bookingId,
-        g.guest_name AS customerName,
-        g.mobile AS phone,
-        g.check_in AS checkIn,
-        g.check_out AS checkOut,
-        g.booking_status AS bookingStatus,
-        ob.booking_type AS bookingType,
-        COALESCE(a.amount, 0) AS paidAmount,
-        COALESCE(a.discount_amount, 0) AS advanceDiscount,
-        GROUP_CONCAT(DISTINCT CAST(rt.room_number AS CHAR) ORDER BY rt.room_number SEPARATOR ', ') AS roomNumbers,
-        c.company_name AS companyName,
-        c.gstin AS companyGst
-      FROM guests g
-      LEFT JOIN other_booking ob ON ob.guest_id = g.id
-      LEFT JOIN advance_payment a ON a.booking_id = g.id
-      LEFT JOIN room_tariff rt ON rt.booking_id = g.id
-      LEFT JOIN companies c ON c.booking_id = g.id
-      WHERE g.id = ?
-      GROUP BY
-        g.id,
-        g.guest_name,
-        g.mobile,
-        g.check_in,
-        g.check_out,
-        g.booking_status,
-        ob.booking_type,
-        a.amount,
-        a.discount_amount,
-        c.company_name,
-        c.gstin
+        b.id                              AS bookingId,
+        b.booking_code                    AS bookingCode,
+        COALESCE(pg.guest_name, brg.guest_name, 'Walk-in Guest') AS customerName,
+        pg.mobile                         AS phone,
+        b.check_in                        AS checkIn,
+        b.check_out                       AS checkOut,
+        b.status                          AS bookingStatus,
+        'Walk-in'                         AS bookingType,
+        COALESCE(py.paidAmount, 0)        AS paidAmount,
+        COALESCE(b.discount_amount, 0)    AS advanceDiscount,
+        rms.rooms                         AS roomNumbers,
+        rdt.roomDetails                   AS roomDetails,
+        COALESCE(b.total_amount, 0)       AS bookingTotal,
+        COALESCE(b.subtotal, 0)           AS bookingSubtotal,
+        COALESCE(b.advance_amount, 0)     AS bookingAdvance,
+        COALESCE(b.balance_amount, 0)     AS bookingBalance
+      FROM bookings b
+      LEFT JOIN (
+        SELECT bg.booking_id,
+               SUBSTRING_INDEX(
+                 GROUP_CONCAT(
+                   TRIM(CONCAT(COALESCE(gp.first_name, ''), ' ', COALESCE(gp.last_name, '')))
+                   ORDER BY bg.is_primary DESC, bg.id SEPARATOR '|'
+                 ),
+                 '|', 1
+               ) AS guest_name,
+               MIN(gp.phone) AS mobile
+        FROM booking_guests bg
+        LEFT JOIN guest_profiles gp ON gp.id = bg.guest_profile_id
+        GROUP BY bg.booking_id
+      ) pg ON pg.booking_id = b.id
+      LEFT JOIN (
+        SELECT booking_id, MIN(guest_name) AS guest_name
+        FROM booking_rooms
+        WHERE NULLIF(TRIM(guest_name), '') IS NOT NULL
+        GROUP BY booking_id
+      ) brg ON brg.booking_id = b.id
+      LEFT JOIN (
+        SELECT booking_id,
+               SUM(CASE WHEN payment_type = 'refund' THEN 0 ELSE amount END) AS paidAmount
+        FROM payments
+        WHERE status = 'completed'
+        GROUP BY booking_id
+      ) py ON py.booking_id = b.id
+      LEFT JOIN (
+        SELECT br.booking_id,
+               GROUP_CONCAT(DISTINCT r.room_number ORDER BY r.room_number SEPARATOR ', ') AS rooms
+        FROM booking_rooms br
+        JOIN rooms r ON r.id = br.room_id
+        GROUP BY br.booking_id
+      ) rms ON rms.booking_id = b.id
+      LEFT JOIN (
+        SELECT br.booking_id,
+               GROUP_CONCAT(
+                 DISTINCT CONCAT(
+                   r.room_number, ' | ID ', COALESCE(CAST(r.id AS CHAR), '-'), ' | ', COALESCE(rc.name, 'Room')
+                 )
+                 ORDER BY r.room_number SEPARATOR ' || '
+               ) AS roomDetails
+        FROM booking_rooms br
+        LEFT JOIN rooms r            ON r.id = br.room_id
+        LEFT JOIN room_categories rc ON rc.id = br.category_id
+        GROUP BY br.booking_id
+      ) rdt ON rdt.booking_id = b.id
+      WHERE b.id = ?
       LIMIT 1
     `,
     [customerId],
@@ -216,52 +309,57 @@ const getBookingInvoiceBase = async (customerId) => {
 };
 
 const getRoomItems = async (bookingId, nights = 1) => {
-  if (!(await tableExists("room_tariff"))) return [];
-
-  const hasQuantity = await columnExists("room_tariff", "quantity");
-  const hasCategoryName = await columnExists("room_tariff", "category_name");
+  // v4 uses booking_rooms (not room_tariff).
+  const hasTable = await tableExists("booking_rooms");
+  if (!hasTable) return [];
 
   const rows = await runQuery(
     `
       SELECT
-        CAST(room_number AS CHAR) AS roomNumber,
-        ${hasCategoryName ? "COALESCE(category_name, 'Room Charge')" : "'Room Charge'"} AS roomType,
-        COALESCE(${hasQuantity ? "NULLIF(quantity, 0)" : "1"}, 1) AS quantity,
-        COALESCE(tariff, 0) AS price,
-        COALESCE(gst, 0) AS gstPercent
-      FROM room_tariff
-      WHERE booking_id = ?
-      ORDER BY room_number
+        CAST(r.room_number AS CHAR)                AS roomNumber,
+        COALESCE(rc.name, 'Room Charge')           AS roomType,
+        1                                           AS quantity,
+        COALESCE(br.rate_per_night, 0)             AS price,
+        COALESCE(br.nights, ?)                      AS nights,
+        COALESCE(br.total, 0)                      AS roomTotal
+      FROM booking_rooms br
+      JOIN rooms r ON r.id = br.room_id
+      LEFT JOIN room_categories rc ON rc.id = br.category_id
+      WHERE br.booking_id = ?
+      ORDER BY r.room_number
     `,
-    [bookingId],
+    [nights, bookingId],
   );
 
   return rows.map((row) => {
-    const quantity = Number(row.quantity || 1);
     const price = Number(row.price || 0);
-    const gstPercent = Number(row.gstPercent || 0);
-    const perNightBase = price * quantity;
-    const perNightGst = (perNightBase * gstPercent) / 100;
-    const rowTotal = roundMoney(perNightBase * nights + perNightGst * nights);
+    const nightsUsed = Number(row.nights || nights);
+    const roomTotal = roundMoney(row.roomTotal || 0);
+    // Fall back to per-night × nights if pre-calculated total wasn't stored.
+    const total = roomTotal > 0 ? roomTotal : roundMoney(price * nightsUsed);
     return {
       category: "Hotel",
       name: `${row.roomType} - Room ${row.roomNumber}`,
       price,
-      quantity,
-      gstPercent,
-      nights,
-      total: rowTotal,
+      quantity: 1,
+      nights: nightsUsed,
+      total,
     };
   });
 };
 
 const getFolioItems = async (bookingId) => {
-  if (!(await tableExists("hotel_folio_entries"))) return { chargeItems: [], discount: 0 };
+  // v4 names the table `folio_entries`; `hotel_folio_entries` was the v1 name.
+  const hasTable =
+    (await tableExists("folio_entries")) || (await tableExists("hotel_folio_entries"));
+  if (!hasTable) return { chargeItems: [], discount: 0 };
+
+  const table = (await tableExists("folio_entries")) ? "folio_entries" : "hotel_folio_entries";
 
   const rows = await runQuery(
     `
       SELECT entry_type, category, description, amount
-      FROM hotel_folio_entries
+      FROM ${table}
       WHERE booking_id = ?
       ORDER BY entry_date ASC, id ASC
     `,
@@ -343,7 +441,12 @@ const saveGeneratedInvoice = async (payload) => {
   const current = await getLatestInvoiceRow(payload.customerId);
 
   const invoiceNo = current?.invoice_no || buildInvoiceNo(payload.customerId);
-  const paymentStatus = current?.payment_status || current?.status || payload.paymentStatus || "Pending";
+  // payment_status must be a valid enum member; the free-text label goes to the
+  // VARCHAR `status` column so the UI keeps showing "Pending".
+  const statusLabel = current?.status || payload.status || "Pending";
+  const paymentStatus = normalizePaymentStatus(
+    current?.payment_status || payload.paymentStatus || statusLabel,
+  );
   const paymentMode = current?.payment_mode || payload.paymentMode || "Pending";
   const notes = current?.notes || payload.notes || null;
 
@@ -366,8 +469,8 @@ const saveGeneratedInvoice = async (payload) => {
     payload.companyName || null,
     payload.companyGstin || null,
     paymentMode,
-    paymentStatus,
-    paymentStatus,
+    normalizePaymentStatus(paymentStatus),
+    statusLabel,
     notes,
     JSON.stringify(payload.items || []),
     payload.customerId,
@@ -599,7 +702,7 @@ const createInvoice = (data, callback) => {
           data.finalTotal || data.totalAmount || 0,
           data.totalAmount || data.finalTotal || 0,
           data.paymentMode || null,
-          data.paymentStatus || data.status || "Pending",
+          normalizePaymentStatus(data.paymentStatus || data.status),
           data.status || data.paymentStatus || "Pending",
           data.notes || null,
           JSON.stringify(data.items || []),
@@ -719,7 +822,7 @@ const updateInvoice = (id, data, callback) => {
           data.finalTotal || data.totalAmount || 0,
           data.totalAmount || data.finalTotal || 0,
           data.paymentMode || null,
-          data.paymentStatus || data.status || "Pending",
+          normalizePaymentStatus(data.paymentStatus || data.status),
           data.status || data.paymentStatus || "Pending",
           data.notes || null,
           JSON.stringify(data.items || []),
@@ -754,7 +857,7 @@ const updatePaymentStatus = async (id, paymentStatus, options = {}) => {
         END
       WHERE id = ?
     `,
-    [paymentStatus, paymentStatus, paymentMode, notes, notes, notes, notes, id],
+    [normalizePaymentStatus(paymentStatus), paymentStatus, paymentMode, notes, notes, notes, notes, id],
   );
 };
 
