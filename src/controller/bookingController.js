@@ -79,6 +79,20 @@ const query = async (sql, params = []) => {
   return results;
 };
 
+// ─── Date helpers ─────────────────────────────────────────────────────────────
+// mysql2 hands DATE/DATETIME columns back as JS Date objects, so
+// String(date).slice(0, 10) yields "Sun Mar 01" rather than "2026-03-01".
+// Anything that compares or formats a date column has to go through this.
+const toDateOnly = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return value.toISOString().slice(0, 10);
+  }
+  const text = String(value).trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+};
+
 // ─── v4 join fragments ────────────────────────────────────────────────────────
 // The legacy `guests`/`other_booking`/`room_tariff`/`pax`/`companies` tables were
 // replaced by the v4 schema. Guest identity now lives in `guest_profiles`
@@ -745,7 +759,7 @@ exports.updateOtherBooking = async (req, res) => {
       );
       let sourceId = existingSource[0]?.id;
       if (!sourceId) {
-        const inserted = await query(
+        const [inserted] = await db.query(
           "INSERT INTO booking_sources (name, type, is_active) VALUES (?, 'other', 1)",
           [sourceName],
         );
@@ -839,7 +853,7 @@ exports.updateCompany = async (req, res) => {
     );
     let sourceId = existingSource[0]?.id;
     if (!sourceId) {
-      const inserted = await query(
+      const [inserted] = await db.query(
         "INSERT INTO booking_sources (name, type, is_active) VALUES (?, 'corporate', 1)",
         [companyName],
       );
@@ -966,23 +980,25 @@ exports.updateTariff = async (req, res) => {
     );
 
     if (guestRows.length && guestRows[0].check_in && guestRows[0].check_out) {
-      const checkIn = String(guestRows[0].check_in).slice(0, 10);
-      const checkOut = String(guestRows[0].check_out).slice(0, 10);
+      const checkIn = toDateOnly(guestRows[0].check_in);
+      const checkOut = toDateOnly(guestRows[0].check_out);
 
-      const roomInventoryModel = require("../models/hotelRoomInventoryModel");
-      const overlap = await roomInventoryModel.validateRoomAvailability({
-        roomNumbers: [roomNumber],
-        checkIn,
-        checkOut,
-        excludeBookingId: bookingId,
-      });
-
-      if (!overlap.available && overlap.conflicts.length) {
-        const conflict = overlap.conflicts[0];
-        return res.status(409).json({
-          message: `Room ${conflict.roomNumber} is already occupied from ${String(conflict.check_in).slice(0, 10)} to ${String(conflict.check_out).slice(0, 10)} by ${conflict.guest_name || "another guest"}. This room is not available for the selected dates.`,
-          conflict: conflict,
+      if (checkIn && checkOut) {
+        const roomInventoryModel = require("../models/hotelRoomInventoryModel");
+        const overlap = await roomInventoryModel.validateRoomAvailability({
+          roomNumbers: [roomNumber],
+          checkIn,
+          checkOut,
+          excludeBookingId: bookingId,
         });
+
+        if (!overlap.available && overlap.conflicts.length) {
+          const conflict = overlap.conflicts[0];
+          return res.status(409).json({
+            message: `Room ${conflict.roomNumber} is already occupied from ${toDateOnly(conflict.check_in)} to ${toDateOnly(conflict.check_out)} by ${conflict.guest_name || "another guest"}. This room is not available for the selected dates.`,
+            conflict: conflict,
+          });
+        }
       }
     }
 
@@ -1354,20 +1370,26 @@ exports.updateFullBooking = async (req, res) => {
     }
 
     if (roomNumbers.length && effectiveCheckIn && effectiveCheckOut) {
-      const roomInventoryModel = require("../models/hotelRoomInventoryModel");
-      const overlap = await roomInventoryModel.validateRoomAvailability({
-        roomNumbers,
-        checkIn: String(effectiveCheckIn).slice(0, 10),
-        checkOut: String(effectiveCheckOut).slice(0, 10),
-        excludeBookingId: Number(id),
-      });
+      // toDateOnly normalises both incoming strings and Date objects from MySQL.
+      const overlapCheckIn = toDateOnly(effectiveCheckIn);
+      const overlapCheckOut = toDateOnly(effectiveCheckOut);
 
-      if (!overlap.available && overlap.conflicts.length) {
-        const conflict = overlap.conflicts[0];
-        return res.status(409).json({
-          message: `Room ${conflict.roomNumber} is already occupied from ${String(conflict.check_in).slice(0, 10)} to ${String(conflict.check_out).slice(0, 10)}. This room is not available for the selected dates.`,
-          conflict: conflict,
+      if (overlapCheckIn && overlapCheckOut) {
+        const roomInventoryModel = require("../models/hotelRoomInventoryModel");
+        const overlap = await roomInventoryModel.validateRoomAvailability({
+          roomNumbers,
+          checkIn: overlapCheckIn,
+          checkOut: overlapCheckOut,
+          excludeBookingId: Number(id),
         });
+
+        if (!overlap.available && overlap.conflicts.length) {
+          const conflict = overlap.conflicts[0];
+          return res.status(409).json({
+            message: `Room ${conflict.roomNumber} is already occupied from ${toDateOnly(conflict.check_in)} to ${toDateOnly(conflict.check_out)}. This room is not available for the selected dates.`,
+            conflict: conflict,
+          });
+        }
       }
     }
 
@@ -1420,7 +1442,7 @@ exports.updateFullBooking = async (req, res) => {
         );
         let sourceId = existingSource[0]?.id;
         if (!sourceId) {
-          const inserted = await query(
+          const [inserted] = await db.query(
             "INSERT INTO booking_sources (name, type, is_active) VALUES (?, 'other', 1)",
             [sourceName],
           );

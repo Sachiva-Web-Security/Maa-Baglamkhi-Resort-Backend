@@ -96,7 +96,6 @@ app.use("/api/attendance", require("./routes/attendanceRoutes"));
 app.use("/api/reports", require("./routes/reportsRoutes"));
 app.use("/api/report", require("./routes/reportRoutes"));
 app.use("/api/assignments", require("./routes/assignmentRoute"));
-app.use("/api/assignmentroute.js", require("./routes/assignmentRoute"));  // alias
 app.use("/api/dashboard", require("./routes/dashboardRoutes"));
 app.use("/api/token", require("./routes/tokenRoutes"));
 app.use("/api/payment", require("./routes/paymentRoutes"));
