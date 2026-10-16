@@ -289,8 +289,50 @@ export function getStoredPricingConfig() {
   }
 }
 
+const HALL_STATUS_LABEL = {
+  available: "Available",
+  booked: "Booked",
+  maintenance: "Maintenance",
+};
+
+// banquet_halls stores id/name/description/capacity_min/capacity_max/
+// rate_per_hour/image_url/is_ac. The UI reads hall.capacity, hall.image and a
+// capitalised hall.status, so map them here.
+export function normalizeHall(hall) {
+  if (!hall || typeof hall !== "object") return hall;
+
+  const status = String(hall.status || "available").trim();
+  return {
+    ...hall,
+    capacity: Number(hall.capacity ?? hall.capacityMax ?? hall.capacity_max ?? hall.capacityMin ?? hall.capacity_min ?? 0),
+    image: hall.image ?? hall.imageUrl ?? hall.image_url ?? "",
+    status: HALL_STATUS_LABEL[status.toLowerCase()] || status,
+  };
+}
+
+const BOOKING_STATUS_LABEL = {
+  inquiry: "Inquiry",
+  confirmed: "Confirmed",
+  in_progress: "In Progress",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+// The banquet_bookings.status enum is lowercase. The UI, the delete gate and
+// deriveBookingFinancials all compare against capitalised labels, so map once
+// here and keep the raw enum in booking.rawStatus.
+export function normalizeBookingStatus(raw) {
+  const status = String(raw?.status || "").trim();
+
+  if (!status) return "Inquiry";
+  if (BOOKING_STATUS_LABEL[status.toLowerCase()]) return BOOKING_STATUS_LABEL[status.toLowerCase()];
+
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
 export function normalizeBooking(raw) {
   const meta = extractMeta(raw.notes || "");
+  const status = normalizeBookingStatus(raw);
   const selectedCustomMenuItems = parseMenuItemsList(
     meta.selectedCustomMenuItems
   );
@@ -311,6 +353,8 @@ export function normalizeBooking(raw) {
 
   return {
     ...raw,
+    rawStatus: raw.status,
+    status,
     hallId: raw.hallId || raw.hall_id,
     customerName: raw.customerName || raw.customer_name,
     phone: raw.phone || meta.phone || "",

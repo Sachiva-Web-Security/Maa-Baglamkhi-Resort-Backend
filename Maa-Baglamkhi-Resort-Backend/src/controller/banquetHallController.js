@@ -20,6 +20,11 @@ FROM banquet_halls`;
 const boolValue = (value) =>
   typeof value === "string" ? value === "true" || value === "1" : Boolean(value);
 
+const normalizeHallStatus = (value) => {
+  const status = String(value || "available").trim().toLowerCase();
+  return ["available", "booked", "maintenance"].includes(status) ? status : "available";
+};
+
 const addBanquetHall = async (req, res) => {
   try {
     const body = req.body || {};
@@ -49,7 +54,7 @@ const addBanquetHall = async (req, res) => {
         (name, description, capacity_min, capacity_max, rate_per_hour, rate_per_day,
          is_ac, has_projector, has_sound_system, has_stage, has_dance_floor,
          image_url, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         name,
         description || null,
@@ -63,6 +68,7 @@ const addBanquetHall = async (req, res) => {
         boolValue(body.has_stage) ? 1 : 0,
         boolValue(body.has_dance_floor) ? 1 : 0,
         imageValue,
+        normalizeHallStatus(body.status),
       ]
     );
 
@@ -136,7 +142,7 @@ const updateBanquetHall = async (req, res) => {
     }
     if (status !== undefined) {
       sets.push("status = ?");
-      params.push(String(status).toLowerCase());
+      params.push(normalizeHallStatus(status));
     }
 
     if (!sets.length) {

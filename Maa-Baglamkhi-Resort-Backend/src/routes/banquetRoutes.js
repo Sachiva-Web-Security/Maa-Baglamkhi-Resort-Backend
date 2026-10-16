@@ -52,16 +52,10 @@ const ensureBanquetSchema = async () => {
   schemaReady = (async () => {
     for (const [table, column, definition] of banquetMigrations) {
       try {
-        const [rows] = await db.query(
-          `SELECT COUNT(*) AS n FROM information_schema.COLUMNS
-           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
-          [table, column]
-        );
-        if (!rows?.[0]?.n) {
-          // ADD COLUMN has no placeholder form; the identifiers come from the
-          // literal list above, never from user input.
-          await db.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${definition}`);
-        }
+        // ADD COLUMN IF NOT EXISTS is native to MariaDB/MySQL 8.0.29+; the
+        // information_schema pre-check is a separate round trip that returns
+        // stale rows under XAMPP's caching and was leaving the table unmigrated.
+        await db.query(`ALTER TABLE \`${table}\` ADD COLUMN IF NOT EXISTS \`${column}\` ${definition}`);
       } catch (err) {
         console.error(`banquet schema migration failed for ${table}.${column}:`, err.message);
       }

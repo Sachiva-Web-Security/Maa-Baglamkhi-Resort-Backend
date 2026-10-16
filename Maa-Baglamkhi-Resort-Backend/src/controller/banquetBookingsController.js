@@ -28,6 +28,7 @@ const normalizePaymentStatus = ({ grandTotal, advance, refundAmount, explicitSta
 
   if (normalizedExplicit.toLowerCase() === "refunded") return "Refunded";
   if (total > 0 && netReceived >= total) return "Paid";
+  if (netReceived <= 0 && toNumber(refundAmount) > 0) return "Refunded";
   if (netReceived > 0) return "Partial";
   return normalizedExplicit || "Pending";
 };
@@ -180,51 +181,79 @@ const getBanquetDashboard = async (req, res) => {
         b.status,
         b.advance,
         b.balance AS balance_due,
+        b.notes,
+        b.payment_mode,
+        b.payment_status,
+        b.payment_reference_no,
+        b.billed_at,
+        b.created_by,
+        b.created_at,
+        b.updated_at,
         ${hallRateColumn} AS hallRatePerHour
       FROM banquet_bookings b
       JOIN banquet_halls h ON b.hall_id = h.id
       ORDER BY b.id DESC
     `);
 
-    const formattedBookings = bookings.map((b) => ({
-      id: b.id,
-      hallId: b.hall_id,
-      hallName: b.hallName,
-      customerName: b.customer_name,
-      phone: b.phone,
-      guestEmail: b.guest_email,
-      eventTitle: b.event_title,
-      eventType: b.event_type,
-      guests: b.guests,
-      menuPackageId: b.menu_package_id,
-      mealSection: b.meal_section,
-      customMenuItems: b.custom_menu_items,
-      lightingSystem: b.lighting_system,
-      customMenuCharge: Number(b.custom_menu_charge || 0),
-      lightingCharge: Number(b.lighting_charge || 0),
-      eventSupportFee: Number(b.event_support_fee || 0),
-      hallCharge: Number(b.hall_charge || 0),
-      mealCharge: Number(b.meal_charge || 0),
-      hallRatePerHour: Number(b.hallRatePerHour || 0),
-      decorationFee: Number(b.decoration_fee || 0),
-      date: b.date,
-      startTime: b.start_time,
-      endTime: b.end_time,
-      discount: Number(b.discount || 0),
-      gstPercent: Number(b.gst_percent || 5),
-      subtotalAmount: Number(b.subtotal_amount || 0),
-      gstAmount: Number(b.gst_amount || 0),
-      grandTotal: Number(b.grand_total || 0),
-      invoiceNo: b.invoice_no,
-      status: b.status,
-      advance: Number(b.advance || 0),
-      balanceDue: Number(b.balance_due || 0),
-      pricingConfig,
-    }));
+    const formattedBookings = bookings.map((b) => {
+      const notesMeta = parseBanquetMeta(b.notes || "");
+      const refundAmount = Math.max(
+        toNumber(b.refund_amount),
+        toNumber(notesMeta.refundAmount)
+      );
+      const advance = toNumber(b.advance);
+      const balanceDue = Math.max(
+        0,
+        toNumber(b.grand_total) - Math.max(0, advance - refundAmount)
+      );
+      return {
+        id: b.id,
+        hallId: b.hall_id,
+        hallName: b.hallName,
+        customerName: b.customer_name,
+        phone: b.phone,
+        guestEmail: b.guest_email,
+        eventTitle: b.event_title,
+        eventType: b.event_type,
+        guests: b.guests,
+        menuPackageId: b.menu_package_id,
+        mealSection: b.meal_section,
+        customMenuItems: b.custom_menu_items,
+        lightingSystem: b.lighting_system,
+        customMenuCharge: Number(b.custom_menu_charge || 0),
+        lightingCharge: Number(b.lighting_charge || 0),
+        eventSupportFee: Number(b.event_support_fee || 0),
+        hallCharge: Number(b.hall_charge || 0),
+        mealCharge: Number(b.meal_charge || 0),
+        hallRatePerHour: Number(b.hallRatePerHour || 0),
+        decorationFee: Number(b.decoration_fee || 0),
+        date: b.date,
+        startTime: b.start_time,
+        endTime: b.end_time,
+        discount: Number(b.discount || 0),
+        gstPercent: Number(b.gst_percent || 5),
+        subtotalAmount: Number(b.subtotal_amount || 0),
+        gstAmount: Number(b.gst_amount || 0),
+        grandTotal: Number(b.grand_total || 0),
+        invoiceNo: b.invoice_no,
+        status: b.status,
+        advance,
+        refundAmount,
+        netReceived: Math.max(0, advance - refundAmount),
+        balanceDue,
+        paymentMode: b.payment_mode,
+        paymentStatus: b.payment_status,
+        paymentReferenceNo: b.payment_reference_no,
+        billedAt: b.billed_at,
+        notes: stripBanquetMeta(b.notes || ""),
+        pricingConfig,
+      };
+    });
 
     res.status(200).json({
       halls,
       bookings: formattedBookings,
+      pricingConfig,
     });
   } catch (error) {
     console.error("getBanquetDashboard error:", error);
@@ -356,9 +385,13 @@ const createBanquetBooking = async (req, res) => {
         total,
         advance,
         balance,
+        notes,
         status,
+        payment_mode,
+        payment_status,
+        payment_reference_no,
         created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         hallId,
@@ -388,7 +421,11 @@ const createBanquetBooking = async (req, res) => {
         financials.grandTotal,
         financials.advance,
         financials.balanceDue,
+        notes || null,
         "confirmed",
+        financials.paymentMode,
+        financials.paymentStatus,
+        financials.paymentReferenceNo,
         req.user?.id || null,
       ]
     );
@@ -532,6 +569,10 @@ const updateBanquetBooking = async (req, res) => {
           total = ?,
           advance = ?,
           balance = ?,
+          notes = ?,
+          payment_mode = ?,
+          payment_status = ?,
+          payment_reference_no = ?,
           invoice_no = ?
       WHERE id = ?
       `,
@@ -563,6 +604,10 @@ const updateBanquetBooking = async (req, res) => {
         financials.grandTotal,
         financials.advance,
         financials.balanceDue,
+        notes ?? existingBooking.notes ?? null,
+        financials.paymentMode,
+        financials.paymentStatus,
+        financials.paymentReferenceNo,
         invoiceNo || existingBooking.invoice_no || null,
         id,
       ]
@@ -615,9 +660,11 @@ const refundBanquetBooking = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    const existingMeta = parseBanquetMeta(booking.notes || "");
-    const existingRefund = Number(existingMeta.refundAmount || 0);
-    const advancePaid = Number(booking.advance || 0);
+    const existingRefund = Math.max(
+      toNumber(booking.refund_amount),
+      toNumber(parseBanquetMeta(booking.notes || "").refundAmount)
+    );
+    const advancePaid = toNumber(booking.advance);
     const remainingRefund = Math.max(0, advancePaid - existingRefund);
 
     if (requestedRefund > remainingRefund) {
@@ -627,41 +674,43 @@ const refundBanquetBooking = async (req, res) => {
     }
 
     const totalRefund = existingRefund + requestedRefund;
-    const nextStatus =
-      advancePaid > 0 && totalRefund >= advancePaid ? "Refunded" : booking.status;
+    const notesMeta = parseBanquetMeta(booking.notes || "");
+    notesMeta.refundAmount = totalRefund;
 
-    // The v4 table has no notes/refund_amount/net_received columns, so refund
-    // state lives in the enum: fully refunded bookings become 'cancelled',
-    // and the balance/advance columns carry the remaining figures.
-    const grandTotal = Number(booking.total || 0);
+    // 'Refunded' is not in the status enum (inquiry|confirmed|in_progress|
+    // completed|cancelled), so a full refund stays put and is signalled via
+    // payment_status + refund_amount instead of overwriting the event state.
+    const grandTotal = Math.max(toNumber(booking.grand_total), toNumber(booking.total), toNumber(booking.total_amount));
     const netReceived = Math.max(0, advancePaid - totalRefund);
     const balanceDue = Math.max(0, grandTotal - netReceived);
-    const nextEnumStatus = nextStatus === "Refunded" ? "cancelled" : booking.status;
-    const nextPaymentStatus =
-      nextStatus === "Refunded"
-        ? "Refunded"
-        : normalizePaymentStatus({
-            grandTotal,
-            advance: advancePaid,
-            refundAmount: totalRefund,
-            explicitStatus: null,
-          });
+    const fullyRefunded = advancePaid > 0 && totalRefund >= advancePaid;
+    const nextEnumStatus = booking.status || "cancelled";
+    const nextPaymentStatus = normalizePaymentStatus({
+      grandTotal,
+      advance: advancePaid,
+      refundAmount: totalRefund,
+      explicitStatus: fullyRefunded ? "Refunded" : null,
+    });
 
     await db.query(
       `
       UPDATE banquet_bookings
       SET status = ?,
           advance = ?,
-          balance = ?
+          balance = ?,
+          refund_amount = ?,
+          net_received = ?,
+          payment_status = ?,
+          notes = ?
       WHERE id = ?
       `,
-      [nextEnumStatus, netReceived, balanceDue, id]
+      [nextEnumStatus, netReceived, balanceDue, totalRefund, netReceived, nextPaymentStatus, buildBanquetNotes(null, notesMeta), id]
     );
 
     res.status(200).json({
       message: "Refund recorded successfully",
       refundAmount: totalRefund,
-      status: nextEnumStatus,
+      status: fullyRefunded ? "Refunded" : nextEnumStatus,
       paymentStatus: nextPaymentStatus,
       netReceived,
       balanceDue,
@@ -682,8 +731,15 @@ const deleteBanquetBooking = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    // status is an enum of inquiry|confirmed|in_progress|completed|cancelled
-    if (!["cancelled", "refunded"].includes(String(booking.status || "").toLowerCase())) {
+    // status is an enum of inquiry|confirmed|in_progress|completed|cancelled,
+    // so a refunded booking is recognised by payment_status / refund_amount.
+    const status = String(booking.status || "").toLowerCase();
+    const paymentStatus = String(booking.payment_status || "").toLowerCase();
+    const fullyRefunded =
+      toNumber(booking.refund_amount) > 0 &&
+      toNumber(booking.refund_amount) >= toNumber(booking.advance);
+
+    if (!["cancelled", "refunded"].includes(status) && paymentStatus !== "refunded" && !fullyRefunded) {
       return res.status(400).json({
         message: "Only cancelled or refunded bookings can be deleted",
       });
@@ -734,20 +790,26 @@ const generateBanquetBill = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
+    const grandTotal = Math.max(toNumber(booking.grand_total), toNumber(booking.total), toNumber(booking.total_amount));
+    const refundAmount = Math.max(toNumber(booking.refund_amount), toNumber(parseBanquetMeta(booking.notes || "").refundAmount));
     const paymentStatus = normalizePaymentStatus({
-      grandTotal: booking.grand_total || booking.total_amount || 0,
+      grandTotal,
       advance: booking.advance || 0,
-      refundAmount: booking.refund_amount || 0,
+      refundAmount,
       explicitStatus: booking.payment_status,
     });
+    const netReceived = Math.max(0, toNumber(booking.advance) - refundAmount);
+    const balanceDue = Math.max(0, grandTotal - netReceived);
 
     const [result] = await db.query(
       `
       UPDATE banquet_bookings
-      SET invoice_no = ?, status = 'completed', billed_at = NOW(), payment_status = ?
+      SET invoice_no = ?, status = 'completed', billed_at = NOW(),
+          payment_status = ?, grand_total = ?, refund_amount = ?,
+          net_received = ?, balance_due = ?, balance = ?
       WHERE id = ?
       `,
-      [invoiceNo, paymentStatus, id]
+      [invoiceNo, paymentStatus, grandTotal, refundAmount, netReceived, balanceDue, balanceDue, id]
     );
 
     if (result.affectedRows === 0) {

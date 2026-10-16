@@ -47,6 +47,7 @@ import {
   mealSections,
   normalizeCategory,
   normalizeBooking,
+  normalizeHall,
 } from "./banquetUtils";
 
 const BANQUET_NAV_GROUPS = [
@@ -878,7 +879,7 @@ const Banquet = () => {
         } else {
           pricingConfigHydratedRef.current = true;
         }
-        setHalls(res.data?.halls || []);
+        setHalls((res.data?.halls || []).map((hall) => normalizeHall(hall)));
         setBookings(
           (res.data?.bookings || []).map((booking) => enrichBooking(booking))
         );
@@ -1473,7 +1474,7 @@ const Banquet = () => {
           ...payload,
           id: res.data?.id || Date.now(),
           hallName: selectedHall?.name || "Banquet Hall",
-          status: "Confirmed",
+          rawStatus: "confirmed",
           invoiceNo: "",
         });
 
@@ -1498,13 +1499,19 @@ const Banquet = () => {
   };
 
   const handleCompleteBooking = async (bookingId) => {
-    await API.put(`/banquet/${bookingId}/complete`);
+    try {
+      await API.put(`/banquet/${bookingId}/complete`);
 
-    setBookings((prev) =>
-      prev.map((booking) =>
-        booking.id === bookingId ? { ...booking, status: "Completed" } : booking
-      )
-    );
+      setBookings((prev) =>
+        prev.map((booking) =>
+          booking.id === bookingId ? { ...booking, status: "completed" } : booking
+        )
+      );
+    } catch (error) {
+      setReservationError(
+        error.response?.data?.message || "Could not complete the booking."
+      );
+    }
   };
 
   const handleCancelBooking = async (booking) => {
@@ -1513,11 +1520,18 @@ const Banquet = () => {
     );
     if (!confirmed) return;
 
-    await API.put(`/banquet/${booking.id}/cancel`);
+    try {
+      await API.put(`/banquet/${booking.id}/cancel`);
+    } catch (error) {
+      setReservationError(
+        error.response?.data?.message || "Could not cancel the booking."
+      );
+      return;
+    }
 
     const cancelledBooking = {
       ...booking,
-      status: "Cancelled",
+      status: "cancelled",
       balanceDue: 0,
     };
 
@@ -1562,39 +1576,50 @@ const Banquet = () => {
       return;
     }
 
-    const response = await API.put(`/banquet/${booking.id}/refund`, {
-      refundAmount,
-    });
-    const totalRefund = Number(response.data?.refundAmount || 0);
-    const nextStatus =
-      response.data?.status ||
-      (totalRefund >= Number(booking.advance || 0)
-        ? "Refunded"
-        : booking.status);
+    const rawStatus = booking.rawStatus || booking.status;
 
-    setBookings((prev) =>
-      prev.map((item) =>
-        item.id === booking.id
-          ? {
-              ...item,
-              refundAmount: totalRefund,
-              netReceived: Number(
-                response.data?.netReceived ??
-                  Math.max(0, Number(item.advance || 0) - totalRefund)
-              ),
-              status: nextStatus,
-              balanceDue: Number(response.data?.balanceDue ?? item.balanceDue ?? 0),
-              paymentStatus:
-                response.data?.paymentStatus ||
-                (nextStatus === "Refunded" ? "Refunded" : item.paymentStatus),
-            }
-          : item
-      )
-    );
+    try {
+      const response = await API.put(`/banquet/${booking.id}/refund`, {
+        refundAmount,
+      });
+      const totalRefund = Number(response.data?.refundAmount || 0);
+      const nextStatus =
+        response.data?.status ||
+        (totalRefund >= Number(booking.advance || 0)
+          ? "Refunded"
+          : booking.status);
+
+      setBookings((prev) =>
+        prev.map((item) =>
+          item.id === booking.id
+            ? {
+                ...item,
+                refundAmount: totalRefund,
+                netReceived: Number(
+                  response.data?.netReceived ??
+                    Math.max(0, Number(item.advance || 0) - totalRefund)
+                ),
+                status: nextStatus,
+              rawStatus: response.data?.status || rawStatus,
+                balanceDue: Number(response.data?.balanceDue ?? item.balanceDue ?? 0),
+                paymentStatus:
+                  response.data?.paymentStatus ||
+                  (nextStatus === "Refunded" ? "Refunded" : item.paymentStatus),
+              }
+            : item
+        )
+      );
+    } catch (error) {
+      setReservationError(
+        error.response?.data?.message || "Refund could not be recorded."
+      );
+    }
   };
 
   const handleDeleteBooking = async (booking) => {
-    if (!["Cancelled", "Refunded"].includes(booking.status)) {
+    if (
+      !["cancelled", "refunded", "Cancelled", "Refunded"].includes(booking.status)
+    ) {
       window.alert(
         "Delete sirf cancelled ya refunded reservation ke liye available hai."
       );
@@ -1606,28 +1631,41 @@ const Banquet = () => {
     );
     if (!confirmed) return;
 
-    await API.delete(`/banquet/${booking.id}`);
-    setBookings((prev) => prev.filter((item) => item.id !== booking.id));
-    showReservationSuccessPopup({
-      title: "Reservation deleted",
-      eyebrow: "History Deleted",
-      message: "reservation history has been deleted.",
-      customerName: booking.customerName,
-      hallName: booking.hallName,
-      date: booking.date,
-    });
+    try {
+      await API.delete(`/banquet/${booking.id}`);
+      setBookings((prev) => prev.filter((item) => item.id !== booking.id));
+      showReservationSuccessPopup({
+        title: "Reservation deleted",
+        eyebrow: "History Deleted",
+        message: "reservation history has been deleted.",
+        customerName: booking.customerName,
+        hallName: booking.hallName,
+        date: booking.date,
+      });
+    } catch (error) {
+      setReservationError(
+        error.response?.data?.message || "Could not delete the reservation."
+      );
+    }
   };
 
   const handleGenerateBill = async (booking) => {
     const invoiceNo =
       booking.invoiceNo || `BNQ-${String(booking.id).padStart(6, "0")}`;
 
-    await API.put(`/banquet/${booking.id}/bill`, { invoiceNo });
+    try {
+      await API.put(`/banquet/${booking.id}/bill`, { invoiceNo });
+    } catch (error) {
+      setReservationError(
+        error.response?.data?.message || "Could not generate the invoice."
+      );
+      return;
+    }
 
     const updatedBooking = enrichBooking({
       ...booking,
       invoiceNo,
-      status: "Billed",
+      status: "completed",
     });
 
     setBookings((prev) =>
@@ -1775,7 +1813,7 @@ const Banquet = () => {
         skipNextPricingConfigSyncRef.current = true;
         setPricingConfig(refreshed.data.pricingConfig);
       }
-      setHalls(refreshed.data?.halls || []);
+      setHalls((refreshed.data?.halls || []).map((hall) => normalizeHall(hall)));
       showReservationSuccessPopup({
         title: editingHallId ? "Hall updated" : "Hall added",
         eyebrow: editingHallId ? "Hall Updated" : "Hall Added",
@@ -1840,7 +1878,7 @@ const Banquet = () => {
         skipNextPricingConfigSyncRef.current = true;
         setPricingConfig(refreshed.data.pricingConfig);
       }
-      setHalls(refreshed.data?.halls || []);
+      setHalls((refreshed.data?.halls || []).map((hall) => normalizeHall(hall)));
       showReservationSuccessPopup({
         title: "Hall deleted",
         eyebrow: "Hall Deleted",
