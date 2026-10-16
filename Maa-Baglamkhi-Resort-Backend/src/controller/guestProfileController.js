@@ -1,4 +1,24 @@
 const db = require("../config/db");
+const GuestIdentificationsModel = require("../models/GuestIdentificationsModel");
+
+const documentsForBookings = async (bookingIds) => {
+  const ids = (bookingIds || [])
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+
+  if (!ids.length) return [];
+
+  const rows = await GuestIdentificationsModel.findAll();
+  return rows.filter((row) => ids.includes(Number(row.booking_id)));
+};
+
+const docsForBookingId = async (bookingId) => {
+  const id = Number(bookingId);
+  if (!Number.isFinite(id) || id <= 0) return [];
+
+  const rows = await GuestIdentificationsModel.findAll();
+  return rows.filter((row) => Number(row.booking_id) === id);
+};
 
 // Guest names live in guest_profiles (via booking_guests) and/or
 // booking_rooms.guest_name in the v4 schema — never on a `guests` table.
@@ -93,6 +113,14 @@ const loadProfileForMobile = async (mobile) => {
   return { bookings, stats, latestDocument: null };
 };
 
+const profileWithDocuments = async (bookingIds) => {
+  const documents = await documentsForBookings(bookingIds);
+  return {
+    documents,
+    latestDocument: documents[0] || null,
+  };
+};
+
 exports.search = async (req, res) => {
   const query = String(req.query.q || "").trim();
   const bookingId = Number(req.query.bookingId || 0);
@@ -127,7 +155,10 @@ exports.search = async (req, res) => {
       }
 
       const profile = await loadProfileForMobile(guest.mobile);
-      return res.json({ guest, ...profile });
+      const documents = await profileWithDocuments(
+        profile.bookings.map((b) => b.bookingId),
+      );
+      return res.json({ guest, ...profile, ...documents });
     }
 
     if (!query) {
@@ -153,9 +184,12 @@ exports.search = async (req, res) => {
     const guest = guestRows[0];
     const profile = guest.mobile
       ? await loadProfileForMobile(guest.mobile)
-      : { bookings: [], stats: { totalStays: 0, totalRevenue: 0, totalNights: 0 }, documents: [], latestDocument: null };
+      : { bookings: [], stats: { totalStays: 0, totalRevenue: 0, totalNights: 0 } };
+    const documents = await profileWithDocuments(
+      profile.bookings.map((b) => b.bookingId),
+    );
 
-    res.json({ guest, ...profile });
+    res.json({ guest, ...profile, ...documents });
   } catch (err) {
     console.error("[guestProfile] search error:", err);
     res.status(500).json({ error: "Failed to search guest profile" });

@@ -1,4 +1,6 @@
 const db = require("../config/db");
+const fs = require("fs");
+const path = require("path");
 const GuestIdentificationsModel = require("../models/GuestIdentificationsModel");
 
 
@@ -63,6 +65,48 @@ exports.uploadByBooking = async (req, res) => {
       console.error("Guest document upload failed:", error);
     }
     res.status(500).json({ message: "Guest document upload failed", error: error.message });
+  }
+};
+
+exports.deleteByBooking = async (req, res) => {
+  const bookingId = Number(req.params.bookingId);
+  const documentId = Number(req.params.documentId);
+
+  if (!bookingId) {
+    return res.status(400).json({ message: "Valid booking id is required" });
+  }
+  if (!documentId) {
+    return res.status(400).json({ message: "Valid document id is required" });
+  }
+
+  try {
+    const [rows] = await db.query(
+      "SELECT id, file_url FROM guest_identifications WHERE id = ? AND booking_id = ? LIMIT 1",
+      [documentId, bookingId],
+    );
+    const row = rows[0];
+
+    if (!row) {
+      return res.status(404).json({ message: "Guest document not found" });
+    }
+
+    await db.query(
+      "DELETE FROM guest_identifications WHERE id = ? AND booking_id = ?",
+      [documentId, bookingId],
+    );
+
+    const uploadsDir = path.join(__dirname, "..", "uploads");
+    if (row.file_url && row.file_url.startsWith("/uploads/")) {
+      const target = path.resolve(uploadsDir, path.basename(row.file_url));
+      fs.promises.unlink(target).catch(() => {});
+    }
+
+    res.json({ message: "Guest document deleted successfully", documentId });
+  } catch (error) {
+    if (process.env.NODE_ENV !== "test") {
+      console.error("Guest document delete failed:", error);
+    }
+    res.status(500).json({ message: "Guest document delete failed", error: error.message });
   }
 };
 

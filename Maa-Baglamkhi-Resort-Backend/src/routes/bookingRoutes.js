@@ -16,6 +16,10 @@ const roleMiddleware = require("../middleware/roleMiddleware");
 
 router.use(hotelRoomInventoryController.bootstrap);
 
+// Protect the whole hotel/booking surface. These routes mutate booking state,
+// room inventory and guest data, so they must not be reachable unauthenticated.
+router.use(authMiddleware);
+
 // CREATE
 router.post("/guest", bookingController.createGuest);
 router.post("/other-booking/:id", bookingController.updateOtherBooking);
@@ -69,7 +73,7 @@ const roomBlockRouter = express.Router();
 roomBlockRouter.use(authMiddleware);
 roomBlockRouter.get("/", roleMiddleware(["admin","manager","receptionist","housekeeping","accountant","staff"]), roomBlockController.getAll);
 roomBlockRouter.post("/", roleMiddleware(["admin","manager","receptionist"]), roomBlockController.create);
-roomBlockRouter.put("/:id", roleMiddleware(["admin","manager"]), roomBlockController.updateStatus);
+roomBlockRouter.put("/:id", roleMiddleware(["admin","manager","receptionist","housekeeping","accountant","staff"]), roomBlockController.updateStatus);
 router.use("/room-blocks", roomBlockRouter);
 router.use("/room-block", roomBlockRouter);
 
@@ -78,6 +82,7 @@ router.get("/guest-profile",           guestProfileController.search);
 router.get("/guests/search",           guestProfileController.searchList);
 router.get("/guest-documents/:bookingId", guestDocumentController.listByBooking);
 router.post("/guest-documents/:bookingId", upload.single("document"), guestDocumentController.uploadByBooking);
+router.delete("/guest-documents/:bookingId/:documentId", guestDocumentController.deleteByBooking);
 
 // Admin-only guest phone update
 const guestAdminRouter = express.Router();
