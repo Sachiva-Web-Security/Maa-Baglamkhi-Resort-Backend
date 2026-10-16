@@ -35,6 +35,50 @@ const priorityOptions = ["Urgent", "High", "Normal", "Low"];
 const normalizeText = (value) => String(value || "").trim();
 const normalizeLower = (value) => normalizeText(value).toLowerCase();
 
+// The API returns the v4 enum values ("in_progress", "verified"); the UI speaks
+// the display names.
+const DISPLAY_STATUS = {
+  pending: "Pending",
+  in_progress: "In Progress",
+  completed: "Completed",
+  verified: "Verified",
+  cancelled: "Cancelled",
+};
+
+const DISPLAY_TASK = {
+  cleaning: "Cleaning",
+  deep_clean: "Deep Clean",
+  inspection: "Inspection",
+  setup: "Setup",
+  maintenance: "Maintenance",
+  other: "Other",
+};
+
+const displayStatus = (status) => DISPLAY_STATUS[normalizeLower(status)] || normalizeText(status) || "Pending";
+const displayTask = (taskType) => DISPLAY_TASK[normalizeLower(taskType)] || normalizeText(taskType) || "Other";
+
+const toTitleCase = (value) =>
+  normalizeText(value)
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+
+const timeOnly = (value) => {
+  const text = normalizeText(value);
+  return /^\d{2}:\d{2}/.test(text) ? text : text.slice(11, 16);
+};
+
+// The API returns raw v4 rows (snake_case enum fields); both tables render the
+// legacy field names, so normalise once at the boundary.
+const normalizeAssignmentRow = (row) => ({
+  ...row,
+  staff_name: row.assigned_to_name || "Unassigned",
+  task: displayTask(row.task_type),
+  priority: toTitleCase(row.priority),
+  status: displayStatus(row.status),
+  due_time: timeOnly(row.due_time),
+  assigned_by: row.assigned_by_name || row.assigned_by,
+});
+
 const compactRoomType = (value) =>
   normalizeText(value)
     .replace(/\bROOM\b/gi, "")
@@ -233,7 +277,7 @@ const Assignment = () => {
       const res = await API.get("/assignments", {
         params: { role: currentRole, name: currentName },
       });
-      setAssignments(Array.isArray(res.data) ? res.data : []);
+      setAssignments(Array.isArray(res.data) ? res.data.map(normalizeAssignmentRow) : []);
     } catch (error) {
       console.log(error);
       setAssignments([]);
@@ -400,13 +444,13 @@ const Assignment = () => {
 
   const editTask = (taskRow) => {
     setForm({
-      staff_name: normalizeText(taskRow.staff_name),
+      staff_name: normalizeText(taskRow.assigned_to_name),
       room_number: normalizeText(taskRow.room_number),
-      task: normalizeText(taskRow.task),
+      task: displayTask(taskRow.task_type),
       priority: normalizeText(taskRow.priority) || "Normal",
-      due_time: normalizeText(taskRow.due_time),
+      due_time: normalizeText(taskRow.due_time).slice(11, 16),
       notes: normalizeText(taskRow.notes),
-      status: normalizeText(taskRow.status) || "Pending",
+      status: displayStatus(taskRow.status),
     });
     setEditId(taskRow.id);
   };

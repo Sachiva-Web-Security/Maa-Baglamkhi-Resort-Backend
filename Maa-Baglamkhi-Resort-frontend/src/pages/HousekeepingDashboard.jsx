@@ -34,6 +34,20 @@ const normalizeNotification = (row) => ({
 const normalizeStatus = (raw) =>
   String(raw || "").trim().replaceAll("_", " ");
 
+const TASK_TYPE_LABEL = {
+  cleaning: "Cleaning",
+  deep_clean: "Deep Clean",
+  inspection: "Inspection",
+  setup: "Setup",
+  maintenance: "Maintenance",
+  other: "Other",
+};
+
+const roomTypeLabel = (value) =>
+  TASK_TYPE_LABEL[String(value || "").toLowerCase()] ||
+  String(value || "").trim().replaceAll("_", " ") ||
+  "Room Cleaning";
+
 const fallback = "--";
 
 const statusPill = (status) => {
@@ -73,16 +87,19 @@ const HousekeepingDashboard = () => {
   const [error, setError] = useState("");
   const [rooms, setRooms] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [assignments, setAssignments] = useState([]);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setError("");
 
     try {
-      const [roomsResponse, notificationsResponse] = await Promise.allSettled([
-        housekeepingService.getAllRooms(),
-        API.get("/housekeeping/notifications"),
-      ]);
+      const [roomsResponse, notificationsResponse, assignmentsResponse] =
+        await Promise.allSettled([
+          housekeepingService.getAllRooms(),
+          API.get("/housekeeping/notifications"),
+          API.get("/assignments"),
+        ]);
 
       const roomsData =
         roomsResponse.status === "fulfilled" && Array.isArray(roomsResponse.value)
@@ -93,9 +110,15 @@ const HousekeepingDashboard = () => {
         Array.isArray(notificationsResponse.value?.data)
           ? notificationsResponse.value.data
           : [];
+      const assignmentsData =
+        assignmentsResponse.status === "fulfilled" &&
+        Array.isArray(assignmentsResponse.value?.data)
+          ? assignmentsResponse.value.data
+          : [];
 
       setRooms(roomsData);
       setNotifications(notificationsData.map(normalizeNotification));
+      setAssignments(assignmentsData);
     } finally {
       if (!silent) setLoading(false);
     }
@@ -140,10 +163,23 @@ const HousekeepingDashboard = () => {
       }
     });
 
+    // The real assignments table is the source of truth for a room's task,
+    // assignee and priority. hk_messages lags behind it, so prefer it.
+    const assignmentMap = new Map();
+    assignments.forEach((a) => {
+      const key = String(a.room_number || a.room_number || "").trim();
+      if (!key) return;
+      const existing = assignmentMap.get(key);
+      if (!existing || new Date(a.created_at || 0) > new Date(existing.created_at || 0)) {
+        assignmentMap.set(key, a);
+      }
+    });
+
     return rooms
       .map((room, index) => {
         const roomKey = String(room.roomNo || room.roomNumber || "").trim();
         const notification = notifMap.get(roomKey) || null;
+        const assignment = assignmentMap.get(roomKey) || null;
 
         return {
           id: room.id || `row-${index}-${roomKey}`,
@@ -151,11 +187,21 @@ const HousekeepingDashboard = () => {
           roomType: room.roomType || room.type || "Accommodation",
           status: room.status || "Unknown",
           statusPill: statusPill(room.status),
-          assignedTo: notification?.assignedTo || room.assignee || "No Housekeeper",
-          assignedBy: notification?.assignedBy || "Front Desk",
+          assignedTo:
+            assignment?.assigned_to_name ||
+            notification?.assignedTo ||
+            room.assignee ||
+            "No Housekeeper",
+          assignedBy:
+            assignment?.assigned_by_name ||
+            notification?.assignedBy ||
+            "Front Desk",
           duration: durationFromTimestamps(notification?.sentAt, notification?.dueAt),
           timeLeft: timeLeftLabel(notification?.dueAt),
-          taskLabel: notification?.taskLabel || "Room Cleaning",
+          taskLabel:
+            roomTypeLabel(assignment?.task_type) ||
+            notification?.taskLabel ||
+            "Room Cleaning",
           sentAt: notification?.sentAt,
           dueAt: notification?.dueAt,
           isCompleted: String(room.status || "").toLowerCase().includes("clean") && !String(room.status || "").toLowerCase().includes("dirty"),
@@ -168,7 +214,7 @@ const HousekeepingDashboard = () => {
         if (aScore !== bScore) return aScore - bScore;
         return String(a.roomNo).localeCompare(String(b.roomNo), undefined, { numeric: true });
       });
-  }, [rooms, notifications]);
+  }, [rooms, notifications, assignments]);
 
   const checkoutReadyRooms = useMemo(() => {
     return rooms

@@ -59,20 +59,45 @@ const formatTime = (value) => {
   });
 };
 
+const DISPLAY_TASK = {
+  cleaning: "Cleaning",
+  deep_clean: "Deep Clean",
+  inspection: "Inspection",
+  setup: "Setup",
+  maintenance: "Maintenance",
+  other: "Other",
+};
+
+const toTitleCase = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+
 const normalizeAssignment = (row) => ({
   id: row.id ?? row._id,
   staffName:
+    row.assigned_to_name ||
     row.staffName ||
     row.staff_name ||
     row.assignedTo ||
     row.assigned_to ||
     "Unassigned",
   roomNumber: row.roomNumber || row.room_number || row.room || "",
-  task: row.task || row.message || row.taskLabel || "Assigned task",
-  priority: row.priority || "Normal",
-  status: row.status || "Pending",
+  task:
+    DISPLAY_TASK[String(row.task_type || "").toLowerCase()] ||
+    row.task ||
+    row.message ||
+    row.taskLabel ||
+    "Assigned task",
+  priority: toTitleCase(row.priority) || "Normal",
+  status: toTitleCase(row.status) || "Pending",
   assignedBy:
-    row.assignedBy || row.assigned_by || row.receptionist || "Reception",
+    row.assigned_by_name ||
+    row.assignedBy ||
+    row.assigned_by ||
+    row.receptionist ||
+    "Reception",
   dueTime: row.dueTime || row.due_time || row.dueAt || "",
   notes: row.notes || "",
   createdAt: row.createdAt || row.created_at || row.sentAt || row.sent_at,

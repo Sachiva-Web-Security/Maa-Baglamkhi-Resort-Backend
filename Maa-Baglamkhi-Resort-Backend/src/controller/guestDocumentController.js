@@ -24,15 +24,31 @@ exports.uploadByBooking = async (req, res) => {
   }
 
   try {
-    const [guestRows] = await db.query(
-      "SELECT id, mobile, guest_name, booking_code FROM guests WHERE id = ? LIMIT 1",
+    // v4 identity lives in bookings + booking_guests + guest_profiles. The
+    // legacy `guests` table is empty (no booking_id column), so a lookup
+    // against it 404s every real booking — the upload button looked broken.
+    const [bookingRows] = await db.query(
+      `SELECT b.id AS booking_id, b.booking_code,
+              bg.guest_profile_id AS guest_id,
+              bg.first_name, bg.last_name
+       FROM bookings b
+       LEFT JOIN (
+         SELECT booking_id, guest_profile_id, first_name, last_name
+         FROM booking_guests
+         WHERE is_primary = 1
+       ) bg ON bg.booking_id = b.id
+       WHERE b.id = ?
+       LIMIT 1`,
       [bookingId],
     );
-    const guest = guestRows[0];
+    const guest = bookingRows[0];
 
     if (!guest) {
       return res.status(404).json({ message: "Booking not found" });
     }
+
+    const guestName =
+      `${guest.first_name || ""} ${guest.last_name || ""}`.trim() || null;
 
     const fileUrl = `/uploads/${req.file.filename}`;
 
@@ -58,6 +74,7 @@ exports.uploadByBooking = async (req, res) => {
       message: "Guest document uploaded successfully",
       bookingId,
       bookingCode: guest.booking_code || "",
+      guestName: guestName || "",
       document,
     });
   } catch (error) {

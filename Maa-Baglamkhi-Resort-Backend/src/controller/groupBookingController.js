@@ -29,12 +29,23 @@ const { ensureSchema: ensureGroupBookingSchema, create: createGroupBooking } = r
 
 const generateBookingCode = () => {
   const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-  const rand = crypto.randomBytes(2).toString("hex").toUpperCase();
+  const rand = crypto.randomBytes(3).toString("hex").toUpperCase();
   return `GRP-${date}-${rand}`;
 };
 
+// bookings.booking_code is UNIQUE; a collision throws a 1062/ER_DUP_ENTRY and
+// would surface as a 500 with no usable message. Retry with a fresh suffix.
+const isDuplicateCode = (error) =>
+  error?.code === "ER_DUP_ENTRY" ||
+  error?.errno === 1062 ||
+  /Duplicate entry/i.test(error?.message || "");
+
 // Delegate schema creation to the v4 model
 const ensureSchema = ensureGroupBookingSchema;
+
+// db.query is a mysql2 promise pool: it resolves [rows, fields]. Callers must
+// destructure or every INSERT here silently drops into a null booking_id.
+const query = async (sql, params = []) => (await db.query(sql, params))[0];
 
 const roomInventoryModel = require("../models/hotelRoomInventoryModel");
 
@@ -67,43 +78,53 @@ exports.create = async (req, res) => {
     await ensureSchema();
 
     // ── Step 1: Create master booking (v4) ───────────────────────────────
-    const bookingCode = generateBookingCode();
     const [firstName, ...restName] = String(guest.guestName || "").trim().split(/\s+/);
     const lastName = restName.join(" ") || null;
 
     const grandTotal = rooms.reduce((s, r) => s + Number(r.total || 0), 0);
     const paidAmount  = Number(payment?.amount || 0);
 
-    const bookingResult = await db.query(
-      `INSERT INTO bookings
-         (booking_code, status, check_in, check_out,
-          adults, children, total_rooms, total_guests,
-          subtotal, total_amount, advance_amount, balance_amount)
-       VALUES (?, 'confirmed', ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
-      [
-        bookingCode,
-        guest.checkIn,
-        guest.checkOut,
-        rooms.reduce((s, r) => s + Number(r.adults || 1), 0),
-        rooms.length,
-        rooms.reduce((s, r) => s + Number(r.adults || 1) + Number(r.children || 0), 0),
-        grandTotal,
-        grandTotal,
-        paidAmount,
-        Math.max(grandTotal - paidAmount, 0),
-      ],
-    );
+    let bookingCode;
+    let bookingResult;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      bookingCode = generateBookingCode();
+      try {
+        bookingResult = await query(
+          `INSERT INTO bookings
+             (booking_code, status, check_in, check_out,
+              adults, children, total_rooms, total_guests,
+              subtotal, total_amount, advance_amount, balance_amount)
+           VALUES (?, 'confirmed', ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+          [
+            bookingCode,
+            guest.checkIn,
+            guest.checkOut,
+            rooms.reduce((s, r) => s + Number(r.adults || 1), 0),
+            rooms.length,
+            rooms.reduce((s, r) => s + Number(r.adults || 1) + Number(r.children || 0), 0),
+            grandTotal,
+            grandTotal,
+            paidAmount,
+            Math.max(grandTotal - paidAmount, 0),
+          ],
+        );
+        break;
+      } catch (insertErr) {
+        if (!isDuplicateCode(insertErr) || attempt === 4) throw insertErr;
+        bookingResult = null;
+      }
+    }
 
     const bookingId = bookingResult.insertId;
 
     // Primary guest profile + link (v4 guest identity tables).
-    const guestProfileResult = await db.query(
+    const guestProfileResult = await query(
       `INSERT INTO guest_profiles (first_name, last_name, email, phone)
        VALUES (?, ?, ?, ?)`,
       [firstName || "Guest", lastName, guest.guestEmail || null, guest.mobile],
     );
 
-    await db.query(
+    await query(
       `INSERT INTO booking_guests
          (booking_id, guest_profile_id, is_primary, first_name, last_name)
        VALUES (?, ?, 1, ?, ?)`,
@@ -126,7 +147,7 @@ exports.create = async (req, res) => {
       const resolvedRoom = roomRows[0];
       if (!resolvedRoom) continue;
 
-      await db.query(
+      await query(
         `INSERT INTO booking_rooms
            (booking_id, room_id, category_id, rate_per_night, nights, room_charge, total, guest_name, adults, children)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -160,7 +181,7 @@ exports.create = async (req, res) => {
       );
       const methodId = methodRows[0]?.id || fallbackMethods[0]?.id || null;
       if (methodId) {
-        await db.query(
+        await query(
           `INSERT INTO payments
              (booking_id, amount, payment_method_id, payment_type, reference_no, status)
            VALUES (?, ?, ?, 'advance', ?, 'completed')`,

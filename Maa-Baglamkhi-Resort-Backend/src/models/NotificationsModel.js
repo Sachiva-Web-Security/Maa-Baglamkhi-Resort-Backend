@@ -17,7 +17,7 @@ class Notifications {
   \`type\` VARCHAR(100) NOT NULL,
   \`title\` VARCHAR(255) NOT NULL,
   \`message\` TEXT,
-  \`data\` JSON,
+  \`data\` TEXT,
   \`is_read\` TINYINT(1) DEFAULT 0,
   \`read_at\` DATETIME,
   \`created_at\` TIMESTAMP,
