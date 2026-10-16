@@ -555,12 +555,22 @@ exports.getPendingOrder = (tableNumber, callback) => {
 };
 
 exports.addItemToOrder = (orderId, item, callback) => {
+  const quantity = item.quantity ?? item.qty ?? 1;
+  const price = Number(item.price || 0);
   const sql =
-    "INSERT INTO order_items (order_id,name,price,quantity) VALUES (?,?,?,?)";
+    "INSERT INTO order_items (order_id, menu_item_id, name, quantity, unit_price, total, notes) VALUES (?,?,?,?,?,?,?)";
 
   db.query(
     sql,
-    [orderId, item.name, item.price, item.quantity || 1],
+    [
+      orderId,
+      item.menuItemId ?? item.menuId ?? item.id ?? null,
+      item.name,
+      quantity,
+      price,
+      price * quantity,
+      item.notes || null,
+    ],
     callback
   );
 };

@@ -1,7 +1,11 @@
 const router = require("express").Router();
 const salaryController = require("../controller/salaryController");
+const employeeController = require("../controller/employeeController");
 const authMiddleware = require("../middleware/authMiddleware");
 const roleMiddleware = require("../middleware/roleMiddleware");
+
+// /employees must come before /:userId or it is captured as a user id.
+router.get("/employees", authMiddleware, roleMiddleware(["admin"]), employeeController.listEmployees);
 
 // Admin-only: Set salary for any employee
 router.post("/:userId", authMiddleware, roleMiddleware(["admin"]), salaryController.setEmployeeSalary);

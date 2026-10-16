@@ -3,47 +3,23 @@ const authMiddleware = require("../middleware/authMiddleware");
 const roleMiddleware = require("../middleware/roleMiddleware");
 const attendanceController = require("../controller/attendanceController");
 
-router.get("/", authMiddleware, (req, res, next) => {
-  const { date } = req.query;
-  if (!date) return res.status(400).json({ message: "date query required" });
+// Self-service routes first so /me is not captured by the list handler.
+router.get("/me", authMiddleware, attendanceController.getMyAttendance);
+router.get("/me/salary", authMiddleware, attendanceController.calculateMySalary);
 
-  const userRole = req.user?.role;
-  const userId = req.user?.id;
+// Reads are open to any signed-in user; writes are admin-only.
+router.get("/employees", authMiddleware, attendanceController.getEmployees);
+router.get("/report", authMiddleware, attendanceController.getAttendanceReport);
+router.get("/payroll", authMiddleware, attendanceController.getPayrollAttendance);
+router.get("/", authMiddleware, attendanceController.getAllAttendance);
 
-  if (userRole === "admin") {
-    return attendanceController.getAllAttendance(req, res, next);
-  }
+// Mark attendance for self or, with employeeId/userId in the body, anyone.
+router.post("/", authMiddleware, roleMiddleware(["admin"]), attendanceController.markAttendance);
+router.post("/mark", authMiddleware, roleMiddleware(["admin"]), attendanceController.markAttendance);
 
-  const db = require("../config/db");
-
-  // v4: attendance is keyed by employee_id (employees.id), while requests carry
-  // a user id. Resolve this user's employee row, then return only their records.
-  db.query("SELECT id FROM employees WHERE user_id = ? LIMIT 1", [userId])
-    .then(([employeeRows]) => {
-      const employee = employeeRows && employeeRows[0];
-      // No linked employee row is a valid state: return an empty, well-formed list.
-      if (!employee) {
-        return res.json([]);
-      }
-      return db
-        .query(
-          "SELECT * FROM attendance_records WHERE employee_id = ? ORDER BY date DESC",
-          [employee.id]
-        )
-        .then(([rows]) => res.json(rows || []));
-    })
-    .catch(() => res.status(500).json({ message: "Error fetching attendance" }));
-});
-
-/**
- * POST /api/attendance
- * Admin only: create attendance record for any employee.
- */
-router.post(
-  "/",
-  authMiddleware,
-  roleMiddleware(["admin"]),
-  attendanceController.markMyAttendance
-);
+// Edit / delete a record.
+router.put("/:id", authMiddleware, attendanceController.updateAttendanceRecord);
+router.patch("/:id", authMiddleware, attendanceController.updateAttendanceRecord);
+router.delete("/:id", authMiddleware, roleMiddleware(["admin"]), attendanceController.deleteAttendanceRecord);
 
 module.exports = router;

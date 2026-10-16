@@ -31,6 +31,11 @@ router.post("/advance/:id", bookingController.updateAdvance);
 
 // GET
 router.get("/all-bookings", bookingController.getAllBookings);
+// Collection aliases for the frontend's mount-root and section calls.
+router.get("/", bookingController.getAllBookings);
+router.get("/payment-history", bookingController.getAllBookings);
+router.get("/room-tariff", bookingController.getBookingHistory);
+router.get("/communication", bookingController.getBookingHistory);
 router.get("/booking/:id", bookingController.getBookingById);
 router.get("/wizard/:id", bookingController.getBookingWizard);
 router.get("/rooms/setup", hotelRoomInventoryController.getRoomSetup);

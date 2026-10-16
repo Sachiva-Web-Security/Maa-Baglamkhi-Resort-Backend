@@ -210,6 +210,22 @@ exports.addOrderItem = (req, res) => {
     });
   };
 
+  const orderTotal = payloadItems.reduce(
+    (sum, it) => sum + Number(it.price) * Number(it.quantity || 1),
+    0
+  );
+
+  // Mirror the order into room_service_orders so the waiter queue has
+  // something to pick up — that table is otherwise never populated.
+  try {
+    RoomService.createDeliveryOrder(
+      { room_number: String(roomNumber), waiter_name: "Room Service", total: orderTotal },
+      () => {}
+    );
+  } catch (e) {
+    console.error("Room service delivery row creation failed:", e.message);
+  }
+
   RoomService.getPendingOrder(roomNumber, (err, order) => {
     if (err) return res.status(500).json(err);
 

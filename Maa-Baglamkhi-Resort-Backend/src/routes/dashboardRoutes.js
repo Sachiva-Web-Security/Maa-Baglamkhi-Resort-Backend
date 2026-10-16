@@ -4,6 +4,7 @@ const {
     getCharts,
 } = require("../controller/dashboardController");
 
+router.get("/", getMetrics);
 router.get("/metrics", getMetrics);
 router.get("/charts", getCharts);
 

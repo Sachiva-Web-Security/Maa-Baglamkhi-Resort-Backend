@@ -539,6 +539,9 @@ exports.createItem = async (req, res) => {
   try {
     await ensureSchema();
     const data = { ...req.body, createdBy: req.user?.username || "system" };
+    if (!data.name) {
+      return res.status(400).json({ message: "Name is required" });
+    }
     const connection = await getConnection();
     try {
       await beginTransaction(connection);

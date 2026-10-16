@@ -51,17 +51,28 @@ function statusMultiplier(status) {
   return DAY_STATUS_MULTIPLIER[String(status || "").toLowerCase()] || 0;
 }
 
+// Accepts employees.id OR users.id. A bare `id` match alone is ambiguous —
+// employee ids and user ids are separate sequences, so an unknown users.id can
+// collide with a real employees.id and pay the wrong person. Prefer the explicit
+// employees row when both exist, then fall back to the user link.
 async function resolveEmployee(userIdOrEmployeeId) {
-  const [rows] = await db.query("SELECT id FROM employees WHERE id = ? LIMIT 1", [
+  const [rows] = await db.query("SELECT id, user_id FROM employees WHERE id = ? LIMIT 1", [
     userIdOrEmployeeId,
   ]);
-  if (rows && rows[0]) {
-    return rows[0].id;
+  const byId = rows && rows[0];
+  if (byId && byId.user_id !== null && byId.user_id !== undefined) {
+    return byId.id;
   }
   const [byUser] = await db.query("SELECT id FROM employees WHERE user_id = ? LIMIT 1", [
     userIdOrEmployeeId,
   ]);
-  return (byUser && byUser[0] && byUser[0].id) || null;
+  if (byUser && byUser[0]) {
+    return byUser[0].id;
+  }
+  if (byId) {
+    return byId.id;
+  }
+  return null;
 }
 
 // GET /api/payroll/payments — admin only.
@@ -176,7 +187,7 @@ exports.createPayment = async (req, res) => {
     );
 
     const [created] = await db.query(
-      PAYMENTS_LIST_QUERY + " ORDER BY id DESC LIMIT 1"
+      PAYMENTS_LIST_QUERY + " ORDER BY sp.id DESC LIMIT 1"
     );
     return res.status(201).json({
       message: paidNow ? "Salary paid" : "Salary payment created",
@@ -198,6 +209,11 @@ exports.updatePayment = async (req, res) => {
     const [rows] = await db.query("SELECT * FROM salary_payments WHERE id = ? LIMIT 1", [id]);
     const payment = rows && rows[0];
     if (!payment) return res.status(404).json({ message: "Salary payment not found" });
+
+    if (!Object.keys(body).length) {
+      const [rows] = await db.query(PAYMENTS_LIST_QUERY + " WHERE sp.id = ? LIMIT 1", [id]);
+      return res.json({ message: "Salary payment unchanged", payment: rows && rows[0] ? rows[0] : null });
+    }
 
     const assignments = ["updated_at = NOW()"];
     const values = [];
@@ -238,7 +254,7 @@ exports.updatePayment = async (req, res) => {
       [...values, id]
     );
 
-    const [updated] = await db.query(PAYMENTS_LIST_QUERY + " WHERE id = ? LIMIT 1", [id]);
+    const [updated] = await db.query(PAYMENTS_LIST_QUERY + " WHERE sp.id = ? LIMIT 1", [id]);
     return res.json({ message: "Salary payment updated", payment: updated && updated[0] ? updated[0] : null });
   } catch (err) {
     console.error("updatePayment error:", err.message || err);
@@ -252,7 +268,7 @@ exports.getPayment = async (req, res) => {
   if (!id) return res.status(400).json({ message: "Payment id required" });
 
   try {
-    const [rows] = await db.query(PAYMENTS_LIST_QUERY + " WHERE id = ? LIMIT 1", [id]);
+    const [rows] = await db.query(PAYMENTS_LIST_QUERY + " WHERE sp.id = ? LIMIT 1", [id]);
     const payment = rows && rows[0];
     if (!payment) return res.status(404).json({ message: "Salary payment not found" });
     return res.json(payment);
@@ -287,7 +303,7 @@ exports.markPaid = async (req, res) => {
                                   updated_at = NOW()
        WHERE id = ?`,
       [
-        payment.paid_amount ? payment.paid_amount : payment.net_salary,
+        Number(payment.paid_amount) > 0 ? payment.paid_amount : payment.net_salary,
         new Date().toISOString().slice(0, 10),
         (req.body && req.body.payment_method) || null,
         actorId,
@@ -296,7 +312,7 @@ exports.markPaid = async (req, res) => {
       ]
     );
 
-    const [updated] = await db.query(PAYMENTS_LIST_QUERY + " WHERE id = ? LIMIT 1", [id]);
+    const [updated] = await db.query(PAYMENTS_LIST_QUERY + " WHERE sp.id = ? LIMIT 1", [id]);
     return res.json({ message: "Salary marked as paid", payment: updated && updated[0] ? updated[0] : null });
   } catch (err) {
     console.error("markPaid error:", err.message || err);
@@ -308,7 +324,9 @@ exports.markPaid = async (req, res) => {
 // Salary earned from that employee's attendance for the month.
 exports.estimateSalary = async (req, res) => {
   const rawId = req.params.employeeId;
-  if (!rawId) return res.status(400).json({ message: "Employee id required" });
+  if (!rawId || !Number.isFinite(Number(rawId))) {
+    return res.status(400).json({ message: "Employee id required" });
+  }
 
   const now = new Date();
   let year = Number(String(req.query && req.query.year || "").slice(0, 4)) || now.getFullYear();
@@ -320,7 +338,7 @@ exports.estimateSalary = async (req, res) => {
   }
 
   try {
-    const employeeId = (await resolveEmployee(rawId)) || Number(rawId);
+    const employeeId = (await resolveEmployee(Number(rawId))) || Number(rawId);
 
     const [empRows] = await db.query(
       `SELECT e.id, e.employee_code, e.base_salary, u.id AS user_id, u.name AS username, u.email,

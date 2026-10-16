@@ -412,9 +412,25 @@ exports.addOrderItem = async (req, res) => {
       await db.query("UPDATE orders SET waiter_name = ? WHERE id = ?", [waiterName, order.id]);
     }
 
+    const menuItemId = resolvedItem.menuItemId || resolvedItem.menuId || resolvedItem.id || null;
+    const taxPercent = Number(resolvedItem.tax ?? resolvedItem.taxPercent ?? resolvedItem.tax_percent ?? 0) || 0;
+    const taxAmount = Number((itemPrice * itemQty * taxPercent / 100).toFixed(2));
+    const lineTotal = Number((itemPrice * itemQty).toFixed(2));
+
     await db.query(
-      "INSERT INTO order_items (order_id, name, price, quantity) VALUES (?,?,?,?)",
-      [order.id, itemName, itemPrice, itemQty]
+      "INSERT INTO order_items (order_id, menu_item_id, name, quantity, unit_price, tax_percent, tax_amount, total, notes) VALUES (?,?,?,?,?,?,?,?,?)",
+      [order.id, menuItemId, itemName, itemQty, itemPrice, taxPercent, taxAmount, lineTotal, resolvedItem.notes || null]
+    );
+
+    const [totals] = await db.query(
+      "SELECT COALESCE(SUM(COALESCE(unit_price,0)*COALESCE(quantity,1)),0) AS subtotal, "
+      + "COALESCE(SUM(COALESCE(tax_amount,0)),0) AS tax FROM order_items WHERE order_id = ?",
+      [order.id]
+    );
+    const totalsRow = totals[0] || { subtotal: 0, tax: 0 };
+    await db.query(
+      "UPDATE orders SET subtotal = ?, tax_amount = ?, total_amount = ? WHERE id = ?",
+      [totalsRow.subtotal, totalsRow.tax, Number(totalsRow.subtotal) + Number(totalsRow.tax), order.id]
     );
 
     res.json({
@@ -552,7 +568,9 @@ exports.payOrder = async (req, res) => {
   const { tableNumber } = req.params;
   try {
     const params = [tableNumber];
-    let sql = "UPDATE orders SET status='paid' WHERE table_number=? AND status='pending'";
+    // orders.status enum is pending/confirmed/preparing/ready/served/completed/cancelled
+    // ('paid' was inserted by older code and truncated on write).
+    let sql = "UPDATE orders SET status='completed' WHERE table_number=? AND status='pending'";
     if (isWaiterActor(actor) && actor.name) {
       sql += " AND LOWER(COALESCE(waiter_name, '')) = LOWER(?)";
       params.push(actor.name);

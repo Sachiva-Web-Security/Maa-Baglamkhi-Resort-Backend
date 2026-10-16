@@ -130,6 +130,16 @@ exports.getOrderItems = (orderId, callback) => {
   db.query(sql, [orderId], callback);
 };
 
+exports.createDeliveryOrder = (data, callback) => {
+  const dbRows = [data.room_number, data.waiter_name || null, data.total || 0, data.token_id || null];
+  const sql = `
+    INSERT INTO room_service_orders (room_number, waiter_name, status, total, token_id)
+    VALUES (?, ?, 'pending', ?, ?)
+  `;
+
+  db.query(sql, dbRows, callback);
+};
+
 exports.getOrderWithItemsByRoom = (roomNumber, callback) => {
   const sqlOrder = "SELECT * FROM room_orders WHERE roomNumber=? AND status='pending'";
   db.query(sqlOrder, [roomNumber], (err, orders) => {

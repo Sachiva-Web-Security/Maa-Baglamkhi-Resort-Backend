@@ -546,16 +546,18 @@ const getMonthlyRevenueChart = async () => {
 
   const monthMap = new Map(months.map((item) => [item.key, item]));
 
-  if (await tableExists("guest_profiles") && await tableExists("room_tariff")) {
+  // v4: guest_profiles is an identity table with no check_in column. Booking
+  // dates and status live on bookings.
+  if (await tableExists("bookings")) {
     const [hotelRows] = await db.query(`
       SELECT
-        DATE_FORMAT(gp.check_in, '%Y-%m') AS monthKey,
+        DATE_FORMAT(b.check_in, '%Y-%m') AS monthKey,
         COALESCE(SUM(rt.total), 0) AS total
-      FROM guest_profiles gp
-      LEFT JOIN room_tariff rt ON rt.booking_id = gp.id
-      WHERE gp.check_in >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 5 MONTH)
-        AND LOWER(COALESCE(gp.booking_status, 'confirmed')) NOT IN ('cancelled')
-      GROUP BY DATE_FORMAT(gp.check_in, '%Y-%m')
+      FROM bookings b
+      LEFT JOIN room_tariff rt ON rt.booking_id = b.id
+      WHERE b.check_in >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 5 MONTH)
+        AND LOWER(COALESCE(b.status, 'confirmed')) NOT IN ('cancelled')
+      GROUP BY DATE_FORMAT(b.check_in, '%Y-%m')
     `);
 
     hotelRows.forEach((row) => {
