@@ -102,8 +102,7 @@ SELECT e.id AS employee_id,
   LEFT JOIN users u ON u.id = e.user_id
   LEFT JOIN roles r ON r.id = u.role_id
   LEFT JOIN designations d ON d.id = e.designation_id
-  LEFT JOIN departments dep ON dep.id = e.department_id
-  ORDER BY e.first_name, e.last_name`;
+  LEFT JOIN departments dep ON dep.id = e.department_id`;
 
 async function nextEmployeeCode() {
   try {
@@ -210,7 +209,7 @@ exports.createEmployee = async (req, res) => {
     });
 
     const [rows] = await db.query(
-      LIST_QUERY + " WHERE u.id = ? LIMIT 1",
+      LIST_QUERY + " WHERE u.id = ? ORDER BY u.id LIMIT 1",
       [userId]
     );
     return res.status(201).json({
@@ -250,6 +249,7 @@ exports.listEmployees = async (req, res) => {
       values.push(like, like, like, like);
     }
     if (where.length) sql += " WHERE " + where.join(" AND ");
+    sql += " ORDER BY e.first_name, e.last_name";
 
     const [rows] = await db.query(sql, values);
     return res.json(rows || []);
@@ -264,7 +264,10 @@ exports.getEmployee = async (req, res) => {
   if (!id) return res.status(400).json({ message: "Employee id required" });
 
   try {
-    const [rows] = await db.query(LIST_QUERY + " WHERE e.id = ? OR u.id = ? LIMIT 1", [id, id]);
+    const [rows] = await db.query(
+      LIST_QUERY + " WHERE e.id = ? OR u.id = ? ORDER BY e.id LIMIT 1",
+      [id, id]
+    );
     const employee = rows && rows[0];
     if (!employee) return res.status(404).json({ message: "Employee not found" });
     return res.json(employee);
@@ -344,6 +347,12 @@ exports.updateEmployee = async (req, res) => {
         `UPDATE employees SET ${assignments.join(", ")} WHERE id = ?`,
         [...values, empId]
       );
+    } else {
+      const [empRows2] = await db.query(
+        "SELECT id, user_id FROM employees WHERE id = ? LIMIT 1",
+        [empId]
+      );
+      employee.user_id = (empRows2 && empRows2[0] && empRows2[0].user_id) || userId;
     }
 
     const userAssignments = [];
@@ -387,7 +396,7 @@ exports.updateEmployee = async (req, res) => {
       }
     }
 
-    const [rows] = await db.query(LIST_QUERY + " WHERE e.id = ? LIMIT 1", [empId]);
+    const [rows] = await db.query(LIST_QUERY + " WHERE e.id = ? ORDER BY e.id LIMIT 1", [empId]);
     return res.json({ message: "Employee updated successfully", employee: rows && rows[0] ? rows[0] : null });
   } catch (err) {
     console.error("updateEmployee error:", err.message || err);

@@ -84,12 +84,14 @@ router.get("/guest-documents/:bookingId", guestDocumentController.listByBooking)
 router.post("/guest-documents/:bookingId", upload.single("document"), guestDocumentController.uploadByBooking);
 router.delete("/guest-documents/:bookingId/:documentId", guestDocumentController.deleteByBooking);
 
-// Admin-only guest phone update
+// Admin-only guest phone update. Must be mounted at the full path: a
+// router.use("/guest", ...) here makes POST /hotel/guest (create booking)
+// fall through into the empty sub-router and 404.
 const guestAdminRouter = express.Router();
 guestAdminRouter.use(authMiddleware);
 guestAdminRouter.use(roleMiddleware(["admin"]));
-guestAdminRouter.put("/phone/:bookingId", guestController.updateGuestPhone);
-router.use("/guest", guestAdminRouter);
+guestAdminRouter.put("/guest/phone/:bookingId", guestController.updateGuestPhone);
+router.use(guestAdminRouter);
 
 // Hotel Invoice PDF → WhatsApp
 router.post("/invoice/pdf", whatsappInvoiceController.sendInvoiceWhatsApp);

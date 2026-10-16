@@ -46,8 +46,10 @@ exports.getAll = async (req, res) => {
       params.push(status);
     }
     sql += " ORDER BY blocked_from DESC";
-    const blocks = await db.query(sql, params);
-    res.json(blocks);
+    // db.query here resolves with [rows] — not returning rows would send the
+    // raw result tuple, serialising as a nested Buffer the frontend cannot read.
+    const [blocks] = await db.query(sql, params);
+    res.json(blocks || []);
   } catch (err) {
     console.error("[roomBlock] getAll error:", err);
     res.status(500).json({ error: "Failed to fetch room blocks" });
@@ -99,7 +101,8 @@ exports.create = async (req, res) => {
       [room_number, block_type, reason, blocked_from, blocked_until, blocked_by],
     );
 
-    res.status(201).json({ message: "Room blocked successfully", id: result.insertId, room_number, block_type, status: "Active" });
+    const insertId = result?.insertId || result[0]?.insertId;
+    res.status(201).json({ message: "Room blocked successfully", id: insertId, room_number, block_type, status: "Active" });
   } catch (err) {
     console.error("[roomBlock] create error:", err);
     res.status(500).json({ error: err.message || "Failed to create block" });

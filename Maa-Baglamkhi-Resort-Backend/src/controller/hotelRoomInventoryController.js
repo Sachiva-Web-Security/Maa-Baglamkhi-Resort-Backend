@@ -30,7 +30,14 @@ exports.addRoom = async (req, res) => {
     if (!body.roomNumber && !body.room_number) {
       return res.status(400).json({ message: "roomNumber is required" });
     }
-    const room = await roomInventoryModel.addRoom(body);
+    const categoryId = body.categoryId ?? body.category_id ?? body.roomCategory ?? body.room_category;
+    if (categoryId == null || categoryId === "") {
+      return res.status(400).json({ message: "categoryId is required" });
+    }
+    const room = await roomInventoryModel.addRoom({
+      categoryId: Number(categoryId),
+      roomNumber: body.roomNumber ?? body.room_number,
+    });
     res.json({ message: "Room added successfully", room });
   } catch (error) {
     if (error.code !== "ER_DUP_ENTRY" && process.env.NODE_ENV !== "test") {

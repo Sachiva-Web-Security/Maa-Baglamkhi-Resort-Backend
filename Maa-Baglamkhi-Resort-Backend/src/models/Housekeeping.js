@@ -383,7 +383,17 @@ const Housekeeping = {
     try {
       const hasRooms = await tableExists("rooms");
       const hasAssignments = await tableExists("assignments");
-      const hasInventory = await tableExists("hotel_room_inventory");
+      // The inventory table existing is not enough: the room/guest lookup below
+      // selects hri.guest, hri.check_in and hri.check_out directly. On a DB
+      // created from an older schema those columns are absent and the whole
+      // room list dies with ER_BAD_FIELD_ERROR, so require them here too.
+      const hasInventoryColumns =
+        (await columnExists("hotel_room_inventory", "room_number")) &&
+        (await columnExists("hotel_room_inventory", "status")) &&
+        (await columnExists("hotel_room_inventory", "guest")) &&
+        (await columnExists("hotel_room_inventory", "check_in")) &&
+        (await columnExists("hotel_room_inventory", "check_out"));
+      const hasInventory = hasInventoryColumns && (await tableExists("hotel_room_inventory"));
       const hasHousekeepingPriority = await columnExists("housekeeping", "priority");
       const hasHousekeepingNotes = await columnExists("housekeeping", "notes");
       const hasHousekeepingCleaningStart = await columnExists("housekeeping", "cleaningStart");

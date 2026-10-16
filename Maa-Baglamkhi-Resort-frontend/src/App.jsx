@@ -89,7 +89,7 @@ function isValidSession(data) {
 const ROLES = {
   ALL: ["admin", "manager", "receptionist", "waiter", "kitchen", "chef", "housekeeping", "accountant", "staff"],
   ADMIN_ONLY: ["admin"],
-  HOTEL: ["admin", "manager", "receptionist", "staff"],
+  HOTEL: ["admin", "manager", "receptionist", "accountant", "housekeeping", "staff"],
   RESTAURANT: ["admin", "manager", "waiter", "kitchen", "staff", "receptionist"],
   KITCHEN: ["admin", "manager", "kitchen", "chef"],
   ACCOUNTS: ["admin", "manager", "accountant"],
