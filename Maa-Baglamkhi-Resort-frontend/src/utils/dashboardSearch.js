@@ -11,7 +11,7 @@ export const DASHBOARD_SEARCH_TARGETS = [
   { label: "Inventory", route: "/inventory", helper: "Stock and item control", keywords: ["inventory", "stock", "item"] },
   { label: "Users", route: "/user", helper: "User management", keywords: ["user", "users", "staff", "employee"] },
   { label: "Reports", route: "/reports", helper: "Summary and analytics", keywords: ["reports", "report", "analytics"] },
-  { label: "Audit Logs", route: "/reports/audit", helper: "Security and activity trail", keywords: ["audit", "audit log", "activity log", "history"] },
+  { label: "Audit Logs", route: "/audit-logs", helper: "Security and activity trail", keywords: ["audit", "audit log", "activity log", "history"] },
   { label: "Kitchen", route: "/kitchen", helper: "Kitchen status", keywords: ["kitchen", "food", "prep"] },
   { label: "Restaurant", route: "/restaurant", helper: "Restaurant dashboard", keywords: ["restaurant", "table", "menu"] },
   { label: "Banquet", route: "/banquet", helper: "Event and hall ops", keywords: ["banquet", "hall", "event"] },

@@ -132,10 +132,13 @@ const Sidebar = ({ isMobile, sidebarOpen, setSidebarOpen, setIsAuthenticated }) 
       { id: 109, name: "Banquet", icon: FaGlassCheers, path: "/banquet", section: "operations" },
       { id: 1090, name: "Accounts", icon: FaWallet, path: "/accounts", section: "records" },
       { id: 110, name: "Inventory", icon: FaBoxes, path: "/inventory", section: "records" },
+      { id: 1102, name: "Inventory Masters", icon: FaWarehouse, path: "/inventory/masters", section: "records" },
+      { id: 1103, name: "Menu Recipes", icon: FaUtensils, path: "/inventory/recipes", section: "records" },
       { id: 1101, name: "Chef Issues", icon: FaExchangeAlt, path: "/inventory/chef-issues", section: "records" },
       { id: 111, name: "Reports", icon: FaChartBar, path: "/reports", section: "records" },
       { id: 112, name: "Audit Logs", icon: FaHistory, path: "/audit-logs", section: "records" },
       { id: 113, name: "User Management", icon: FaUserCheck, path: "/user", section: "records" },
+      { id: 1131, name: "Print Management", icon: FaClipboardList, path: "/print", section: "records" },
 
       { id: 114, name: "Salary", icon: FaMoneyBillWave, path: "/salary", section: "records" },
     ],
@@ -152,7 +155,7 @@ const Sidebar = ({ isMobile, sidebarOpen, setSidebarOpen, setIsAuthenticated }) 
       { id: 209, name: "Reports", icon: FaChartBar, path: "/reports", section: "records" },
       { id: 210, name: "Inventory", icon: FaBoxes, path: "/inventory", section: "records" },
       { id: 2101, name: "Chef Issues", icon: FaExchangeAlt, path: "/inventory/chef-issues", section: "records" },
-      { id: 211, name: "Audit Logs", icon: FaHistory, path: "/reports/audit", section: "records" },
+      { id: 211, name: "Audit Logs", icon: FaHistory, path: "/audit-logs", section: "records" },
 
     ],
     receptionist: [
