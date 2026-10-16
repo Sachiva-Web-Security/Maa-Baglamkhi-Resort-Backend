@@ -24,18 +24,33 @@ ALTER TABLE guest_identifications
   ADD COLUMN IF NOT EXISTS is_accepted TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Alias of verified (terms accepted)',
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
 
+-- The pre-existing id_number column is NOT NULL with no default and is
+-- never supplied by guestDocumentController's INSERT, which makes the
+-- corrected statement fail with ER_BAD_FIELD_DEFAULT (1364). Relaxing
+-- NOT NULL is strictly additive to what the column accepts.
+ALTER TABLE guest_identifications MODIFY COLUMN id_number VARCHAR(191) NULL;
+
 -- ----------------------------------------------------------------
--- PART B — bills: columns written by
---          src/controller/restaurantController.js (createSplitBill)
--- and read across folio/reporting. The live table has no split
--- metadata columns, so a split bill can only be represented as
--- many identical rows.
+-- PART B — bills: 13 of the 15 columns in the INSERT at
+--          src/controller/restaurantController.js:658 do not exist
+--          in the live table, so every createBill call dies with
+--          ER_BAD_FIELD_ERROR (1054). Also covers createSplitBill.
 -- ----------------------------------------------------------------
 ALTER TABLE bills
   ADD COLUMN IF NOT EXISTS split_label VARCHAR(100) NULL,
   ADD COLUMN IF NOT EXISTS split_no INT NULL,
+  ADD COLUMN IF NOT EXISTS split_count INT NULL,
   ADD COLUMN IF NOT EXISTS entity_type VARCHAR(50) NULL,
   ADD COLUMN IF NOT EXISTS entity_ref_id VARCHAR(191) NULL,
+  ADD COLUMN IF NOT EXISTS waiter_name VARCHAR(191) NULL,
+  ADD COLUMN IF NOT EXISTS customer_name VARCHAR(191) NULL,
+  ADD COLUMN IF NOT EXISTS phone VARCHAR(30) NULL,
+  ADD COLUMN IF NOT EXISTS service_charge DECIMAL(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS tax_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS total DECIMAL(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50) NULL,
+  ADD COLUMN IF NOT EXISTS payment_status VARCHAR(50) NULL,
   ADD COLUMN IF NOT EXISTS items_json JSON NULL COMMENT 'Itemised bill payload sent by the frontend',
   ADD COLUMN IF NOT EXISTS paid_by VARCHAR(191) NULL;
 
