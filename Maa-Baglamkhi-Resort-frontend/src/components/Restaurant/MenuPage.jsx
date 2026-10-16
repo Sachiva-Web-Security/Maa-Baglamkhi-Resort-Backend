@@ -364,21 +364,27 @@ const MenuPage = () => {
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      let tokenId = null;
+      // Token persistence is a best-effort side channel — a dead token endpoint
+      // must never block the actual order.
       try {
-        const tokenRes = await API.get(`/token/table/${table}`);
-        tokenId = tokenRes.data?.id || null;
-      } catch {
-        tokenId = null;
-      }
-      if (!tokenId) {
-        const createRes = await API.post("/token/create", { tableNumber: String(table), waiter: waiterName });
-        tokenId = createRes.data?.tokenId;
-      }
-      if (tokenId) {
-        await Promise.all(
-          order.map((item) => API.post("/token/item", { tokenId, name: item.name, qty: item.qty, rate: item.rate })),
-        );
+        let tokenId = null;
+        try {
+          const tokenRes = await API.get(`/token/table/${table}`);
+          tokenId = tokenRes.data?.id || null;
+        } catch {
+          tokenId = null;
+        }
+        if (!tokenId) {
+          const createRes = await API.post("/token/create", { tableNumber: String(table), waiter: waiterName });
+          tokenId = createRes.data?.tokenId;
+        }
+        if (tokenId) {
+          await Promise.all(
+            order.map((item) => API.post("/token/item", { tokenId, name: item.name, qty: item.qty, rate: item.rate })),
+          );
+        }
+      } catch (tokenErr) {
+        console.warn("[MenuPage] Token save skipped:", tokenErr.message);
       }
       await restaurantService.createOrder(
         table,

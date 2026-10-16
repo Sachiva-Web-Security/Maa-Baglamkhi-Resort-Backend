@@ -118,6 +118,11 @@ export const restaurantService = {
     return response.data;
   },
 
+  async createConsumptionSale(payload) {
+    const response = await API.post("/restaurant/bill", { ...payload, consumptionSale: true });
+    return response.data;
+  },
+
   async createKitchenOrder(payload) {
     const response = await API.post("/kitchen/order", payload);
     return response.data;

@@ -5,6 +5,7 @@ const router  = express.Router();
 const kitchenController = require("../controller/kitchenController");
 
 router.post("/order",           kitchenController.createOrder);
+router.get("/",                 kitchenController.getOrders);
 router.get("/orders",           kitchenController.getOrders);
 router.put("/orders/:id",       kitchenController.updateOrderStatus);
 router.put("/orders/:id/save",  kitchenController.saveOrder);

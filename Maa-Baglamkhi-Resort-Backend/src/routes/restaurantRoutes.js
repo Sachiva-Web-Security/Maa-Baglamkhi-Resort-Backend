@@ -34,6 +34,12 @@ router.get("/order-items/:orderId", controller.getOrderItems);
 router.put("/order/:tableNumber/pay", controller.payOrder);
 
 // BILLS
+router.get("/", controller.getBills);
+router.get("/payment", controller.getBills);
+router.get("/payment-bills", controller.getBills);
+router.get("/room-items", controller.getOrders);
+router.get("/bill", controller.getBills);
+router.get("/split-bills", controller.getBills);
 router.post("/bill", controller.createBill);
 router.post("/bill/:id/charge-to-room", controller.chargeBillToRoom);
 router.post("/bill/charge-to-room", controller.chargeBillToRoom);

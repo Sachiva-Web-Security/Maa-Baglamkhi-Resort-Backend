@@ -7,6 +7,7 @@ const authMiddleware = require("../middleware/authMiddleware");
 router.use(authMiddleware);
 
 // Kitchen orders
+router.get("/", chefController.getKitchenOrders);
 router.get("/orders", chefController.getKitchenOrders);
 router.put("/orders/:id/status", chefController.updateOrderStatus);
 router.put("/orders/:id/cancel", kitchenController.cancelOrder);
