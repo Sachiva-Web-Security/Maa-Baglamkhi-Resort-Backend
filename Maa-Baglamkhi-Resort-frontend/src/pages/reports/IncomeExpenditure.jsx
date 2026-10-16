@@ -107,11 +107,12 @@ export default function IncomeExpenditure() {
     });
 
     payments.forEach((row) => {
+      const day = String(pickText(row, DAY_KEYS) || "").slice(0, 10);
+      if (!day) return;
       const paymentType = String(pickText(row, ["payment_type", "paymentType"])).toLowerCase();
-      const isRefund = paymentType.includes("refund");
       addEntry(
-        pickText(row, DAY_KEYS),
-        isRefund ? "expense" : "income",
+        day,
+        paymentType.includes("refund") ? "expense" : "income",
         pickNumber(row, TOTAL_KEYS),
         row,
       );

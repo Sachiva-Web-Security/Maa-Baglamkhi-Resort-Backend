@@ -20,7 +20,7 @@ import {
   todayISO,
 } from "./reportUtils";
 
-const TOTAL_KEYS = ["total", "amount", "net_amount", "grand_total"];
+const TOTAL_KEYS = ["total", "amount", "net_amount", "grand_total", "debit", "credit"];
 const DAY_KEYS = ["date", "transaction_date", "entry_date", "created_at", "payment_date", "txn_date", "day"];
 const PAYMENT_TYPE_KEYS = ["payment_type", "paymentType", "type"];
 const METHOD_KEYS = ["payment_method", "paymentMethod", "method", "mode"];

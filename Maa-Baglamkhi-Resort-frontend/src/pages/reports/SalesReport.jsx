@@ -23,9 +23,34 @@ import {
 } from "./reportUtils";
 
 const TOTAL_KEYS = ["total", "amount", "grand_total", "net_amount", "bill_total", "total_amount"];
-const DAY_KEYS = ["date", "invoice_date", "created_at", "transaction_date", "entry_date", "billing_date", "day"];
-const REF_KEYS = ["invoice_no", "invoiceNumber", "booking_id", "bookingId", "reference", "booking_code"];
-const STATUS_KEYS = ["status", "payment_status", "invoiceStatus", "paymentStatus"];
+const DAY_KEYS = [
+  "date",
+  "invoice_date",
+  "invoiceDate",
+  "event_date",
+  "billing_date",
+  "created_at",
+  "transaction_date",
+  "entry_date",
+  "day",
+];
+const REF_KEYS = [
+  "invoice_no",
+  "invoiceNo",
+  "invoiceNumber",
+  "booking_code",
+  "bookingCode",
+  "booking_id",
+  "bookingId",
+  "reference",
+];
+const STATUS_KEYS = [
+  "status",
+  "payment_status",
+  "paymentStatus",
+  "invoiceStatus",
+  "invoice_status",
+];
 
 function Card({ icon, label, value, note, tone }) {
   const tones = {
@@ -104,8 +129,8 @@ export default function SalesReport() {
       if (to && day > to) return false;
       return true;
     };
-    const add = (row, departmentName, statusKeys) => {
-      const amount = pickNumber(row, TOTAL_KEYS);
+    const add = (row, departmentName, amountKeys) => {
+      const amount = pickNumber(row, amountKeys || TOTAL_KEYS);
       if (!Number.isFinite(amount) || amount <= 0) return;
       const day = String(pickText(row, DAY_KEYS) || "").slice(0, 10);
       if (!inWindow(day)) return;
@@ -114,14 +139,16 @@ export default function SalesReport() {
         amount,
         department: departmentName,
         reference: pickText(row, REF_KEYS) || "--",
-        status: pickText(row, statusKeys || STATUS_KEYS) || "--",
+        status: pickText(row, STATUS_KEYS) || "--",
         customer: pickText(row, ["customer_name", "customerName", "name", "guest_name", "booking_code"]) || "--",
       });
     };
 
     invoices.forEach((row) => add(row, "Hotel / Front Office"));
     bills.forEach((row) => add(row, "Restaurant"));
-    banquets.forEach((row) => add(row, "Banquet"));
+    (Array.isArray(banquets) ? banquets : banquets.bookings || []).forEach((row) =>
+      add(row, "Banquet", ["total", "grand_total", "grandTotal", "amount", "subtotal_amount"])
+    );
 
     const total = rows.reduce((sum, row) => sum + row.amount, 0);
     const byDepartment = new Map();
@@ -185,6 +212,11 @@ export default function SalesReport() {
             <span>To</span>
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700" />
           </label>
+          {(from || to) ? (
+            <button type="button" onClick={() => { setFrom(""); setTo(""); }} className="rounded-xl border border-slate-300 px-3 py-2 text-[12px] font-bold uppercase tracking-wide text-slate-600 hover:bg-slate-50">
+              All time
+            </button>
+          ) : null}
           <div className="flex gap-1">
             {["today", "month", "30d"].map((kind) => (
               <button key={kind} type="button" onClick={() => applyPreset(kind)} className="rounded-xl border border-slate-300 px-3 py-2 text-[12px] font-bold uppercase tracking-wide text-slate-600 hover:bg-slate-50">

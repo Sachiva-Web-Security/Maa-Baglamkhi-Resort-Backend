@@ -142,14 +142,17 @@ export default function CollectionReport() {
   }, [rows, methodFilter]);
 
   const reconciliationView = useMemo(() => {
-    const matched = pickNumber(reconciliation, ["matched", "matchedAmount", "matched_amount"]);
-    const unmatched = pickNumber(reconciliation, ["unmatched", "unmatchedAmount", "unmatched_amount"]);
-    const total = pickNumber(reconciliation, ["total", "totalAmount", "total_amount", "bankTotal"]);
-    const balance = pickNumber(reconciliation, ["balance", "difference", "variance"]);
-    const matchedCount = pickNumber(reconciliation, ["matchedCount", "matched_count"]);
-    const unmatchedCount = pickNumber(reconciliation, ["unmatchedCount", "unmatched_count"]);
-    const hasCounts = matchedCount > 0 || unmatchedCount > 0;
-    return { matched, unmatched, total, balance, matchedCount, unmatchedCount, hasCounts };
+    // Live shape: { totalBankIn, totalBankOut, matchedAmount, unmatchedAmount, partialAmount,
+    // reconciledAmount, totalItems, unmatchedItems, partialItems, matchedItems }
+    const matched = pickNumber(reconciliation, ["matchedAmount", "reconciledAmount", "matched", "matched_amount"]);
+    const unmatched = pickNumber(reconciliation, ["unmatchedAmount", "partialAmount", "unmatched", "unmatched_amount"]);
+    const total = pickNumber(reconciliation, ["totalBankIn", "totalBankOut", "totalAmount", "total", "bankTotal"]);
+    const balance = pickNumber(reconciliation, ["variance", "difference", "balance"]);
+    const matchedCount = pickNumber(reconciliation, ["matchedItems", "matchedCount", "matched_count"]);
+    const unmatchedCount = pickNumber(reconciliation, ["unmatchedItems", "unmatchedCount", "unmatched_count"]);
+    const totalItems = pickNumber(reconciliation, ["totalItems", "total_items"]);
+    const hasCounts = matchedCount > 0 || unmatchedCount > 0 || totalItems > 0;
+    return { matched, unmatched, total, balance, matchedCount, unmatchedCount, totalItems, hasCounts };
   }, [reconciliation]);
 
   const applyPreset = (kind) => {
