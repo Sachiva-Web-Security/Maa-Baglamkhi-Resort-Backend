@@ -51,10 +51,10 @@ const ReceptionDashboard = () => {
 
   const stats = useMemo(() => {
     const today = todayISO();
-    const arrivals = bookings.filter((item) => String(item.checkIn || "").slice(0, 10) === today).length;
-    const departures = bookings.filter((item) => String(item.checkOut || "").slice(0, 10) === today).length;
+    const arrivals = bookings.filter((item) => String(item.checkIn || item.check_in || "").slice(0, 10) === today).length;
+    const departures = bookings.filter((item) => String(item.checkOut || item.check_out || "").slice(0, 10) === today).length;
     const pendingBookings = bookings.filter((item) =>
-      String(item.bookingStatus || item.status || "").toLowerCase().includes("pending")
+      String(item.bookingStatus || item.booking_status || item.status || "").toLowerCase().includes("pending")
     ).length;
     const availableRooms = rooms.filter((item) => {
       const status = String(item.status || item.housekeepingLabel || "").toLowerCase();
@@ -106,7 +106,7 @@ const ReceptionDashboard = () => {
     },
     {
       label: "Check-out Ready",
-      value: bookings.filter((item) => String(item.checkOut || "").slice(0, 10) === todayISO()).length,
+      value: bookings.filter((item) => String(item.checkOut || item.check_out || "").slice(0, 10) === todayISO()).length,
       note: "Front office settlement preparation for departing guests.",
     },
   ], [bookings, rooms]);
@@ -125,16 +125,16 @@ const ReceptionDashboard = () => {
     rows: bookings
       .filter((item) => {
         const today = todayISO();
-        return String(item.checkIn || "").slice(0, 10) === today || String(item.checkOut || "").slice(0, 10) === today;
+        return String(item.checkIn || item.check_in || "").slice(0, 10) === today || String(item.checkOut || item.check_out || "").slice(0, 10) === today;
       })
       .slice(0, 8)
       .map((item, index) => ({
         id: item.id || item.bookingId || index,
-        guest: item.guestName || item.name || "Guest",
-        room: item.roomNumber || item.roomNo || "--",
-        arrival: item.checkIn || "--",
-        departure: item.checkOut || "--",
-        status: item.bookingStatus || item.status || "--",
+        guest: item.guestName || item.guest_name || item.name || "Guest",
+        room: item.roomNumber || item.roomNo || item.rooms || "--",
+        arrival: item.checkIn || item.check_in || "--",
+        departure: item.checkOut || item.check_out || "--",
+        status: item.bookingStatus || item.booking_status || item.status || "--",
       })),
     emptyText: "No arrival or departure movement found for today.",
   }), [bookings]);
