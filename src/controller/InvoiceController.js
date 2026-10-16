@@ -1,4 +1,14 @@
 const db = require("../config/db");
+// The money contract is shared with the folio. Everything downstream of the
+// bucket sums — net, refunds subtracting, the advance being included — is
+// computed here so the generated invoice and the folio page cannot diverge.
+const {
+  GST_RATE,
+  sumFolioEntries,
+  readRoomRent,
+  getAdvancePaid,
+  computeNetAmount,
+} = require("../utils/folioTotals");
 
 // ─── Invoice helpers (v4 schema) ──────────────────────────────────────────────
 //
@@ -616,23 +626,46 @@ exports.generateCustomerInvoice = async (req, res) => {
 
     const items = [...roomItems, ...folioChargeItems, ...foodItems];
     const subtotal = Number(items.reduce((sum, item) => sum + Number(item.total || 0), 0).toFixed(2));
-    const tax = Number((subtotal * 0.05).toFixed(2));
-    const discount = Number(folioDiscount.toFixed(2));
-    const totalAmount = Number((subtotal + tax - discount).toFixed(2));
+    const tax = Number((subtotal * GST_RATE).toFixed(2));
     const roomCharge = Number(
       roomItems.reduce((sum, item) => sum + Number(item.total || 0), 0).toFixed(2),
     );
     const foodCharge = Number(foodItems.reduce((sum, item) => sum + Number(item.total || 0), 0).toFixed(2));
 
-    // Amount already settled: prefer completed payments, else the booking advance.
-    const [paidRows] = await db.query(
-      `SELECT COALESCE(SUM(amount), 0) AS paid
-         FROM payments
-        WHERE booking_id = ? AND status = 'completed'`,
-      [customerId],
-    );
-    const paymentsPaid = Number(paidRows[0]?.paid || 0);
+    // Aggregate the four folio buckets with the ONE shared helper. The old code
+    // only lifted discounts and dropped refunds and payments from the totals
+    // entirely, which is why the invoice disagreed with the folio.
+    const folioBuckets = sumFolioEntries(folioRows);
+    // Room rent lives outside the folio ledger, and the advance lives in the
+    // payments table — both must be added, exactly as the folio does.
+    const roomRent = await readRoomRent(customerId);
+    const advance = await getAdvancePaid(customerId);
+
+    // folioPayments includes the folio-ledger payments PLUS the advance, because
+    // they describe overlapping views of money received and must not be summed.
+    const folioPayments = folioBuckets.payments + advance;
+
+    // netAmount = charges + tax − discounts − refunds − payments.
+    // Refunds SUBTRACT: reversing money the resort had counted lowers what the
+    // guest still owes. The old code never subtracted refunds at all.
+    const { netAmount } = computeNetAmount({
+      charges: subtotal,
+      discounts: folioBuckets.discounts,
+      refunds: folioBuckets.refunds,
+      payments: folioPayments,
+      tax,
+    });
+    const discount = Number(folioBuckets.discounts.toFixed(2));
+    // Total the invoice has billed the guest, before any money comes back in.
+    const totalAmount = Number((subtotal + tax - folioBuckets.discounts).toFixed(2));
+
+    // Amount already settled: folio payments and the advance are overlapping
+    // views, so take the larger rather than summing them.
+    const paymentsPaid = folioPayments;
     const paidAmount = paymentsPaid > 0 ? paymentsPaid : Number(booking.advanceAmount || 0);
+    // balanceDue keeps its historical meaning (gross billed − received) so the
+    // saved row's balance column stays interpretable; netAmount is the signed
+    // figure the folio and invoice both reconcile on.
     const balanceDue = Number((totalAmount - paidAmount).toFixed(2));
 
     // Check for an existing invoice row for this booking
@@ -732,6 +765,10 @@ exports.generateCustomerInvoice = async (req, res) => {
       totalAmount,
       paidAmount,
       balanceDue,
+      // Signed net after refunds: charges + tax − discount − refunds − payments.
+      // This is the same figure the folio page reports, so the two reconcile.
+      netAmount,
+      refunds: Number(folioBuckets.refunds.toFixed(2)),
       date: invoiceDate,
       checkIn: booking.checkIn || "",
       checkOut: booking.checkOut || "",

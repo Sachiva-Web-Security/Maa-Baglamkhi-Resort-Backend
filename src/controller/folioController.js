@@ -1,4 +1,14 @@
 const db = require("../config/db");
+const {
+  round2,
+  readFolioRowsForBooking,
+  pickFolioTable,
+  sumFolioEntries,
+  readRoomRent,
+  getAdvancePaid,
+  computeNetAmount,
+  GST_RATE,
+} = require("../utils/folioTotals");
 
 const ensureSchema = async () => {
   await db.query(`
@@ -118,6 +128,10 @@ exports.deleteEntry = async (req, res) => {
 };
 
 // ─── GET totals summary for a booking ────────────────────────────────────────
+//
+// All money maths lives in ../utils/folioTotals so the folio and the generated
+// invoice share one definition of the sign convention. `db` is still imported
+// above because the sibling endpoints build their own SQL.
 exports.getTotals = async (req, res) => {
   const bookingId = req.params.bookingId;
 
@@ -127,28 +141,58 @@ exports.getTotals = async (req, res) => {
 
   try {
     await ensureSchema();
-    const [rows] = await db.query(
-      `SELECT
-         SUM(CASE WHEN entry_type IN ('Room Charge','Extra Charge','Adjustment')
-                  THEN amount ELSE 0 END)  AS totalCharges,
-         SUM(CASE WHEN entry_type = 'Discount' THEN amount ELSE 0 END) AS totalDiscounts,
-         SUM(CASE WHEN entry_type = 'Payment'  THEN amount ELSE 0 END) AS totalPayments,
-         SUM(CASE WHEN entry_type = 'Refund'   THEN amount ELSE 0 END) AS totalRefunds
-       FROM hotel_folio_entries
-       WHERE booking_id = ?`,
-      [Number(bookingId)],
-    );
-    const t = rows[0] || {};
-    const charges   = Number(t.totalCharges   || 0);
-    const discounts = Number(t.totalDiscounts || 0);
-    const payments  = Number(t.totalPayments  || 0);
-    const refunds   = Number(t.totalRefunds   || 0);
-    res.json({
+    const bookingIdNum = Number(bookingId);
+
+    // readFolioRowsForBooking picks the folio table that actually holds rows for
+    // this booking, instead of trusting folio_entries to fall back — the old
+    // "table exists, so never fall back" path dropped the whole ledger when
+    // folio_entries existed but was empty. It resolves to the ROW ARRAY
+    // directly (or [] when there is no ledger) — NOT an object wrapper.
+    const folioRows = (await readFolioRowsForBooking(bookingIdNum)) || [];
+    const folioTable = await pickFolioTable(bookingIdNum);
+    const buckets = sumFolioEntries(folioRows);
+
+    // Room rent comes from booking_rooms and lives OUTSIDE the folio ledger. It
+    // must be added to charges, not skipped — omitting it is what made the UI
+    // show Total Charges ₹1,900 against a Net Balance of ₹2,000.
+    const roomRent = await readRoomRent(bookingIdNum);
+    const advance = await getAdvancePaid(bookingIdNum);
+
+    const charges   = round2(buckets.charges + roomRent);
+    const discounts = round2(buckets.discounts);
+    const refunds   = round2(buckets.refunds);
+    const payments  = round2(buckets.payments + advance);
+
+    // GST on the charges. The invoice has always applied this (subtotal *
+    // GST_RATE), so the folio applies it too — otherwise the folio net and the
+    // invoice total can never reconcile. Tax is added here and subtracted as part
+    // of netAmount in computeNetAmount.
+    const tax = round2(charges * GST_RATE);
+
+    // netAmount = charges + tax − discounts − refunds − payments.
+    // Refunds SUBTRACT: a refund reverses money the resort had already counted
+    // as received, so it lowers what the guest still owes.
+    const { netAmount } = computeNetAmount({
       charges,
       discounts,
-      payments,
       refunds,
-      netBalance: charges - discounts - payments + refunds,
+      payments,
+      tax,
+    });
+
+    res.json({
+      bookingId: bookingIdNum,
+      folioTable,
+      charges,
+      tax,
+      discounts,
+      refunds,
+      payments,
+      roomRent,
+      netAmount,
+      // Alias kept for the existing Guest Folio UI, which reads netBalance.
+      netBalance: netAmount,
+      status: netAmount > 0 ? "payable" : netAmount < 0 ? "refundable" : "settled",
     });
   } catch (err) {
     console.error("[folio] getTotals error:", err);

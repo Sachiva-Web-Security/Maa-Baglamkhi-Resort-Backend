@@ -1,6 +1,10 @@
 const db = require("../config/db");
 
-const GST_RATE = 0.05;
+// Folio ledger reading, entry_type normalisation, the advance lookup and the
+// GST_RATE constant all live in src/utils/folioTotals.js. They are NOT
+// re-declared here: exactly one copy of each in the codebase is what keeps the
+// folio and the invoice reconciling.
+const { canonicalFolioType, readFolioRowsForBooking, getAdvancePaid, GST_RATE } = require("../utils/folioTotals");
 
 const runQuery = (sql, params = []) =>
   new Promise((resolve, reject) => {
@@ -313,6 +317,12 @@ const getRoomItems = async (bookingId, nights = 1) => {
   const hasTable = await tableExists("booking_rooms");
   if (!hasTable) return [];
 
+  // room_charge is the pre-tax base. booking_rooms.total CANNOT be used: it was
+  // written by BookingFlow.rowTotal as price × nights × quantity × (1 + gst%),
+  // so a ₹800/night room stored ₹840, and bundled rows held far more again.
+  // Using it here would charge the room twice for tax — once stored, once more
+  // by the `subtotal * GST_RATE` step below. room_charge falls back to
+  // rate_per_night, so zero-rate legacy rows still price correctly.
   const rows = await runQuery(
     `
       SELECT
@@ -321,7 +331,7 @@ const getRoomItems = async (bookingId, nights = 1) => {
         1                                           AS quantity,
         COALESCE(br.rate_per_night, 0)             AS price,
         COALESCE(br.nights, ?)                      AS nights,
-        COALESCE(br.total, 0)                      AS roomTotal
+        COALESCE(NULLIF(br.room_charge, 0), br.rate_per_night) AS perNightBase
       FROM booking_rooms br
       JOIN rooms r ON r.id = br.room_id
       LEFT JOIN room_categories rc ON rc.id = br.category_id
@@ -332,15 +342,14 @@ const getRoomItems = async (bookingId, nights = 1) => {
   );
 
   return rows.map((row) => {
-    const price = Number(row.price || 0);
     const nightsUsed = Number(row.nights || nights);
-    const roomTotal = roundMoney(row.roomTotal || 0);
-    // Fall back to per-night × nights if pre-calculated total wasn't stored.
-    const total = roomTotal > 0 ? roomTotal : roundMoney(price * nightsUsed);
+    // Pre-tax base × nights. Tax is applied in exactly one place: the
+    // buildInvoicePayload `subtotal * GST_RATE` step.
+    const total = roundMoney(Number(row.perNightBase || 0) * nightsUsed);
     return {
       category: "Hotel",
       name: `${row.roomType} - Room ${row.roomNumber}`,
-      price,
+      price: Number(row.perNightBase || 0),
       quantity: 1,
       nights: nightsUsed,
       total,
@@ -348,50 +357,83 @@ const getRoomItems = async (bookingId, nights = 1) => {
   });
 };
 
+// ROOT CAUSE (split folio schema): there are TWO folio tables in this database
+// and they do not agree with each other:
+//
+//   hotel_folio_entries  entry_type = 'Room Charge' | 'Extra Charge' | ...
+//                        (title case — the one the Guest Folio UI reads/writes,
+//                         via /hotel/folio/:bookingId)
+//   folio_entries        entry_type = 'room_charge' | 'extra_charge' | ...
+//                        (snake case — the v4 table, always EMPTY)
+//
+// This function used to read folio_entries first and only fall back to
+// hotel_folio_entries when folio_entries was absent. Because folio_entries
+// *exists*, the fallback never fired, so every charge the user posted through
+// the Guest Folio UI was invisible to the invoice — the reported "room charge
+// is added but not included in the invoice total" bug.
+//
+// The fix reads whichever table actually HAS ROWS for this booking, and
+// normalises both enum spellings to one canonical set before comparing.
+const FOLIO_CHARGE_TYPES = new Set(["room_charge", "extra_charge", "adjustment"]);
+
 const getFolioItems = async (bookingId) => {
-  // v4 names the table `folio_entries`; `hotel_folio_entries` was the v1 name.
-  const hasTable =
-    (await tableExists("folio_entries")) || (await tableExists("hotel_folio_entries"));
-  if (!hasTable) return { chargeItems: [], discount: 0 };
-
-  const table = (await tableExists("folio_entries")) ? "folio_entries" : "hotel_folio_entries";
-
-  const rows = await runQuery(
-    `
-      SELECT entry_type, category, description, amount
-      FROM ${table}
-      WHERE booking_id = ?
-      ORDER BY entry_date ASC, id ASC
-    `,
-    [bookingId],
-  );
+  // One shared ledger read. readFolioRowsForBooking picks whichever of the two
+  // folio tables actually holds this booking's rows, so a split ledger cannot
+  // lose one side and an empty folio_entries table cannot shadow the ledger
+  // the Guest Folio UI writes to. It resolves to the ROW ARRAY directly (or []
+  // when there is no ledger) — it is NOT an object wrapper.
+  const rows = (await readFolioRowsForBooking(bookingId)) || [];
 
   const chargeItems = [];
   let folioDiscount = 0;
+  let folioPayments = 0;
+  let folioRefunds = 0;
+  let folioCharges = 0;
 
   rows.forEach((row) => {
-    const amount = roundMoney(row.amount || 0);
-    if (String(row.entry_type || "").toLowerCase() === "discount") {
-      folioDiscount += Math.abs(amount);
+    // Math.abs: amounts are stored as non-negative magnitudes, but legacy rows
+    // may hold negatives. The sign is implied by the bucket, never by the row.
+    const amount = Math.abs(roundMoney(row.amount || 0));
+    const type = canonicalFolioType(row.entry_type);
+
+    // Discounts reduce the payable amount, collected separately and subtracted
+    // from the subtotal (rather than shown as a line item).
+    if (type === "discount") {
+      folioDiscount += amount;
       return;
     }
 
-    if (["Payment", "Refund"].includes(String(row.entry_type || ""))) {
+    // Payments and refunds used to be dropped entirely. They are now surfaced
+    // so buildInvoicePayload can reconcile the final balance instead of silently
+    // ignoring money that already moved.
+    if (type === "payment") {
+      folioPayments += amount;
+      return;
+    }
+    if (type === "refund") {
+      folioRefunds += amount;
       return;
     }
 
-    if (["Room Charge", "Extra Charge", "Adjustment"].includes(String(row.entry_type || ""))) {
+    if (FOLIO_CHARGE_TYPES.has(type)) {
+      folioCharges += amount;
       chargeItems.push({
         category: "Hotel",
         name: row.description || row.category || row.entry_type || "Hotel Charge",
-        price: Math.abs(amount),
+        price: amount,
         quantity: 1,
-        total: Math.abs(amount),
+        total: amount,
       });
     }
   });
 
-  return { chargeItems, discount: roundMoney(folioDiscount) };
+  return {
+    chargeItems,
+    discount: roundMoney(folioDiscount),
+    payments: roundMoney(folioPayments),
+    refunds: roundMoney(folioRefunds),
+    charges: roundMoney(folioCharges),
+  };
 };
 
 const getFoodItems = async (roomNumbers = []) => {
@@ -569,9 +611,36 @@ const buildInvoicePayload = async (customerId) => {
 
   const items = [...roomItems, ...folioData.chargeItems, ...foodItems];
   const subtotal = roundMoney(items.reduce((sum, item) => sum + Number(item.total || 0), 0));
+  // Room rent now comes from room_charge × nights (a pre-tax base), so tax is
+  // applied exactly once here. The old room_rent = total path was GST-inclusive,
+  // which is why the room was previously taxed twice.
   const tax = roundMoney(subtotal * GST_RATE);
-  const discount = roundMoney(Number(booking.advanceDiscount || 0) + Number(folioData.discount || 0));
-  const totalAmount = roundMoney(subtotal + tax - discount);
+  // All four buckets are non-negative magnitudes from getFolioItems; the sign is
+  // implied by which bucket the money landed in.
+  const folioDiscount   = roundMoney(Number(folioData.discount || 0));
+  const folioPayments   = roundMoney(Number(folioData.payments || 0));
+  const folioRefunds    = roundMoney(Number(folioData.refunds  || 0));
+
+  // Payments recorded against the booking live in TWO places: the folio ledger
+  // and the payments table (advance taken at booking time). They are not
+  // additive — they describe overlapping views of money received — so take the
+  // larger of the two. Omitting the advance made the invoice overstate what the
+  // guest still owed.
+  const advancePaid = await getAdvancePaid(customerId);
+  const totalPayments = roundMoney(Math.max(folioPayments, advancePaid));
+  const totalRefunds  = folioRefunds;
+
+  // CANONICAL FOLIO MONEY CONTRACT — refunds SUBTRACT. A refund reverses money
+  // the resort had already counted as received, so it reduces what the guest
+  // still owes. The previous `+ folioRefunds` here was the sign bug being fixed.
+  const totalCharges  = subtotal;
+  const totalDiscount = folioDiscount;
+  const grossDue  = roundMoney(totalCharges + tax - totalDiscount);
+  const netAmount = roundMoney(grossDue - totalRefunds - totalPayments);
+  // netAmount > 0  → guest still owes (PAYABLE)
+  // netAmount < 0  → resort owes the guest (REFUNDABLE / credit)
+  // netAmount == 0 → settled
+  const totalAmount = netAmount;
   const roomCharge = roundMoney(
     [...roomItems, ...folioData.chargeItems]
       .filter((item) => item.category === "Hotel")
@@ -594,15 +663,26 @@ const buildInvoicePayload = async (customerId) => {
     extraCharge: roundMoney(folioData.chargeItems.reduce((sum, item) => sum + Number(item.total || 0), 0)),
     subtotal,
     tax,
-    discount,
+    // grossDue subtracts ONLY folioDiscount, so store exactly that here. Adding
+    // advanceDiscount (which nothing subtracts from the total) made the stored
+    // display value diverge from the computed net the moment that column was
+    // used. Currently benign only because bookings.discount_amount is 0.00.
+    discount: folioDiscount,
     totalAmount,
     companyName: booking.companyName || "",
     companyGstin: booking.companyGst || "",
     paymentMode: Number(booking.paidAmount || 0) > 0 ? "Mixed / Recorded" : "Pending",
-    paymentStatus: totalAmount > Number(booking.paidAmount || 0) ? "Pending" : "Paid",
+    // totalAmount is already net of discounts, refunds and payments (see above),
+    // so compare it against nothing: a positive net means money is still owed.
+    paymentStatus: totalAmount > 0 ? "Pending" : "Paid",
     items,
     notes: `Auto-generated combined invoice for booking #${customerId}`,
   });
+
+  // Payments already recorded against this booking come from BOTH the folio
+  // ledger and the `payments` table (advance captured at booking time), so
+  // take the larger of the two — they are not additive.
+  const folioPaidTotal = roundMoney(Math.max(folioPayments, Number(booking.paidAmount || 0)));
 
   return {
     id: saved.id,
@@ -618,10 +698,24 @@ const buildInvoicePayload = async (customerId) => {
     items,
     subtotal,
     tax,
-    discount,
+    // Same figure that grossDue subtracted, so totalCharges + tax − discount
+    // − totalRefunds − totalPayments reconciles exactly to totalAmount.
+    discount: folioDiscount,
     totalAmount,
-    paidAmount: Number(booking.paidAmount || 0),
-    balanceDue: Number(totalAmount) - Number(booking.paidAmount || 0),
+    // Full transaction picture so the invoice can show each line's effect:
+    //   totalCharges + tax − totalDiscount − totalRefunds − totalPayments = netAmount
+    totalCharges,
+    totalDiscount,
+    totalRefunds,
+    totalPayments,
+    // netAmount === totalAmount. netAmount > 0 is payable, < 0 is refundable.
+    netAmount,
+    // Folio-prefixed aliases retained for existing callers.
+    folioPayments,
+    folioRefunds,
+    folioDiscount,
+    paidAmount: folioPaidTotal,
+    balanceDue: totalAmount,
     date: formatDateKey(new Date()),
     checkIn: formatDateKey(booking.checkIn),
     checkOut: formatDateKey(booking.checkOut),
