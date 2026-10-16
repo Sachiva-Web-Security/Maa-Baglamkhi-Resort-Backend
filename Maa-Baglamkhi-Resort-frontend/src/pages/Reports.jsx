@@ -115,6 +115,9 @@ function getPrimaryValue(reportType, rows) {
   if (reportType === "housekeeping") {
     return String(rows.reduce((sum, row) => sum + (Number(row.rooms) || 0), 0));
   }
+  if (reportType === "attendance") {
+    return formatCurrency(rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0));
+  }
   return formatCurrency(rows.reduce((sum, row) => sum + (Number(row.revenue) || 0), 0));
 }
 
@@ -171,6 +174,12 @@ function getInsight(reportType, rows) {
   if (reportType === "housekeeping") {
     const open = rows.filter((row) => row.status === "Vacant Dirty").length;
     return `${open} rooms abhi immediate cleaning attention demand kar rahe hain.`;
+  }
+
+  if (reportType === "attendance") {
+    const present = rows.filter((row) => row.status === "Present").length;
+    const earned = rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+    return `${present} present entries recorded and ${formatCurrency(earned)} earned from attendance in selected range.`;
   }
 
   if (reportType === "all-bills") {
@@ -404,7 +413,9 @@ const ATTENDANCE_STATUS_LABEL = {
 };
 
 async function loadAttendanceReportRows(dateFrom, dateTo) {
-  const params = dateFrom && dateTo ? { from: dateFrom, to: dateTo } : { from: dateFrom, to: dateTo };
+  const params = {};
+  if (dateFrom) params.from = dateFrom;
+  if (dateTo) params.to = dateTo;
   const response = await API.get("/attendance/report", { params });
   const payload = response.data || {};
 
@@ -617,7 +628,7 @@ const Reports = () => {
     setError("");
 
     try {
-      const rows = await loadReportRows(reportType);
+      const rows = await loadReportRows(reportType, filters);
       setData(Array.isArray(rows) ? rows : []);
       setLastFetchedAt(new Date());
     } catch (err) {
@@ -627,7 +638,7 @@ const Reports = () => {
     } finally {
       setLoading(false);
     }
-  }, [reportType]);
+  }, [reportType, filters.dateFrom, filters.dateTo]);
 
   useEffect(() => {
     fetchData();

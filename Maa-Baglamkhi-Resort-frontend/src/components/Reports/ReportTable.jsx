@@ -82,6 +82,19 @@ const getColumns = (reportType) => {
     ];
   }
 
+  if (reportType === "attendance") {
+    return [
+      { key: "date", label: "Date" },
+      { key: "employee", label: "Employee" },
+      { key: "designation", label: "Designation" },
+      { key: "department", label: "Department" },
+      { key: "checkIn", label: "Check In" },
+      { key: "checkOut", label: "Check Out" },
+      { key: "status", label: "Status" },
+      { key: "amount", label: "Daily Pay" },
+    ];
+  }
+
   return [];
 };
 
@@ -101,11 +114,14 @@ const getStatusClass = (value) => {
   if (["confirmed", "occupied", "paid", "posted"].includes(normalized)) {
     return "border-[#BFDBFE] bg-[#EFF6FF] text-[#1D4ED8]";
   }
-  if (["completed", "billed", "vacant clean"].includes(normalized)) {
+  if (["completed", "billed", "vacant clean", "present", "holiday", "week off"].includes(normalized)) {
     return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
-  if (["pending", "vacant dirty"].includes(normalized)) {
+  if (["pending", "vacant dirty", "late", "half day"].includes(normalized)) {
     return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+  if (["absent", "on leave"].includes(normalized)) {
+    return "border-rose-200 bg-rose-50 text-rose-700";
   }
 
   return "border-slate-200 bg-slate-100 text-slate-600";
