@@ -15,6 +15,9 @@
 const NOT_FOUND_MESSAGE = "Endpoint not found.";
 
 function notFoundMiddleware(req, res) {
+  // Every path reaching here is a /api path: rootRoutes answers everything
+  // else. req.path is matched against req.path, which is already /api-stripped,
+  // so test originalUrl — /api/users resolves to req.path === "users".
   return res.status(404).json({
     message: NOT_FOUND_MESSAGE,
     path: req.originalUrl,
