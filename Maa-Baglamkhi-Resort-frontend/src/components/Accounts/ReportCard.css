@@ -1,0 +1,38 @@
+.accounts-report-card {
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(30, 64, 175, 0.08);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.accounts-report-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(30, 64, 175, 0.12);
+}
+
+.accounts-report-card__title {
+  margin: 0 0 6px 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: #1C231F;
+}
+
+.accounts-report-card__subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: #6B6F66;
+}
+
+.accounts-report-card--blue {
+  background: #E4F0EE;
+}
+.accounts-report-card--green {
+  background: #E4F0EE;
+}
+.accounts-report-card--purple {
+  background: #EDE8F5;
+}

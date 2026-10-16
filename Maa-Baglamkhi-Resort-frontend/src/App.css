@@ -1,0 +1,24 @@
+/* 🔥 Pure screen ke center me lane ke liye */
+.Toastify__toast-container {
+  position: fixed !important;
+  top: 50% !important;
+  left: 65% !important;
+  transform: translate(-50%, -50%) !important;
+  width: 900px !important;
+  max-width: 900px !important;
+  padding: 0 !important;
+}
+
+/* 🔥 Toast ko bada karo */
+.Toastify__toast {
+  width: 50% !important;
+  min-height: 180px !important;
+  font-size: 28px !important;
+  padding: 50px !important;
+  border-radius: 25px !important;
+  text-align: center !important;
+}
+.blur-bg {
+  filter: blur(6px);
+  transition: 0.3s ease;
+}

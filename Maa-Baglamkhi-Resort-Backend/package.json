@@ -1,0 +1,41 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "nodemon --watch src --ext js,json --ignore node_modules --ignore .git index.js",
+    "start": "node index.js",
+    "init": "node initialize.js",
+    "init:prod": "node initialize.js",
+    "seed": "node seed-runner.js",
+    "repair:payments": "node repair-payments.js",
+    "test": "npm run test:routes && npm run test:lifecycle",
+    "test:routes": "node test/api-routes.test.js",
+    "test:lifecycle": "node test/lifecycle.test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.3.2",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.0.2",
+    "mysql2": "^3.17.4",
+    "pdf-to-printer": "^5.8.0",
+    "pdfkit": "^0.19.1",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "jest": "^30.3.0",
+    "nodemon": "^3.1.14",
+    "supertest": "^7.2.2"
+  }
+}

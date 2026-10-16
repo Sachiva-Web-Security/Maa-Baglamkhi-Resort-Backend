@@ -1,0 +1,48 @@
+.accounts-row {
+  border-top: 1px solid #E4E1D8;
+}
+
+.accounts-td {
+  padding: 12px;
+  font-size: 14px;
+  color: #1C231F;
+  vertical-align: middle;
+}
+
+.accounts-td--amount {
+  font-weight: 700;
+}
+
+.accounts-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.accounts-badge--income {
+  background: #E4F0EE;
+  color: #0F6E64;
+}
+
+.accounts-badge--expense {
+  background: #FDEBEB;
+  color: #B33A3A;
+}
+
+.accounts-view-btn {
+  background: #0B4F48;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.accounts-view-btn:hover {
+  opacity: 0.85;
+}

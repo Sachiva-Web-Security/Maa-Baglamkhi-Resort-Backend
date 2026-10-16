@@ -1,0 +1,52 @@
+.accounts-invoice-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.accounts-invoice-form__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.accounts-invoice-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.accounts-invoice-form__label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #374151;
+}
+
+.accounts-invoice-form__input {
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  background: #ffffff;
+}
+
+.accounts-invoice-form__input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+}
+
+.accounts-invoice-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+@media (max-width: 640px) {
+  .accounts-invoice-form__row {
+    grid-template-columns: 1fr;
+  }
+}
+

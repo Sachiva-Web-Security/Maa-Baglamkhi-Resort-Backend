@@ -1,0 +1,40 @@
+/* Sidebar - Uses Tailwind responsive classes via JSX */
+.sidebar {
+  /* Base styles - Tailwind handles responsive via JSX classes */
+  width: 250px;
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Smooth transitions for mobile sidebar */
+.sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: #192034;
+  border-radius: 10px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: #1d4ed8;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 250px;
+    /* Mobile sidebar slides in/out via transform */
+  }
+}
+
+/* Hide nav-text on very small screens if needed */
+@media (max-width: 640px) {
+  .nav-text-mobile {
+    display: none;
+  }
+}
+

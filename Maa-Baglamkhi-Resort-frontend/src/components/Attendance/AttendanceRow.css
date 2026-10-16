@@ -1,0 +1,81 @@
+.table-row {
+  border-top: 1px solid #e5e7eb;
+}
+
+.table-td {
+  padding: 12px;
+  font-size: 14px;
+  color: #1f2937;
+}
+
+.status-badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-block;
+}
+
+.status-present {
+  background-color: #dcfce7;
+  color: #166534;
+}
+
+.status-absent {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.status-late {
+  background-color: #fef3c7;
+  color: #ca8a04;
+}
+
+.status-leave {
+  background-color: #dbeafe;
+  color: #2563eb;
+}
+
+.status-biometric {
+  background-color: #e9d5ff;
+  color: #6b21a8;
+}
+
+.status-manual {
+  background-color: #f3f4f6;
+  color: #374151;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.action-btn {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: none;
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.action-btn:hover {
+  opacity: 0.9;
+}
+
+.action-btn-green {
+  background-color: #16a34a;
+}
+
+.action-btn-red {
+  background-color: #dc2626;
+}
+
+.action-btn-blue {
+  background-color: #2563eb;
+}
+
