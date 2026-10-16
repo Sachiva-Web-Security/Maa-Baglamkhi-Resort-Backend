@@ -30,10 +30,22 @@ class StorageMock {
   }
 }
 
-const createWindowLocation = () => ({
-  origin: "http://localhost:5173",
-  href: "http://localhost:5173/",
-});
+const createWindowLocation = () => {
+  const location = {
+    origin: "http://localhost:5173",
+    href: "http://localhost:5173/",
+    pathname: "/",
+  };
+
+  const navigate = (url) => {
+    location.href = url;
+    location.pathname = url.slice(location.origin.length) || "/";
+  };
+
+  location.assign = jest.fn(navigate);
+  location.replace = jest.fn(navigate);
+  return location;
+};
 
 beforeEach(() => {
   const localStorage = new StorageMock();

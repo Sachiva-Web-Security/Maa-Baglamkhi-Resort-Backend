@@ -1,13 +1,10 @@
 module.exports = {
   testEnvironment: "node",
-  roots: ["<rootDir>/tests"],
+  roots: ["<rootDir>/test"],
+  testMatch: ["**/*.test.js"],
   collectCoverageFrom: [
-    "controller/**/*.js",
-    "routes/**/*.js",
-    "models/**/*.js",
+    "src/**/*.js",
     "!**/node_modules/**",
   ],
   coverageDirectory: "<rootDir>/coverage",
-  setupFilesAfterEnv: ["<rootDir>/tests/setupAfterEnv.js"],
-  globalTeardown: "<rootDir>/tests/globalTeardown.js",
 };
