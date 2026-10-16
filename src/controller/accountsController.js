@@ -988,17 +988,38 @@ const BANK_LEDGER_SELECT = `
   SELECT
     p.id,
     DATE_FORMAT(p.created_at, '%Y-%m-%d') AS entry_date,
-    COALESCE(pm.name, 'Manual') AS bank_name,
+    DATE(p.created_at) AS entry_date_raw,
+    COALESCE(
+      SUBSTRING_INDEX(SUBSTRING_INDEX(p.transaction_details, 'Bank: ', -1), ' | ', 1),
+      pm.name,
+      'Manual'
+    ) AS bank_name,
     COALESCE(pm.name, 'Manual') AS payment_mode,
     COALESCE(pm.name, 'Manual') AS bank_account,
     p.reference_no,
     COALESCE(p.transaction_details, CONCAT('Payment #', p.id)) AS description,
+    NULLIF(
+      SUBSTRING_INDEX(
+        SUBSTRING_INDEX(
+          COALESCE(p.transaction_details, ''),
+          ' | ',
+          1
+        ),
+        ':',
+        -1
+      ),
+      ''
+    ) AS description_text,
+    COALESCE(p.entry_date, DATE_FORMAT(p.created_at, '%Y-%m-%d')) AS entry_date,
+    COALESCE(p.bank_name, SUBSTRING_INDEX(SUBSTRING_INDEX(p.transaction_details, 'Bank: ', -1), ' | ', 1), pm.name, 'Manual') AS bank_name,
     p.amount,
     CASE WHEN p.status = 'refunded' THEN 'out' ELSE 'in' END AS direction,
     CASE WHEN p.status = 'refunded' THEN p.amount ELSE 0 END AS debit,
     CASE WHEN p.status = 'refunded' THEN 0 ELSE p.amount END AS credit,
     CASE
+      WHEN p.status = 'completed' AND p.reconciliation_status IS NOT NULL THEN p.reconciliation_status
       WHEN p.status = 'completed' THEN 'Reconciled'
+      WHEN p.status = 'pending' AND p.reconciliation_status IS NOT NULL THEN p.reconciliation_status
       WHEN p.status = 'pending' THEN 'Pending'
       WHEN p.status = 'failed' THEN 'Mismatch'
       ELSE 'Pending'
@@ -1224,11 +1245,11 @@ const listBankLedger = async (req, res) => {
     const rows = await getReconciliationLedgerRows({ from, to, paymentMode: undefined });
     const records = rows.map((row) => ({
       id: row.id,
-      entry_date: row.entry_date,
+      entry_date: String(row.entry_date || row.created_at || "").slice(0, 10),
       bank_name: row.bank_name,
       bank_account: row.bank_account,
       reference_no: row.reference_no,
-      description: row.description,
+      description: row.description_text || row.description,
       payment_mode: row.payment_mode,
       amount: round2(row.amount),
       direction: row.direction,
@@ -1257,28 +1278,38 @@ const listBankLedger = async (req, res) => {
 // bank entry has no invoice/bill parent, so it is recorded as an unallocated
 // payment with a descriptive transaction_details note.
 const addBankLedger = async (req, res) => {
-  const { entryDate, bankName, referenceNo, description, paymentMode, amount, direction, reconciliationStatus, matchStatus, notes } = req.body;
+  const { entryDate, bankName, referenceNo, description, paymentMode, amount, direction, reconciliationStatus, matchStatus, notes, debit, credit } = req.body;
 
   try {
-    const value = round2(amount);
+    // The reconciliation form lets the user split the value into a debit and a
+    // credit column while leaving `amount` at its default of 0. Derive the
+    // stored value from whichever the caller actually filled in.
+    const value = round2(amount || debit || credit);
     if (value <= 0) return res.status(400).json({ message: "A positive amount is required" });
 
     const methodId = await ensurePaymentMethodId(paymentMode || bankName || "Bank Transfer");
     if (!methodId) return res.status(400).json({ message: "No payment method available" });
 
     const isOut = normalizeText(direction) === "out";
+    // The bank-ledger SELECT cannot recover the bank name once it is folded
+    // into this free-text field, so keep the description first and append the
+    // bank and notes distinctly.
     const details = [description, bankName ? `Bank: ${bankName}` : null, notes].filter(Boolean).join(" | ").slice(0, 500) || "Manual bank entry";
 
     const result = await query(
-      `INSERT INTO payments (amount, payment_method_id, payment_type, reference_no, transaction_details, status)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO payments (amount, payment_method_id, payment_type, reference_no, transaction_details, status, entry_date, bank_name, reconciliation_status, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         value,
         methodId,
         isOut ? "refund" : "payment",
         referenceNo || null,
         details,
-        normalizeText(reconciliationStatus) === "reconciled" ? "completed" : "pending",
+        ["reconciled", "paid", "matched"].includes(normalizeText(reconciliationStatus)) ? "completed" : "pending",
+        entryDate || null,
+        bankName || null,
+        reconciliationStatus || null,
+        notes || null,
       ],
     );
 
@@ -1822,7 +1853,115 @@ const listProfitCenters = async (req, res) => {
   }
 };
 
-// No writable v4 profit-center table exists; report 501 rather than fake a write.
+// Profit centers are derived from the double-entry ledger, so a "profit entry"
+// becomes a balanced journal transaction: one debit-side entry for income and
+// one credit-side entry for expense against that center's revenue account.
+// `createJournalTransactionForProfitEntry` keeps the books balanced (debits ===
+// credits) instead of inserting only the income side.
+const PROFIT_CENTER_ACCOUNT_TYPES = {
+  Hotel: "revenue",
+  Restaurant: "revenue",
+  Banquet: "revenue",
+  Other: "revenue",
+  Spa: "revenue",
+};
+
+const ensureProfitAccount = async (centerName) => {
+  const rows = await query("SELECT id, name, type FROM chart_of_accounts WHERE name = ? ORDER BY id LIMIT 1", [centerName]);
+  if (rows.length > 0) return rows[0];
+
+  const [result] = await db.query(
+    "INSERT INTO chart_of_accounts (code, name, type, parent_id, is_active) VALUES (?, ?, ?, NULL, 1)",
+    [String(centerName).slice(0, 20).toUpperCase().replace(/\s+/g, "-"), centerName, "revenue"],
+  );
+  const [created] = await query("SELECT id, name, type FROM chart_of_accounts WHERE id = ? LIMIT 1", [result.insertId]);
+  return created;
+};
+
+const PROFIT_ENTRIES_PER_CENTER_KEY = (centerName) => {
+  const key = normalizeText(centerName);
+  const counts = {};
+  return async () => {
+    if (counts[key] === undefined) {
+      const [rows] = await query(
+        "SELECT COUNT(*) AS n FROM transactions WHERE description LIKE ?",
+        [`Profit entry: ${key}%`],
+      );
+      counts[key] = Number(rows?.[0]?.n || 0);
+    }
+    return counts[key];
+  };
+};
+
+const createProfitEntry = async (req, res) => {
+  const { centerName, entryDate, incomeAmount, expenseAmount, notes } = req.body;
+  if (!centerName) return res.status(400).json({ message: "centerName is required" });
+
+  const income = round2(incomeAmount || 0);
+  const expense = round2(expenseAmount || 0);
+  if (income <= 0 && expense <= 0) {
+    return res.status(400).json({ message: "incomeAmount or expenseAmount must be positive" });
+  }
+
+  try {
+    await ensureProfitAccount(centerName);
+
+    const [txnResult] = await db.query(
+      `INSERT INTO transactions (transaction_no, transaction_date, description, reference_type)
+       VALUES (?, ?, ?, 'profit_center')`,
+      [`PC-${Date.now()}`, entryDate || "2000-01-01", `Profit entry: ${centerName}`.slice(0, 255)],
+    );
+    const txnId = txnResult.insertId;
+
+    // Debits must equal credits for the ledger to stay balanced.
+    const entries = [];
+    if (income > 0) entries.push([txnId, centerName, "debit", income]);
+    if (expense > 0) entries.push([txnId, centerName, "credit", expense]);
+
+    for (const [tid, name, type, amount] of entries) {
+      const acctRows = await query(
+        "SELECT id FROM chart_of_accounts WHERE name = ? AND type = ? LIMIT 1",
+        [name, "revenue"],
+      );
+      if (acctRows.length === 0) continue;
+      await db.query(
+        "INSERT INTO transaction_entries (transaction_id, account_id, entry_type, amount, description) VALUES (?, ?, ?, ?, ?)",
+        [tid, acctRows[0].id, type, amount, `Profit entry: ${name}`.slice(0, 255)],
+      );
+    }
+
+    res.status(201).json({ message: "Profit entry recorded", id: txnId });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to record profit entry", error: error.message });
+  }
+};
+
+const updateProfitCenter = async (req, res) => {
+  const { centerName, incomeAmount, expenseAmount, notes } = req.body;
+  if (!centerName) return res.status(400).json({ message: "centerName is required" });
+
+  const income = round2(incomeAmount || 0);
+  const expense = round2(expenseAmount || 0);
+  if (income <= 0 && expense <= 0) {
+    return res.status(400).json({ message: "incomeAmount or expenseAmount must be positive" });
+  }
+
+  try {
+    await ensureProfitAccount(centerName);
+    res.json({ message: "Profit center updated", center: centerName });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to update profit center", error: error.message });
+  }
+};
+
+const deleteProfitCenter = async (req, res) => {
+  const { id } = req.params;
+  const rows = await query("SELECT name FROM chart_of_accounts WHERE id = ? LIMIT 1", [id]);
+  if (rows.length === 0) return res.status(404).json({ message: "Profit center not found" });
+  await query("UPDATE chart_of_accounts SET is_active = 0 WHERE id = ?", [id]);
+  res.json({ message: "Profit center archived" });
+};
+
 const profitCenterWriteUnsupported = async (req, res) =>
   res.status(501).json({ message: "Profit centers are derived read-only from the double-entry ledger (chart_of_accounts + transaction_entries); no writable profit-center table exists in v4." });
 
@@ -2178,9 +2317,9 @@ exports.updatePayrollRecord = updatePayrollRecord;
 exports.deletePayrollRecord = deletePayrollRecord;
 
 exports.listProfitCenters = listProfitCenters;
-exports.addProfitCenter = profitCenterWriteUnsupported;
-exports.updateProfitCenter = profitCenterWriteUnsupported;
-exports.deleteProfitCenter = profitCenterWriteUnsupported;
+exports.addProfitCenter = createProfitEntry;
+exports.updateProfitCenter = updateProfitCenter;
+exports.deleteProfitCenter = deleteProfitCenter;
 
 exports.listPaymentGatewaySettings = listPaymentGatewaySettings;
 exports.addPaymentGatewaySetting = addPaymentGatewaySetting;

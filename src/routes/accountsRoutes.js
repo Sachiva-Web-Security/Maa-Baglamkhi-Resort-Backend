@@ -51,6 +51,49 @@ const {
   getAllPaymentHistory,
 } = require("../controller/accountsController");
 
+const db = require("../config/db");
+
+// ── Schema reconciliation for the bank-ledger form ─────────────────────────
+// The UI lets an accountant pick an entry date, a bank name, a reconciliation
+// status and notes, but the `payments` table (which backs the ledger) has no
+// columns for any of them. The values were being silently dropped, so a row
+// always came back with today's date, the payment method's name in the bank
+// column, and "Pending" for the status.
+//
+// Only ADDs missing columns; safe and idempotent to run on every start.
+const ACCOUNTS_MIGRATIONS = [
+  ["payments", "entry_date", "DATE NULL"],
+  ["payments", "bank_name", "VARCHAR(191) NULL"],
+  ["payments", "reconciliation_status", "VARCHAR(50) NULL"],
+  ["payments", "notes", "TEXT NULL"],
+];
+
+let accountsSchemaReady = null;
+const ensureAccountsSchema = async () => {
+  if (accountsSchemaReady) return accountsSchemaReady;
+  accountsSchemaReady = (async () => {
+    for (const [table, column, definition] of ACCOUNTS_MIGRATIONS) {
+      try {
+        const [rows] = await db.query(
+          `SELECT COUNT(*) AS n FROM information_schema.COLUMNS
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+          [table, column],
+        );
+        if (!rows?.[0]?.n) {
+          await db.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${definition}`);
+        }
+      } catch (err) {
+        console.error(`accounts schema migration failed for ${table}.${column}:`, err.message);
+      }
+    }
+  })();
+  return accountsSchemaReady;
+};
+
+router.use(async (_req, _res, next) => {
+  ensureAccountsSchema().then(next).catch(next);
+});
+
 router.get("/transactions", getTransactions);
 router.get("/transactions/:id", getTransactionById);
 router.put("/transactions/:id", updateTransaction);
