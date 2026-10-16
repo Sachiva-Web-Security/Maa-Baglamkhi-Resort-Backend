@@ -1,10 +1,12 @@
 const rateLimit = require("express-rate-limit");
 
 const DEFAULT_DEV_ALLOWED_ORIGINS = [
-  "http://127.0.0.1:5173",
   "http://localhost:5173",
-  "http://127.0.0.1:4173",
+  "http://127.0.0.1:5173",
   "http://localhost:4173",
+  "http://127.0.0.1:4173",
+  "http://192.168.1.5:5173",
+  "http://192.168.1.5:4173",
 ];
 
 function parseAllowedOrigins(value) {
@@ -79,8 +81,17 @@ function createCorsOriginHandler() {
 
 function getCorsOptions() {
   return {
-    origin: true,
-    credentials: true,
+    origin: createCorsOriginHandler(),
+    credentials: false,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Audit-Action",
+      "X-Audit-Source",
+      "X-Audit-User-Email",
+    ],
+    maxAge: 86400,
     optionsSuccessStatus: 204,
   };
 }

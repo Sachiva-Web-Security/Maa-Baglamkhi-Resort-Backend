@@ -1,12 +1,20 @@
-const router = require("express").Router();
-
 /**
- * Mounted after all /api routes. Anything that is not an /api request and is
- * not a real static file lands here, so it gets a plain message instead of a
- * dropped connection.
+ * Mounted after every /api route. It exists so a request that is not an API
+ * call and is not a real static file returns a plain message instead of being
+ * dropped. Without it the frontend dev server gets a 500 here.
+ *
+ * Mounted with app.use(...) — not a Router — because inside a Router every
+ * unmatched path falls through to express's own error page, which is exactly
+ * the drop this middleware is there to prevent.
+ *
+ * /api misses are handled by notFoundMiddleware in errorHandler.js, which is
+ * mounted right after this middleware.
  */
-router.use((req, res) => {
+function rootRoutes(req, res, next) {
+  if (req.originalUrl.startsWith("/api")) {
+    return next();
+  }
   return res.status(404).send("Not found");
-});
+}
 
-module.exports = router;
+module.exports = rootRoutes;

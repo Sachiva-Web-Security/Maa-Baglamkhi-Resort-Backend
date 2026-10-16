@@ -1,17 +1,46 @@
 import axios from "axios";
 
 const ENV =
-  typeof import.meta !== "undefined" && import.meta.env
-    ? import.meta.env
-    : {};
+  typeof import.meta !== "undefined" && import.meta.env ? import.meta.env : {};
+
+// Single base URL for every request.
+// Default "/api" keeps the browser same-origin with the dev server, so Vite's
+// proxy forwards /api to the backend on 5002 — no CORS, no mixed transport.
+const API_BASE =
+  ENV.VITE_API_BASE_URL ||
+  ENV.VITE_API_BASE ||
+  ENV.VITE_API_URL ||
+  "/api";
 
 const API = axios.create({
-  baseURL: ENV.VITE_API_BASE || ENV.VITE_API_URL || ENV.VITE_BACKEND_ORIGIN || "http://localhost:5002/api",
+  baseURL: API_BASE,
   timeout: 15_000,
-  withCredentials: true,
+  withCredentials: false,
 });
 
+const LOGIN_PATH = "/login";
+
+function authCleared() {
+  return Boolean(localStorage.getItem("token"));
+}
+
+function clearAuthState() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("role");
+  localStorage.removeItem("name");
+  localStorage.removeItem("email");
+  localStorage.removeItem("isAuthenticated");
+}
+
+function redirectToListing() {
+  if (window.location.pathname !== LOGIN_PATH) {
+    window.location.assign(`${window.location.origin}${LOGIN_PATH}`);
+  }
+}
+
 API.interceptors.request.use((req) => {
+  // Bearer token is the one auth transport. Sent on every request, including
+  // cross-origin ones, so no call depends on a cookie crossing origins.
   const token = localStorage.getItem("token");
   if (token) {
     req.headers.Authorization = `Bearer ${token}`;
@@ -37,28 +66,28 @@ API.interceptors.request.use((req) => {
   return req;
 });
 
-// Retry on transient backend-down errors (ECONNREFUSED / proxy 502/503/504)
-// Also handle 401 in the same interceptor so both behaviors run together
+// 401 handling and transient-retry live in the same interceptor so a 401 never
+// gets retried, and a retry never masks a logout.
 API.interceptors.response.use(
   (res) => res,
   (err) => {
-    // 401: clear auth state
-    if (err.response?.status === 401 && !err.config?.skipAuthRedirect) {
-      localStorage.removeItem("token");
-      localStorage.removeItem("role");
-      localStorage.removeItem("name");
-      localStorage.removeItem("email");
-      localStorage.removeItem("isAuthenticated");
+    const status = err.response?.status;
 
-      if (window.location.pathname !== "/login") {
-        window.location.assign(`${window.location.origin}/login`);
+    if (status === 401 && !err.config?.skipAuthRedirect) {
+      // The login call itself returns 401 on a bad password. Only log the user
+      // out when there was a real session before this response.
+      if (authCleared()) {
+        clearAuthState();
+        redirectToListing();
       }
+      return Promise.reject(err);
     }
 
-    const isTimeout = err.code === "ECONNABORTED" || err.message?.includes("timeout");
+    const isTimeout =
+      err.code === "ECONNABORTED" || err.message?.includes("timeout");
     const shouldRetry =
       !err.config?.skipRetry &&
-      err.response?.status !== 401 &&
+      status !== 401 &&
       (err.code === "ERR_NETWORK" ||
         err.message?.includes("ECONNREFUSED") ||
         err.message?.includes("ECONNRESET") ||
@@ -79,10 +108,37 @@ API.interceptors.response.use(
   }
 );
 
-/** Base URL of the backend server (no /api) for building upload URLs */
+/** Extract a human-readable message from a rejected request. */
+export function getErrorMessage(err, fallback = "Something went wrong.") {
+  const status = err?.response?.status;
+  if (!err) return fallback;
+  if (err.response) {
+    const data = err.response.data;
+    const message =
+      (typeof data === "string" && data) ||
+      data?.message ||
+      data?.error ||
+      data?.Message;
+    if (message) return String(message);
+    if (status === 401) return "Session expired. Please sign in again.";
+    if (status === 403) return "You do not have permission to do that.";
+    if (status === 404) return "That resource was not found.";
+    if (status >= 500) return "The server is having trouble. Please try again.";
+    return `Request failed (${status}).`;
+  }
+  if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
+    return "The server took too long to respond.";
+  }
+  return "Cannot reach the server. Check your connection.";
+}
+
+/** Base URL of the backend server (no /api) for building upload URLs. */
 export function getBackendBaseURL() {
   const base = API.defaults.baseURL || "";
-  return base.replace(/\/api\/?$/, "") || window.location.origin;
+  if (/^https?:\/\//i.test(base)) {
+    return base.replace(/\/api\/?$/, "");
+  }
+  return window.location.origin;
 }
 
 export default API;

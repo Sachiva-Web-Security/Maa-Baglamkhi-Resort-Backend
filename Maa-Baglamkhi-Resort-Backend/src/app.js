@@ -41,6 +41,7 @@ const { ensureSchema: ensureNotificationSchema } = require("./models/Notificatio
 const { ensureSchema: ensureRegisterSchema } = require("./models/UsersModel");
 const auditLogger = require("./middleware/auditLogger");
 const { getCorsOptions } = require("./config/security");
+const { errorMiddleware, notFoundMiddleware } = require("./middleware/errorHandler");
 
 const app = express();
 const server = http.createServer(app);
@@ -118,6 +119,9 @@ app.use("/api/audit-logs", require("./routes/auditLogRoutes"));
 app.use("/api/settings", require("./routes/settingsRoutes"));
 app.use("/api/housekeeping", require("./routes/housekeepingRoutes"));
 app.use("/api/salary", require("./routes/salaryRoutes"));
+app.use("/api/employees", require("./routes/employeeRoutes"));
+app.use("/api/roles", require("./routes/roleRoutes"));
+app.use("/api/payroll", require("./routes/payrollRoutes"));
 app.use("/api/print", require("./routes/printRoutes"));
 
 // Start print queue processor (moved to index.js — starts only after DB init)
@@ -130,19 +134,13 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-app.use((err, req, res, next) => {
-  if (!err) return next();
-
-  console.error("Unhandled error:", err);
-
-  res.status(500).json({
-    message: "Internal server error",
-  });
-});
-
+// Everything below is last: nothing after it runs for a failed request.
 app.get("/", (req, res) => {
   res.send("Backend Running");
 });
+app.use(require("./middleware/rootRoutes"));
+app.use(notFoundMiddleware);
+app.use(errorMiddleware);
 
 async function bootstrapSchema(label, task) {
   try {

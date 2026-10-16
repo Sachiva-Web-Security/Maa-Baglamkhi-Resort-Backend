@@ -50,10 +50,13 @@
 import axios from "axios";
 import { getBackendBaseURL } from "../../api";
 
+// Booking uploads are large and slow, so this file keeps its own instance with a
+// 60s timeout. It mirrors the shared client in src/api.js: same base URL, same
+// Bearer token, same audit headers, same 401 handling.
 const bookingAPI = axios.create({
   baseURL: getBackendBaseURL() + "/api",
   timeout: 60_000,
-  withCredentials: true,
+  withCredentials: false,
 });
 
 bookingAPI.interceptors.request.use((req) => {
@@ -75,6 +78,23 @@ bookingAPI.interceptors.request.use((req) => {
   req.headers["X-Audit-Source"] = "frontend";
   return req;
 });
+
+bookingAPI.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401 && !err.config?.skipAuthRedirect) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("role");
+      localStorage.removeItem("name");
+      localStorage.removeItem("email");
+      localStorage.removeItem("isAuthenticated");
+      if (window.location.pathname !== "/login") {
+        window.location.assign(`${window.location.origin}/login`);
+      }
+    }
+    return Promise.reject(err);
+  },
+);
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
