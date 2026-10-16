@@ -393,7 +393,14 @@ const Housekeeping = {
         (await columnExists("hotel_room_inventory", "guest")) &&
         (await columnExists("hotel_room_inventory", "check_in")) &&
         (await columnExists("hotel_room_inventory", "check_out"));
-      const hasInventory = hasInventoryColumns && (await tableExists("hotel_room_inventory"));
+      // Only require the columns the SQL actually reads. On schemas where
+      // guest/check_in/check_out moved off hotel_room_inventory they are
+      // resolved through rooms.current_booking_id instead, so gating on them
+      // here silently dropped the hri.status join for no reason.
+      const hasInventory =
+        (await columnExists("hotel_room_inventory", "room_number")) &&
+        hasInventoryColumns &&
+        (await tableExists("hotel_room_inventory"));
       const hasHousekeepingPriority = await columnExists("housekeeping", "priority");
       const hasHousekeepingNotes = await columnExists("housekeeping", "notes");
       const hasHousekeepingCleaningStart = await columnExists("housekeeping", "cleaningStart");
@@ -542,6 +549,39 @@ const Housekeeping = {
         guestExpr = "hri.guest";
         checkInExpr = "hri.check_in";
         checkOutExpr = "hri.check_out";
+      }
+
+      // v4 schemas keep guest details off hotel_room_inventory: rooms points at
+      // the live booking via current_booking_id, which joins to guest_profiles.
+      // Each column is opt-in so an older schema still returns the room list.
+      const hasRoomsBookingLink =
+        (await columnExists("rooms", "current_booking_id")) &&
+        (await tableExists("bookings")) &&
+        (await tableExists("guest_profiles"));
+      const hasRoomStatus = await columnExists("hotel_room_inventory", "status");
+      if (!hasInventory && hasRoomStatus) {
+        inventoryJoin = `
+          LEFT JOIN hotel_room_inventory hri
+            ON CAST(hri.room_number AS CHAR) COLLATE utf8mb4_general_ci = CAST(base.room_number AS CHAR) COLLATE utf8mb4_general_ci
+        `;
+        hotelStatusExpr = `COALESCE(NULLIF(hri.status, ''), base.room_status)`;
+      }
+      if (hasRoomsBookingLink) {
+        const nameExpr = (await columnExists("guest_profiles", "last_name"))
+          ? "TRIM(CONCAT(gp.first_name, ' ', gp.last_name))"
+          : "gp.first_name";
+        const dateExpr = (t) =>
+          `CASE WHEN LOWER(COALESCE(bk.status, 'confirmed')) NOT IN ('cancelled') THEN ${t} END`;
+        inventoryJoin += `
+          LEFT JOIN rooms rmlnk
+            ON CAST(rmlnk.room_number AS CHAR) COLLATE utf8mb4_general_ci = CAST(base.room_number AS CHAR) COLLATE utf8mb4_general_ci
+           AND rmlnk.current_booking_id IS NOT NULL
+          LEFT JOIN bookings bk ON bk.id = rmlnk.current_booking_id
+          LEFT JOIN guest_profiles gp ON gp.id = bk.source_id
+        `;
+        guestExpr = `${nameExpr}`;
+        checkInExpr = dateExpr("bk.check_in");
+        checkOutExpr = dateExpr("bk.check_out");
       }
 
       // Authoritative logic: housekeeping.status is the source of truth when set.
