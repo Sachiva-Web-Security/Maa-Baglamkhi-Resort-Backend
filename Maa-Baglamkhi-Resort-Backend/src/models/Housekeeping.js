@@ -20,14 +20,17 @@ const getColumnInfo = async (tableName, columnName) => {
   return Array.isArray(rows) && rows[0] ? rows[0] : null;
 };
 
+// rooms.status is ENUM('available','occupied','cleaning','out_of_service',
+// 'reserved') -- mixed-case values truncate it and throw WARN_DATA_TRUNCATED.
+// hotel_room_inventory.status is a free-form varchar, so it keeps its labels.
 const mapHousekeepingToHotelStatus = (status) => {
   const s = String(status || "").toLowerCase();
 
-  if (s === "vacant clean") return "Available";
-  if (s === "vacant dirty") return "Cleaning";
-  if (s === "cleaning in progress") return "Cleaning";
-  if (s === "occupied dirty") return "Occupied";
-  if (s === "out of service") return "Out of Service";
+  if (s === "vacant clean") return { rooms: "available", inventory: "Available" };
+  if (s === "vacant dirty") return { rooms: "cleaning", inventory: "Cleaning" };
+  if (s === "cleaning in progress") return { rooms: "cleaning", inventory: "Cleaning" };
+  if (s === "occupied dirty") return { rooms: "occupied", inventory: "Occupied" };
+  if (s === "out of service") return { rooms: "out_of_service", inventory: "Out of Service" };
 
   return null;
 };
@@ -48,31 +51,31 @@ const syncOperationalStatus = async (roomNo, housekeepingStatus) => {
   const hotelStatus = mapHousekeepingToHotelStatus(housekeepingStatus);
   if (!roomNo || !hotelStatus) return;
 
-  const updates = [];
-
-  if (await tableExists("hotel_room_inventory")) {
-    updates.push(
-      runQuery(
+  try {
+    if (await tableExists("hotel_room_inventory")) {
+      await runQuery(
         `UPDATE hotel_room_inventory
          SET status = ?
          WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)`,
-        [hotelStatus, roomNo],
-      ),
-    );
+        [hotelStatus.inventory, roomNo],
+      );
+    }
+  } catch (err) {
+    console.error("housekeeping sync (hotel_room_inventory) failed:", err.message);
   }
 
-  if (await tableExists("rooms")) {
-    updates.push(
-      runQuery(
+  try {
+    if (await tableExists("rooms")) {
+      await runQuery(
         `UPDATE rooms
          SET status = ?
          WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR)`,
-        [hotelStatus, roomNo],
-      ),
-    );
+        [hotelStatus.rooms, roomNo],
+      );
+    }
+  } catch (err) {
+    console.error("housekeeping sync (rooms) failed:", err.message);
   }
-
-  await Promise.all(updates);
 };
 
 const ensureSchema = async () => {
@@ -1043,3 +1046,5 @@ const Housekeeping = {
 };
 
 module.exports = Housekeeping;
+module.exports.syncOperationalStatus = syncOperationalStatus;
+module.exports.mapHousekeepingToHotelStatus = mapHousekeepingToHotelStatus;

@@ -63,17 +63,34 @@ text-slate-600
 
 
 
-const AttendanceForm = ({ onSubmit, onCancel, initialData = {} }) => {
+const STATUS_OPTIONS = [
+  { value: "present", label: "Present" },
+  { value: "absent", label: "Absent" },
+  { value: "late", label: "Late" },
+  { value: "half_day", label: "Half Day" },
+  { value: "on_leave", label: "On Leave" },
+  { value: "holiday", label: "Holiday" },
+  { value: "week_off", label: "Week Off" },
+];
+
+const LEAVE_OPTIONS = [
+  { value: "casual", label: "Casual" },
+  { value: "sick", label: "Sick" },
+  { value: "earned", label: "Earned" },
+  { value: "unpaid", label: "Unpaid" },
+];
+
+const AttendanceForm = ({ onSubmit, onCancel, initialData = {}, employees = [] }) => {
   const [formData, setFormData] = useState({
+    employeeId: initialData.employeeId || "",
     employeeName: initialData.employeeName || "",
-    role: initialData.role || "",
-    department: initialData.department || "",
     date: initialData.date || new Date().toISOString().split("T")[0],
     checkIn: initialData.checkIn || "",
     checkOut: initialData.checkOut || "",
-    status: initialData.status || "Present",
-    method: initialData.method || "Manual",
+    status: initialData.status || "present",
+    leaveType: "",
     notes: initialData.notes || "",
+    method: "Manual",
   });
 
   const handleChange = (e) => {
@@ -86,71 +103,58 @@ const AttendanceForm = ({ onSubmit, onCancel, initialData = {} }) => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSubmit(formData);
+    const chosen = employees.find((emp) => String(emp.employeeId) === String(formData.employeeId));
+    onSubmit({
+      employeeId: formData.employeeId ? Number(formData.employeeId) : undefined,
+      employeeName: chosen ? chosen.name : formData.employeeName,
+      date: formData.date,
+      checkIn: formData.checkIn,
+      checkOut: formData.checkOut,
+      status: formData.status,
+      leaveType: formData.leaveType || undefined,
+      notes: formData.notes,
+      method: formData.method,
+    });
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 md:space-y-5 min-w-0">
-      {/* Employee Name */}
+      <input type="hidden" id="method" name="method" value="Manual" />
+      {/* Employee */}
       <div>
-        <label htmlFor="employeeName" className={labelCls}>
-          Employee Name
+        <label htmlFor="employeeId" className={labelCls}>
+          Employee
         </label>
-        <input
-          type="text"
-          id="employeeName"
-          name="employeeName"
-          value={formData.employeeName}
-          onChange={handleChange}
-          required
-          placeholder="Enter employee name"
-          className={fieldCls}
-        />
-      </div>
-
-      {/* Role + Department */}
-      <div className="grid gap-4 md:gap-5 grid-cols-1 md:grid-cols-2">
-        <div>
-          <label htmlFor="role" className={labelCls}>
-            Role
-          </label>
+        {employees.length ? (
           <select
-            id="role"
-            name="role"
-            value={formData.role}
+            id="employeeId"
+            name="employeeId"
+            value={formData.employeeId}
             onChange={handleChange}
             required
             className={fieldCls}
           >
-            <option value="">Select Role</option>
-            <option value="Admin">Admin</option>
-            <option value="Manager">Manager</option>
-            <option value="Staff">Staff</option>
-            <option value="Receptionist">Receptionist</option>
-            <option value="Housekeeping">Housekeeping</option>
+            <option value="">Select Employee</option>
+            {employees.map((emp) => (
+              <option key={emp.employeeId} value={emp.employeeId}>
+                {emp.name || `Employee #${emp.employeeId}`}
+                {emp.designation ? ` — ${emp.designation}` : ""}
+                {emp.department ? ` (${emp.department})` : ""}
+              </option>
+            ))}
           </select>
-        </div>
-
-        <div>
-          <label htmlFor="department" className={labelCls}>
-            Department
-          </label>
-          <select
-            id="department"
-            name="department"
-            value={formData.department}
+        ) : (
+          <input
+            type="text"
+            id="employeeName"
+            name="employeeName"
+            value={formData.employeeName}
             onChange={handleChange}
             required
+            placeholder="Employee name"
             className={fieldCls}
-          >
-            <option value="">Select Department</option>
-            <option value="Reception">Reception</option>
-            <option value="Kitchen">Kitchen</option>
-            <option value="Housekeeping">Housekeeping</option>
-            <option value="Management">Management</option>
-            <option value="Security">Security</option>
-          </select>
-        </div>
+          />
+        )}
       </div>
 
       {/* Date + Status */}
@@ -182,13 +186,37 @@ const AttendanceForm = ({ onSubmit, onCancel, initialData = {} }) => {
             required
             className={fieldCls}
           >
-            <option value="Present">Present</option>
-            <option value="Absent">Absent</option>
-            <option value="Late">Late</option>
-            <option value="On Leave">On Leave</option>
+            {STATUS_OPTIONS.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
           </select>
         </div>
       </div>
+
+      {/* Leave Type — only meaningful for leave-style statuses */}
+      {["on_leave", "half_day", "absent"].includes(formData.status) && (
+        <div>
+          <label htmlFor="leaveType" className={labelCls}>
+            Leave Type
+          </label>
+          <select
+            id="leaveType"
+            name="leaveType"
+            value={formData.leaveType}
+            onChange={handleChange}
+            className={fieldCls}
+          >
+            <option value="">Not specified</option>
+            {LEAVE_OPTIONS.map((l) => (
+              <option key={l.value} value={l.value}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Check-In + Check-Out */}
       <div className="grid gap-4 md:gap-5 grid-cols-1 md:grid-cols-2">
@@ -219,24 +247,6 @@ const AttendanceForm = ({ onSubmit, onCancel, initialData = {} }) => {
             className={fieldCls}
           />
         </div>
-      </div>
-
-      {/* Method */}
-      <div>
-        <label htmlFor="method" className={labelCls}>
-          Method
-        </label>
-        <select
-          id="method"
-          name="method"
-          value={formData.method}
-          onChange={handleChange}
-          required
-          className={fieldCls}
-        >
-          <option value="Manual">Manual</option>
-          <option value="Biometric">Biometric</option>
-        </select>
       </div>
 
       {/* Notes */}

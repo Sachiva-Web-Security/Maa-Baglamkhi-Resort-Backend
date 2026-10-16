@@ -31,6 +31,7 @@ const Attendance = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [employees, setEmployees] = useState([]);
+  const [staff, setStaff] = useState([]);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -38,41 +39,110 @@ const Attendance = () => {
 
   /* ================= FETCH ================= */
 
-  useEffect(() => {
-    const fetchAttendance = async () => {
-      try {
-        const res = await API.get("/attendance", { params: { date } });
-        const data = Array.isArray(res.data) ? res.data : [];
-        setEmployees(data);
-      } catch (err) {
-        console.error("Error loading attendance", err);
-      }
-    };
+  const loadStaff = async () => {
+    try {
+      const res = await API.get("/attendance/employees");
+      const rows = Array.isArray(res.data) ? res.data : [];
+      setStaff(rows.filter((s) => String(s.isActive ?? s.active ?? true) !== "false"));
+    } catch (err) {
+      console.error("Error loading staff", err);
+    }
+  };
 
-    fetchAttendance();
+  useEffect(() => {
+    loadStaff();
+  }, []);
+
+  const loadAttendance = async () => {
+    try {
+      const res = await API.get("/attendance", { params: { date } });
+      const data = Array.isArray(res.data) ? res.data : [];
+      setEmployees(data);
+    } catch (err) {
+      console.error("Error loading attendance", err);
+    }
+  };
+
+  useEffect(() => {
+    loadAttendance();
   }, [date]);
+
+  /* The grid lists every active staff member for the day. An employee who was
+     never marked still shows a row with no status, so "Total" is the roster
+     size and absentees are visible instead of silently missing. */
+  const rowsForDate = useMemo(() => {
+    const byKey = new Map();
+    employees.forEach((r) => {
+      const k = String(r.employeeId ?? r.employee_id ?? r.employeeUserId ?? r.id);
+      byKey.set(k, r);
+    });
+    const out = [];
+    staff.forEach((s) => {
+      const key = String(s.employeeId ?? s.employee_id ?? s.id);
+      const rec = byKey.get(key) || byKey.get(String(s.employeeUserId ?? s.userId ?? s.id)) || null;
+      out.push(
+        rec || {
+          id: `unmarked-${key}`,
+          employeeId: s.employeeId ?? s.employee_id,
+          employeeUserId: s.employeeUserId ?? s.userId ?? s.id,
+          name: s.name || "--",
+          userName: s.name || null,
+          department: s.department || "--",
+          departmentName: s.department || null,
+          role: s.designation || s.role || "--",
+          designation: s.designation || null,
+          checkIn: null,
+          checkOut: null,
+          in_time: null,
+          out_time: null,
+          status: null,
+          statusLabel: null,
+          salary_amount: 0,
+          user_salary: Number(s.monthlySalary ?? s.base_salary ?? 0),
+          method: null,
+        }
+      );
+    });
+    // Records for employees missing from the roster still surface.
+    employees.forEach((r) => {
+      const key = String(r.employeeId ?? r.employee_id ?? r.employeeUserId ?? r.id);
+      if (!out.some((o) => String(o.employeeId ?? o.employee_id ?? o.id) === key)) out.push(r);
+    });
+    return out;
+  }, [staff, employees]);
 
   /* ================= FILTER ================= */
 
+  const optionSet = (key) =>
+    [...new Set(staff.map((s) => s[key]).filter(Boolean))].sort((a, b) =>
+      String(a).localeCompare(String(b))
+    );
+
+  const departmentOptions = optionSet("department");
+  const roleOptions = optionSet("designation");
+
   const filteredEmployees = useMemo(() => {
-    const list = Array.isArray(employees) ? employees : [];
+    const list = Array.isArray(rowsForDate) ? rowsForDate : [];
     return list.filter((employee) => {
       const matchesDepartment =
         department === "All Departments" ||
-        employee.department === department;
+        employee.department === department ||
+        employee.departmentName === department;
 
       const matchesRole =
-        roleFilter === "All Roles" || employee.role === roleFilter;
+        roleFilter === "All Roles" ||
+        employee.role === roleFilter ||
+        employee.designation === roleFilter;
 
       const matchesSearch =
         searchQuery === "" ||
-        (employee.name || "")
+        String(employee.name || employee.employeeName || "")
           .toLowerCase()
           .includes(searchQuery.toLowerCase());
 
       return matchesDepartment && matchesRole && matchesSearch;
     });
-  }, [department, employees, roleFilter, searchQuery]);
+  }, [department, roleFilter, rowsForDate, searchQuery]);
 
   /* ================= PAGINATION ================= */
 
@@ -92,17 +162,26 @@ const Attendance = () => {
     setCurrentPage(1);
   }, [filteredEmployees]);
 
-  /* ================= STATS ================= */
+  /* ================= STATS =================
+     The API returns lowercase statuses ("present"); the UI paints by label, so
+     compare case-insensitively or the Present/Absent cards stay at zero. */
 
-  const totalStaff = employees.length;
-  const presentStaff = employees.filter((e) => e.status === "Present").length;
-  const absentStaff = employees.filter((e) => e.status === "Absent").length;
-  const lateStaff = employees.filter((e) => e.status === "Late").length;
-  const onLeaveStaff = employees.filter((e) => e.status === "On Leave").length;
-  const totalSalary = employees.reduce(
+  const statusCount = (value) =>
+    rowsForDate.filter(
+      (e) => (e.status || "").toLowerCase() === value.toLowerCase()
+    ).length;
+
+  const totalStaff = rowsForDate.length;
+  const presentStaff = statusCount("Present");
+  const absentStaff = statusCount("Absent");
+  const lateStaff = statusCount("Late");
+  const onLeaveStaff = statusCount("On Leave");
+  const totalSalary = rowsForDate.reduce(
     (sum, e) => sum + parseFloat(e.salary_amount || 0),
     0
   );
+  const halfDayStaff = statusCount("Half Day");
+  const unmarkedStaff = rowsForDate.filter((e) => !e.status).length;
 
   /* ================= ADD (admin only) ================= */
 
@@ -113,27 +192,71 @@ const Attendance = () => {
     }
     try {
       const payload = {
-        ...data,
-        name: data.employeeName,
-        date,
+        employeeId: data.employeeId,
+        employeeName: data.employeeName,
+        date: data.date || date,
+        status: String(data.status || "present").toLowerCase(),
+        checkIn: data.checkIn,
+        checkOut: data.checkOut,
+        leaveType: data.leaveType,
+        notes: data.notes,
+        method: data.method || "Manual",
       };
 
       const res = await API.post("/attendance", payload);
-      const newId = res.data?.id || Date.now();
-      setEmployees((prev) => [
-        {
-          id: newId,
-          ...payload,
-          salary_amount: res.data?.salary_amount || 0,
-          user_salary: res.data?.user_salary || 0,
-        },
-        ...prev,
-      ]);
       setShowManualEntry(false);
-      window.alert("Attendance saved");
+      window.alert(res.data?.message || "Attendance saved");
+      setDate(payload.date);
+      loadAttendance();
+      loadStaff();
     } catch (err) {
       console.error("Error saving attendance", err);
-      window.alert("Error saving attendance");
+      window.alert(err?.response?.data?.message || "Error saving attendance");
+    }
+  };
+
+  /* ================= CHECK IN / OUT (admin only) ================= */
+
+  const nowTime = () => {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+
+  const target = (employee) => {
+    if (employee.employeeId != null) return { employeeId: employee.employeeId };
+    if (employee.employeeUserId != null) return { userId: employee.employeeUserId };
+    return { employeeName: employee.name };
+  };
+
+  const handleCheckIn = async (employee) => {
+    if (!isAdmin) return;
+    try {
+      await API.post("/attendance", {
+        ...target(employee),
+        status: "present",
+        date,
+        checkIn: nowTime(),
+      });
+      loadAttendance();
+    } catch (err) {
+      console.error("Error checking in", err);
+      window.alert("Could not record check-in");
+    }
+  };
+
+  const handleCheckOut = async (employee) => {
+    if (!isAdmin) return;
+    try {
+      await API.post("/attendance", {
+        ...target(employee),
+        status: (employee.status || "present").toLowerCase(),
+        date,
+        checkOut: nowTime(),
+      });
+      loadAttendance();
+    } catch (err) {
+      console.error("Error checking out", err);
+      window.alert("Could not record check-out");
     }
   };
 
@@ -153,6 +276,8 @@ const Attendance = () => {
         onSearchChange={setSearchQuery}
         onAddManualEntry={() => setShowManualEntry(true)}
         showAddButton={isAdmin}
+        departments={departmentOptions}
+        roles={roleOptions}
       />
 
       {/* Summary cards */}
@@ -162,8 +287,10 @@ const Attendance = () => {
         <SummaryCard label="Absent" value={absentStaff} color="red" icon={FaClipboardCheck} />
         <SummaryCard label="Late" value={lateStaff} color="yellow" icon={FaClock} />
         <SummaryCard label="Leave" value={onLeaveStaff} color="blue" icon={FaCalendarAlt} />
+        <SummaryCard label="Half Day" value={halfDayStaff} color="amber" icon={FaClock} />
+        <SummaryCard label="Unmarked" value={unmarkedStaff} color="slate" icon={FaUsers} />
         <SummaryCard
-          label="Total Salary"
+          label="Paid Today"
           value={`₹ ${totalSalary.toFixed(0)}`}
           color="emerald"
           icon={FaUsers}
@@ -192,6 +319,8 @@ const Attendance = () => {
                 key={employee.id}
                 employee={employee}
                 isAdmin={isAdmin}
+                onCheckIn={handleCheckIn}
+                onCheckOut={handleCheckOut}
               />
             ))}
 
@@ -258,6 +387,7 @@ const Attendance = () => {
               <AttendanceForm
                 onSubmit={handleManualSubmit}
                 onCancel={() => setShowManualEntry(false)}
+                employees={staff}
                 initialData={{ date }}
               />
             </div>

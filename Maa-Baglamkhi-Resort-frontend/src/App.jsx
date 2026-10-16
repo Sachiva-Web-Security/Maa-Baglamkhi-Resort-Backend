@@ -42,6 +42,7 @@ import AuditLogs from "./pages/AuditLogs";
 import Assignment from "./pages/Assignments";
 import AssignmentNotification from "./pages/assignmentnotification";
 import Attendance from "./pages/Attendance";
+import Payroll from "./pages/Payroll";
 import SalaryManagement from "./pages/SalaryManagement";
 import MyAttendance from "./pages/MyAttendance";
 import Banquet from "./pages/Banquet";
@@ -283,6 +284,7 @@ function AppRoutes({ isAuthenticated, setIsAuthenticated, protect }) {
           <Route path="/attendance" element={protect(<Attendance />, ROLES.ALL)} />
           <Route path="/my-attendance" element={protect(<MyAttendance />, ROLES.ALL)} />
           <Route path="/salary" element={protect(<SalaryManagement />, ["admin"])} />
+          <Route path="/payroll" element={protect(<Payroll />, ["admin"])} />
           <Route path="/hotel/*" element={protect(<Hotel />, ROLES.HOTEL)} />
           <Route path="/accounts" element={protect(<Accounts />, ROLES.ACCOUNTS)} />
           <Route

@@ -56,6 +56,8 @@ const FiltersSection = ({
   onSearchChange,
   onAddManualEntry,
   showAddButton = true,
+  departments = [],
+  roles = [],
 }) => {
   return (
     <section
@@ -203,11 +205,9 @@ const FiltersSection = ({
               className={`${fieldCls} !pl-4 md:!pl-5`}
             >
               <option>All Departments</option>
-              <option>Reception</option>
-              <option>Kitchen</option>
-              <option>Housekeeping</option>
-              <option>Management</option>
-              <option>Security</option>
+              {departments.map((d) => (
+                <option key={d}>{d}</option>
+              ))}
             </select>
           </div>
 
@@ -222,11 +222,9 @@ const FiltersSection = ({
               className={`${fieldCls} !pl-4 md:!pl-5`}
             >
               <option>All Roles</option>
-              <option>Manager</option>
-              <option>Staff</option>
-              <option>Receptionist</option>
-              <option>Housekeeping</option>
-              <option>Security</option>
+              {roles.map((r) => (
+                <option key={r}>{r}</option>
+              ))}
             </select>
           </div>
 

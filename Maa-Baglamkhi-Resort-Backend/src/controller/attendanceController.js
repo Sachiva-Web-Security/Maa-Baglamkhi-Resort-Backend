@@ -560,6 +560,14 @@ exports.getAttendanceReport = async (req, res) => {
       const key = r.employee_id;
       if (!byEmployee.has(key)) {
         byEmployee.set(key, {
+          employeeId: r.employee_id,
+          employeeUserId: r.employee_user_id ?? null,
+          name: r.name,
+          email: r.email || null,
+          department: r.department || null,
+          departmentName: r.department || null,
+          designation: r.designation || null,
+          monthlySalary: Number(r.monthly_salary || 0),
           employee: {
             employeeId: r.employee_id,
             employeeUserId: r.employee_user_id ?? null,

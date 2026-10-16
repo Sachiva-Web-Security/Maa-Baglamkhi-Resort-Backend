@@ -4,7 +4,9 @@ const {
   ensureSchema: ensureCompletedCleaningLogSchema,
 } = require("../models/CompletedCleaningLogModel");
 
-const { syncOperationalStatus } = require("../models/Housekeeping");
+// Housekeeping.js exports a single namespace object, so `syncOperationalStatus`
+// is a property on it rather than a standalone module export.
+const syncOperationalStatus = Housekeeping.syncOperationalStatus;
 
 // v4 promise pool: db.query returns [rows, fields], destructure to get the actual result
 const query = async (sql, params = []) => {
@@ -390,11 +392,20 @@ exports.completeNotification = async (req, res) => {
     );
 
     const row = rows[0];
+    // `null` is falsy, so `row.room_id || row.room_no` hands the room number
+    // ("T101") to the numeric id column and MySQL aborts the statement with
+    // ER_TRUNCATED_WRONG_VALUE. Match only on whichever column is actually set.
     const targetRoomNo = row.room_no || row.room_id;
-    if (row.room_id || row.room_no) {
+    if (row.room_id != null) {
       await query(
-        "UPDATE housekeeping SET status = 'Vacant Clean', completed_at = NOW() WHERE id = ? OR roomNo = ?",
-        [row.room_id || row.room_no, row.room_no || row.room_id]
+        "UPDATE housekeeping SET status = 'Vacant Clean', completed_at = NOW() WHERE id = ?",
+        [row.room_id]
+      );
+    }
+    if (row.room_no) {
+      await query(
+        "UPDATE housekeeping SET status = 'Vacant Clean', completed_at = NOW() WHERE roomNo = ?",
+        [row.room_no]
       );
     }
 

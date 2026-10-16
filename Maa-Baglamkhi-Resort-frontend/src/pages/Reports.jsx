@@ -24,6 +24,7 @@ const REPORT_TYPES = [
   { id: "accounts", label: "Accounts", note: "Income, expense and net flow" },
   { id: "expense", label: "Expense", note: "Expense breakdown by department and category" },
   { id: "all-bills", label: "All Bills", note: "Combined billing across modules" },
+  { id: "attendance", label: "Attendance", note: "Daily staff attendance and earned pay" },
 ];
 
 const PAYMENT_MODES = ["Cash", "Card", "UPI", "Bank Transfer"];
@@ -392,7 +393,45 @@ async function loadAllBillsReportRows() {
   });
 }
 
-async function loadReportRows(reportType) {
+const ATTENDANCE_STATUS_LABEL = {
+  present: "Present",
+  absent: "Absent",
+  late: "Late",
+  half_day: "Half Day",
+  on_leave: "On Leave",
+  holiday: "Holiday",
+  week_off: "Week Off",
+};
+
+async function loadAttendanceReportRows(dateFrom, dateTo) {
+  const params = dateFrom && dateTo ? { from: dateFrom, to: dateTo } : { from: dateFrom, to: dateTo };
+  const response = await API.get("/attendance/report", { params });
+  const payload = response.data || {};
+
+  const rows = Array.isArray(payload.rows)
+    ? payload.rows
+    : (Array.isArray(payload.employees) ? payload.employees.flatMap((e) => e.days || []) : []);
+
+  return rows
+    .map((row) => ({
+      id: row.id,
+      date: normalizeDate(row.date),
+      employee: row.name || row.employeeName || "Unassigned",
+      department: row.department || row.departmentName || "Other",
+      designation: row.designation || row.role || "-",
+      checkIn: row.checkIn || row.in_time || null,
+      checkOut: row.checkOut || row.out_time || null,
+      status: ATTENDANCE_STATUS_LABEL[String(row.status || "").toLowerCase()] || row.statusLabel || row.status || "-",
+      method: row.method || "Manual",
+      amount: Number(row.salary_amount || 0),
+      monthlySalary: Number(row.user_salary || 0),
+    }))
+    .sort((left, right) =>
+      String(left.date || "").localeCompare(String(right.date || ""))
+    );
+}
+
+async function loadReportRows(reportType, filters) {
   if (reportType === "room") return loadRoomReportRows();
   if (reportType === "banquet") return loadBanquetReportRows();
   if (reportType === "restaurant") return loadRestaurantReportRows();
@@ -400,6 +439,7 @@ async function loadReportRows(reportType) {
   if (reportType === "accounts") return loadAccountsReportRows();
   if (reportType === "expense") return loadExpenseReportRows();
   if (reportType === "all-bills") return loadAllBillsReportRows();
+  if (reportType === "attendance") return loadAttendanceReportRows(filters?.dateFrom, filters?.dateTo);
   return [];
 }
 

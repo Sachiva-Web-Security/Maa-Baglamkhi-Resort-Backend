@@ -1,29 +1,46 @@
-const AttendanceRow = ({ employee, isAdmin = true }) => {
-  const statusColors = {
-    Present:
-      "bg-gradient-to-r from-emerald-500 to-green-600 text-white shadow-emerald-200",
-    Absent:
-      "bg-gradient-to-r from-red-500 to-rose-600 text-white shadow-red-200",
-    Late:
-      "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-amber-200",
-    "Half Day":
-      "bg-gradient-to-r from-yellow-400 to-amber-500 text-white shadow-amber-200",
-    "On Leave":
-      "bg-gradient-to-r from-blue-500 to-sky-600 text-white shadow-blue-200",
-  };
+const STATUS_COLORS = {
+  Present: "bg-gradient-to-r from-emerald-500 to-green-600 text-white shadow-emerald-200",
+  Absent: "bg-gradient-to-r from-red-500 to-rose-600 text-white shadow-red-200",
+  Late: "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-amber-200",
+  "Half Day": "bg-gradient-to-r from-yellow-400 to-amber-500 text-white shadow-amber-200",
+  "On Leave": "bg-gradient-to-r from-blue-500 to-sky-600 text-white shadow-blue-200",
+  Holiday: "bg-gradient-to-r from-purple-500 to-fuchsia-500 text-white shadow-purple-200",
+  "Week Off": "bg-gradient-to-r from-slate-400 to-slate-500 text-white shadow-slate-200",
+};
 
-  const methodColors = {
-    Biometric:
-      "bg-gradient-to-r from-violet-500 to-purple-600 text-white shadow-violet-200",
-    Manual:
-      "bg-gradient-to-r from-slate-500 to-slate-700 text-white shadow-slate-200",
-  };
+const METHOD_COLORS = {
+  Biometric: "bg-gradient-to-r from-violet-500 to-purple-600 text-white shadow-violet-200",
+  Manual: "bg-gradient-to-r from-slate-500 to-slate-700 text-white shadow-slate-200",
+};
 
-  const formatCurrency = (amount) => {
-    const n = parseFloat(amount || 0);
-    return `₹ ${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
+// The API stores statuses as "present" / "on_leave" but the UI paints and
+// filters by label, so map once here and reuse everywhere in this file.
+const STATUS_LABEL = {
+  present: "Present",
+  absent: "Absent",
+  late: "Late",
+  half_day: "Half Day",
+  on_leave: "On Leave",
+  holiday: "Holiday",
+  week_off: "Week Off",
+};
 
+const normalizeLabel = (value) => {
+  if (value == null || value === "") return null;
+  const raw = String(value).trim();
+  return STATUS_LABEL[raw.toLowerCase()] || raw;
+};
+
+const formatCurrency = (amount) => {
+  const n = parseFloat(amount || 0);
+  return `₹ ${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const AttendanceRow = ({ employee, isAdmin = true, onCheckIn, onCheckOut }) => {
+  const status = normalizeLabel(employee.statusLabel || employee.status);
+  const method = employee.method || null;
+  const statusClass = STATUS_COLORS[status] || "bg-slate-200 text-slate-700";
+  const methodClass = METHOD_COLORS[method] || "bg-slate-200 text-slate-700";
   const colCount = isAdmin ? 7 : 6;
 
   return (
@@ -122,10 +139,10 @@ const AttendanceRow = ({ employee, isAdmin = true }) => {
 
                 shadow-md
 
-                ${statusColors[employee.status] || "bg-slate-200 text-slate-700"}
+                ${statusClass}
               `}
             >
-              {employee.status}
+              {status || "--"}
             </span>
           </div>
 
@@ -210,10 +227,10 @@ const AttendanceRow = ({ employee, isAdmin = true }) => {
 
                   shadow-sm
 
-                  ${methodColors[employee.method] || "bg-slate-200 text-slate-700"}
+                  ${methodClass}
                 `}
               >
-                {employee.method}
+                {method || "--"}
               </span>
             </div>
 
@@ -257,6 +274,7 @@ const AttendanceRow = ({ employee, isAdmin = true }) => {
             <div className="mt-4 flex gap-2.5">
               <button
                 type="button"
+                onClick={() => onCheckIn && onCheckIn(employee)}
                 className="
                 flex-1
 
@@ -287,6 +305,7 @@ const AttendanceRow = ({ employee, isAdmin = true }) => {
 
               <button
                 type="button"
+                onClick={() => onCheckOut && onCheckOut(employee)}
                 className="
                 flex-1
 
@@ -455,12 +474,12 @@ const AttendanceRow = ({ employee, isAdmin = true }) => {
             shadow-lg
 
             ${
-              statusColors[employee.status] ||
+              statusClass ||
               "bg-slate-200 text-slate-700"
             }
           `}
         >
-          {employee.status}
+          {status || "--"}
         </span>
       </td>
 
@@ -485,12 +504,12 @@ const AttendanceRow = ({ employee, isAdmin = true }) => {
             shadow-lg
 
             ${
-              methodColors[employee.method] ||
+              methodClass ||
               "bg-slate-200 text-slate-700"
             }
           `}
         >
-          {employee.method}
+          {method || "--"}
         </span>
       </td>
 
@@ -538,6 +557,7 @@ const AttendanceRow = ({ employee, isAdmin = true }) => {
             {/* Check In */}
             <button
               type="button"
+              onClick={() => onCheckIn && onCheckIn(employee)}
               className="
               rounded-[11px]
               xl:rounded-[14px]
@@ -573,6 +593,7 @@ const AttendanceRow = ({ employee, isAdmin = true }) => {
             {/* Check Out */}
             <button
               type="button"
+              onClick={() => onCheckOut && onCheckOut(employee)}
               className="
               rounded-[11px]
               xl:rounded-[14px]

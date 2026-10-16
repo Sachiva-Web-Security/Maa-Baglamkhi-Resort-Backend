@@ -8,6 +8,7 @@ import {
   FaChartBar,
   FaChevronDown,
   FaClipboardList,
+  FaCoins,
   FaExchangeAlt,
   FaFire,
   FaGlassCheers,
@@ -141,6 +142,7 @@ const Sidebar = ({ isMobile, sidebarOpen, setSidebarOpen, setIsAuthenticated }) 
       { id: 1131, name: "Print Management", icon: FaClipboardList, path: "/print", section: "records" },
 
       { id: 114, name: "Salary", icon: FaMoneyBillWave, path: "/salary", section: "records" },
+      { id: 1141, name: "Payroll & Roles", icon: FaCoins, path: "/payroll", section: "records" },
     ],
     manager: [
       { id: 201, name: "All Bookings", icon: FaHotel, path: "/hotel/all-bookings", section: "operations" },

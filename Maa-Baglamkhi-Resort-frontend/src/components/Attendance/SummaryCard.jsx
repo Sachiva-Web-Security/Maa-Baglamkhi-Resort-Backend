@@ -6,6 +6,8 @@ const SummaryCard = ({ label, value, color, icon: Icon }) => {
     amber: "bg-amber-500",
     blue: "bg-blue-600",
     emerald: "bg-emerald-500",
+    purple: "bg-purple-500",
+    slate: "bg-slate-500",
   };
 
   return (
