@@ -5,7 +5,7 @@ const router = require("express").Router();
  * not a real static file lands here, so it gets a plain message instead of a
  * dropped connection.
  */
-router.all("/*splat", (req, res) => {
+router.use((req, res) => {
   return res.status(404).send("Not found");
 });
 
