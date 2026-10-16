@@ -8,6 +8,7 @@ import {
   FaUserPlus,
   FaUsers,
 } from "react-icons/fa";
+import SummaryCard from "../components/Attendance/SummaryCard";
 import API from "../api";
 
 const MyAttendance = () => {
