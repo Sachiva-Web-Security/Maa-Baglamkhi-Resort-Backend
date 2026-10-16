@@ -13,7 +13,18 @@ import API from "../api";
 import RoleDashboardShell from "../components/roleDashboards/ReceptionDashboardLayout";
 import useDashboardAutoRefresh from "../hooks/useDashboardAutoRefresh";
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+// Local date, not UTC: toISOString() shifts by the timezone offset, so in IST
+// after 18:30 the page reported yesterday's dates and every stat read zero.
+const localDateISO = (d = new Date()) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Calcutta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const get = (type) => (parts.find((p) => p.type === type) || {}).value || "00";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+};
 
 const ReceptionDashboard = () => {
   const [loading, setLoading] = useState(true);
@@ -50,7 +61,7 @@ const ReceptionDashboard = () => {
   useDashboardAutoRefresh(load);
 
   const stats = useMemo(() => {
-    const today = todayISO();
+    const today = localDateISO();
     const arrivals = bookings.filter((item) => String(item.checkIn || item.check_in || "").slice(0, 10) === today).length;
     const departures = bookings.filter((item) => String(item.checkOut || item.check_out || "").slice(0, 10) === today).length;
     const pendingBookings = bookings.filter((item) =>
@@ -106,7 +117,7 @@ const ReceptionDashboard = () => {
     },
     {
       label: "Check-out Ready",
-      value: bookings.filter((item) => String(item.checkOut || item.check_out || "").slice(0, 10) === todayISO()).length,
+      value: bookings.filter((item) => String(item.checkOut || item.check_out || "").slice(0, 10) === localDateISO()).length,
       note: "Front office settlement preparation for departing guests.",
     },
   ], [bookings, rooms]);
@@ -124,7 +135,7 @@ const ReceptionDashboard = () => {
     ],
     rows: bookings
       .filter((item) => {
-        const today = todayISO();
+        const today = localDateISO();
         return String(item.checkIn || item.check_in || "").slice(0, 10) === today || String(item.checkOut || item.check_out || "").slice(0, 10) === today;
       })
       .slice(0, 8)
