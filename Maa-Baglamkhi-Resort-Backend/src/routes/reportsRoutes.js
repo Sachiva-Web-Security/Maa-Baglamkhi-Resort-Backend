@@ -8,6 +8,7 @@ const REPORT_READERS = ["admin", "manager", "accountant"];
 router.use(authMiddleware);
 router.use(roleMiddleware(REPORT_READERS));
 
+router.get("/", summary);
 router.get("/summary", summary);
 router.get("/data", getReportData);
 

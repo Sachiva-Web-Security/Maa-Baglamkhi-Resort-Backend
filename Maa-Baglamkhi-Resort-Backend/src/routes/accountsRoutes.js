@@ -94,6 +94,7 @@ router.use(async (_req, _res, next) => {
   ensureAccountsSchema().then(next).catch(next);
 });
 
+router.get("/", getSummary);
 router.get("/transactions", getTransactions);
 router.get("/transactions/:id", getTransactionById);
 router.put("/transactions/:id", updateTransaction);

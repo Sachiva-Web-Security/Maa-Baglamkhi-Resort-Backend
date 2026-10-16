@@ -20,6 +20,11 @@ const READERS = ["admin", "manager", "kitchen", "chef", "accountant", "reception
 const EDITORS = ["admin", "manager", "receptionist"];
 
 router.get("/", authMiddleware, roleMiddleware(READERS), getItems);
+router.get("/items", authMiddleware, roleMiddleware(READERS), getItems);
+router.get("/vendors", authMiddleware, roleMiddleware(READERS), getVendorInwards);
+router.get("/menu-list", authMiddleware, roleMiddleware(READERS), getItems);
+router.get("/menu-items", authMiddleware, roleMiddleware(READERS), getItems);
+router.get("/reports", authMiddleware, roleMiddleware(READERS), getStockLedger);
 router.get("/alerts/low-stock", authMiddleware, roleMiddleware(READERS), getLowStockAlerts);
 router.get("/alerts/expiring", authMiddleware, roleMiddleware(READERS), getExpiringItems);
 
