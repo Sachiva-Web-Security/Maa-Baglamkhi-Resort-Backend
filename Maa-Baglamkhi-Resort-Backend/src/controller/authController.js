@@ -31,7 +31,10 @@ const buildCandidateEmails = (email) => {
 };
 
 exports.login = async (req, res) => {
-  const { email, password } = req.body;
+  // req.body can be an empty object (non-JSON body) or undefined if a proxy
+  // cleared it; destructuring either crashes the request with a 500.
+  const body = req.body || {};
+  const { email, password } = body;
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const candidateEmails = buildCandidateEmails(normalizedEmail);
 
@@ -94,13 +97,15 @@ exports.login = async (req, res) => {
       { expiresIn: JWT_EXPIRES_IN },
     );
 
-    const isProd = process.env.NODE_ENV === "production";
     const cookieMaxAgeMs = 7 * 24 * 60 * 60 * 1000;
+    // Legacy cookie kept for old clients only. The frontend reads the Bearer
+    // header returned below, which works on every origin; a cookie set
+    // secure + sameSite=none cannot be sent over plain localhost, and that is
+    // what made every cross-origin call fail.
     res.cookie("token", token, {
       httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? "none" : "lax",
-      partitioned: isProd,
+      secure: false,
+      sameSite: "lax",
       maxAge: cookieMaxAgeMs,
       path: "/",
     });

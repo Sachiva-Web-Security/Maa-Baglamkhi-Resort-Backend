@@ -61,10 +61,14 @@ io.on("connection", () => {
 
 const isProd = process.env.NODE_ENV === "production";
 
+// helmet only hardens the API responses. The CORS headers below must apply
+// everywhere, including /uploads, because the frontend loads uploaded photos
+// directly as <img src> and the browser blocks them otherwise.
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
     contentSecurityPolicy: false,
+    hsts: isProd ? {} : false,
   }),
 );
 app.use(cors(corsOptions));
