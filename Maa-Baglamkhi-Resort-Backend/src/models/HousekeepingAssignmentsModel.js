@@ -12,14 +12,17 @@ class HousekeepingAssignments {
 
       await conn.query(`CREATE TABLE IF NOT EXISTS \`housekeeping_assignments\` (
             \`id\` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  \`room_id\` INT UNSIGNED NOT NULL,
-  \`room_number\` VARCHAR(50) NOT NULL,
+  \`room_id\` INT UNSIGNED,
+  \`room_number\` VARCHAR(50),
   \`assigned_to\` BIGINT UNSIGNED,
   \`assigned_to_name\` VARCHAR(191),
   \`task_type\` ENUM(\'cleaning\',\'deep_clean\',\'inspection\',\'setup\',\'maintenance\',\'other\') DEFAULT \'cleaning\',
   \`priority\` ENUM(\'urgent\',\'high\',\'normal\',\'low\') DEFAULT \'normal\',
   \`status\` ENUM(\'pending\',\'in_progress\',\'completed\',\'verified\',\'cancelled\') DEFAULT \'pending\',
   \`notes\` TEXT,
+  \`assigned_by\` BIGINT UNSIGNED,
+  \`assigned_by_name\` VARCHAR(191),
+  \`due_time\` DATETIME,
   \`started_at\` DATETIME,
   \`completed_at\` DATETIME,
   \`verified_by\` BIGINT UNSIGNED,
@@ -32,6 +35,16 @@ class HousekeepingAssignments {
   KEY \`idx_status\` (\`status\`),
   FOREIGN KEY (\`assigned_to\`) REFERENCES \`users\`(\`id\`) ON DELETE SET NULL ON UPDATE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+
+      // Additive backfill for databases that already have the stricter v4
+      // columns. CREATE TABLE IF NOT EXISTS never relaxes an existing column,
+      // and assignments for rooms outside the Rooms inventory must still work.
+      await conn.query(`ALTER TABLE \`housekeeping_assignments\` MODIFY \`room_id\` INT UNSIGNED`)
+      await conn.query(`ALTER TABLE \`housekeeping_assignments\` MODIFY \`room_number\` VARCHAR(50)`)
+      await conn.query(`ALTER TABLE \`housekeeping_assignments\` ADD COLUMN IF NOT EXISTS \`assigned_by\` BIGINT UNSIGNED`)
+      await conn.query(`ALTER TABLE \`housekeeping_assignments\` ADD COLUMN IF NOT EXISTS \`assigned_by_name\` VARCHAR(191)`)
+      await conn.query(`ALTER TABLE \`housekeeping_assignments\` ADD COLUMN IF NOT EXISTS \`due_time\` DATETIME`)
+      await conn.query(`ALTER TABLE \`housekeeping_assignments\` ADD KEY IF NOT EXISTS \`idx_assigner\` (\`assigned_by\`)`)
 
       await conn.commit()
     } catch (err) {

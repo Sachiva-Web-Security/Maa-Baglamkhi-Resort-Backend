@@ -23,6 +23,115 @@ exports.bootstrap = async (_req, _res, next) => {
   }
 };
 
+const { _createNotification } = require("./notificationController");
+
+const TASK_LABELS = {
+  cleaning: "Room Cleaning",
+  deep_clean: "Deep Clean",
+  inspection: "Inspection",
+  setup: "Setup",
+  maintenance: "Maintenance",
+  other: "Assigned Task",
+};
+
+/**
+ * Fan out the notification rows for one assignment: one to the assignee
+ * (plus a copy to the housekeeping role) and one to the creator plus the
+ * manager roles. Best effort — errors are logged, never thrown to the caller.
+ */
+const emitAssignmentNotifications = async ({
+  id,
+  assignedToId,
+  assignedToName,
+  assignerId,
+  assignerName,
+  roomNumber,
+  task,
+  priority,
+  taskType,
+  notes,
+  dueTime,
+}) => {
+  const label = TASK_LABELS[taskType] || "Assigned Task";
+  const roomText = roomNumber ? `Room ${roomNumber}` : "A room";
+  const detail = notes ? ` · ${String(notes).slice(0, 120)}` : "";
+  const payload = {
+    assignmentId: id,
+    roomNumber: roomNumber || null,
+    task: String(task || ""),
+    priority: priority || "normal",
+  };
+
+  if (assignedToName || assignedToId) {
+    await _createNotification({
+      user_id: assignedToId,
+      user_role: assignedToId ? null : "housekeeping",
+      type: "assignment_new",
+      title: `${label} assigned · ${roomText}`,
+      message: `${String(task || label)}${roomText}${detail}. Priority: ${priority}.`,
+      data: payload,
+    });
+  }
+
+  if (assignerName || assignerId) {
+    await _createNotification({
+      user_id: assignerId,
+      user_role: assignerId ? null : "manager",
+      type: "assignment_created",
+      title: `Assignment logged · ${roomText}`,
+      message: assignedToName
+        ? `${label} to ${assignedToName} for ${roomText}.`
+        : `${label} logged for ${roomText}.`,
+      data: payload,
+    });
+  }
+};
+
+/** Notify whoever raised the assignment that it was completed. */
+const emitCompletionNotification = async (assignment, actor, action) => {
+  const roomText = assignment.room_number ? `Room ${assignment.room_number}` : "A room";
+  const label = TASK_LABELS[assignment.task_type] || "Assigned Task";
+
+  await _createNotification({
+    user_id: assignment.assigned_by || null,
+    user_role: assignment.assigned_by ? null : "manager",
+    type: "assignment_completed",
+    title: `${roomText} marked ${action} by ${actor.name || "staff"}`,
+    message: `${label} on ${roomText} is now ${assignment.status}.`,
+    data: {
+      assignmentId: assignment.id,
+      roomNumber: assignment.room_number || null,
+      task: label,
+      status: assignment.status,
+    },
+  });
+};
+
+/**
+ * Also record the completion in hk_messages so the housekeeping notification
+ * list and dashboard (owned by HAG-7) stay in sync with an assignment that
+ * was closed from the Assignments screen.
+ */
+const mirrorCompletionToHkMessages = async (assignment) => {
+  const roomKey = assignment.room_number || null;
+  if (!roomKey) return;
+  await db.query(
+    `UPDATE hk_messages
+        SET status = 'Completed', completed_at = NOW()
+      WHERE (CAST(room_no AS CHAR) = CAST(? AS CHAR))
+        AND status NOT IN ('Completed')
+        AND id = (
+          SELECT id FROM (
+            SELECT id FROM hk_messages
+            WHERE CAST(room_no AS CHAR) = CAST(? AS CHAR)
+            ORDER BY due_at DESC, sent_at DESC
+            LIMIT 1
+          ) AS latest
+        )`,
+    [roomKey, roomKey]
+  );
+};
+
 const getVisibilityContext = (req) => {
   const actor = getRequestActor(req);
   const ASSIGNEE_ROLES = new Set(["housekeeping", "accountant", "staff"]);
@@ -132,27 +241,26 @@ exports.create = async (req, res) => {
     task,
     priority,
     notes,
+    dueTime,
+    due_time,
+    assignedBy,
+    assigned_by,
   } = req.body;
 
   if (!task) return res.status(400).json({ message: "task is required" });
 
-  // The v4 table (housekeeping_assignments) has room_id NOT NULL, an enum
-  // task_type and an enum priority. Resolve the room by number first, and
-  // normalise the free-text task/priority the API accepts onto the enums.
   const rn = String(roomNumber || room_number || "").trim();
-  if (!rn) {
-    return res.status(400).json({ message: "roomNumber is required" });
-  }
+  const actor = getRequestActor(req);
 
-  const roomLookup = await query(
-    "SELECT id FROM rooms WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR) LIMIT 1",
-    [rn]
-  );
-  const roomId = roomLookup?.[0]?.id ?? null;
-  if (!roomId) {
-    return res.status(400).json({
-      message: `Room '${rn}' is not in the room inventory. Add it to Rooms before creating an assignment.`,
-    });
+  // Room lookup is advisory: the inventory is not always complete, so an
+  // unknown room number still gets an assignment rather than a hard 400.
+  let roomId = null;
+  if (rn) {
+    const roomLookup = await query(
+      "SELECT id FROM rooms WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR) LIMIT 1",
+      [rn]
+    );
+    roomId = roomLookup?.[0]?.id ?? null;
   }
 
   const priorityMap = {
@@ -176,24 +284,61 @@ exports.create = async (req, res) => {
 
   const normalizedPriority = priorityMap[String(priority || "Normal").toLowerCase()] || "normal";
   const normalizedTaskType = taskTypeMap[String(task).toLowerCase().trim()] || "other";
+  const assignedToName = String(staffName || staff_name || "").trim();
+
+  // Resolve the assignee to a user id so notification lookups by user work,
+  // not just lookups by name.
+  let assignedToId = null;
+  if (assignedToName) {
+    const staffLookup = await query("SELECT id FROM users WHERE name = ? LIMIT 1", [assignedToName]);
+    assignedToId = staffLookup?.[0]?.id ?? null;
+  }
+
+  const assignerName = String(assignedBy || assigned_by || actor.name || "").trim() || null;
+  const assignerId = assignedToName === assignerName && assignedToId ? assignedToId : actor.id;
+  const dueTimeValue = dueTime || due_time ? new Date(dueTime || due_time) : null;
 
   try {
     // query() returns rows-only, so insertId has to come from db.query.
     const [result] = await db.query(
       `INSERT INTO housekeeping_assignments
-         (room_id, room_number, assigned_to, assigned_to_name, task_type, priority, notes, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+         (room_id, room_number, assigned_to, assigned_to_name, task_type, priority,
+          notes, assigned_by, assigned_by_name, due_time, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
         roomId,
-        roomNumber || room_number || "",
-        null,
-        staffName || staff_name || null,
+        rn || null,
+        assignedToId,
+        assignedToName || null,
         normalizedTaskType,
         normalizedPriority,
         notes || null,
+        assignerId,
+        assignerName,
+        dueTimeValue && !Number.isNaN(dueTimeValue.getTime()) ? dueTimeValue : null,
       ]
     );
-    res.json({ message: "Assignment created", id: result.insertId });
+    const id = result.insertId;
+
+    // Fire-and-forget: notifications are best effort, and a failure here must
+    // not turn an otherwise successful create into a 500.
+    emitAssignmentNotifications({
+      id,
+      assignedToId,
+      assignedToName,
+      assignerId,
+      assignerName,
+      roomNumber: rn,
+      task,
+      priority: normalizedPriority,
+      taskType: normalizedTaskType,
+      notes,
+      dueTime: dueTime || due_time,
+    }).catch((err) => {
+      console.error("[assignment] notification emit failed:", err.message);
+    });
+
+    res.json({ message: "Assignment created", id, status: "pending" });
   } catch (err) {
     res.status(500).json({ message: "Insert failed", error: err });
   }
@@ -258,12 +403,27 @@ exports.update = async (req, res) => {
   if (staffName !== undefined || staff_name !== undefined) {
     fields.push("assigned_to_name = ?");
     values.push(staffName ?? staff_name);
+    const staffId = await query("SELECT id FROM users WHERE name = ? LIMIT 1", [staffName ?? staff_name]);
+    fields.push("assigned_to = ?");
+    values.push(staffId?.[0]?.id ?? null);
   }
   if (roomNumber !== undefined || room_number !== undefined) {
     fields.push("room_number = ?");
     values.push(roomNumber ?? room_number);
+    const roomLookup = await query(
+      "SELECT id FROM rooms WHERE CAST(room_number AS CHAR) = CAST(? AS CHAR) LIMIT 1",
+      [roomNumber ?? room_number]
+    );
+    fields.push("room_id = ?");
+    values.push(roomLookup?.[0]?.id ?? null);
   }
   if (notes !== undefined) { fields.push("notes = ?"); values.push(notes); }
+  if (req.body.dueTime !== undefined || req.body.due_time !== undefined) {
+    fields.push("due_time = ?");
+    const raw = req.body.dueTime ?? req.body.due_time;
+    const parsed = raw ? new Date(raw) : null;
+    values.push(parsed && !Number.isNaN(parsed.getTime()) ? parsed : null);
+  }
 
   if (!fields.length) return res.status(400).json({ message: "No fields to update" });
 
@@ -291,8 +451,30 @@ exports.update = async (req, res) => {
       }
     }
 
+    const newStatus = status !== undefined ? STATUS_MAP[String(status).toLowerCase()] : null;
+    const wasCompleted = existingAssignment.status === "completed" || existingAssignment.status === "verified";
+
     values.push(id);
     await query(`UPDATE housekeeping_assignments SET ${fields.join(", ")} WHERE id = ?`, values);
+
+    if (status !== undefined && newStatus !== existingAssignment.status && !wasCompleted) {
+      const action = newStatus === "completed" ? "Completed" : newStatus === "cancelled" ? "Cancelled" : "Started";
+      const updated = await query("SELECT * FROM housekeeping_assignments WHERE id = ? LIMIT 1", [id]);
+      const assignment = updated[0] || existingAssignment;
+
+      if (newStatus === "completed") {
+        mirrorCompletionToHkMessages(assignment).catch((err) => {
+          console.error("[assignment] hk_messages mirror failed:", err.message);
+        });
+      }
+
+      if (newStatus === "completed" || newStatus === "cancelled") {
+        emitCompletionNotification(assignment, actor, action).catch((err) => {
+          console.error("[assignment] completion notification failed:", err.message);
+        });
+      }
+    }
+
     res.json({ message: "Assignment updated" });
   } catch (err) {
     res.status(500).json({ message: "Update failed", error: err });
