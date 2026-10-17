@@ -626,17 +626,28 @@ const Reports = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError("");
+    let lastError = null;
 
     try {
       const rows = await loadReportRows(reportType, filters);
       setData(Array.isArray(rows) ? rows : []);
       setLastFetchedAt(new Date());
     } catch (err) {
+      lastError = err;
       console.error("Error fetching report data", err);
       setData([]);
-      setError("Unable to load report data right now. Please refresh and try again.");
     } finally {
       setLoading(false);
+    }
+
+    if (lastError) {
+      const status = Number(lastError.response?.status);
+      setError(
+        status
+          ? `The reports service rejected this request (HTTP ${status}). ` +
+            "The table below is empty; adjust the filters and try again."
+          : "Unable to load report data right now. Please refresh and try again."
+      );
     }
   }, [reportType, filters.dateFrom, filters.dateTo]);
 
