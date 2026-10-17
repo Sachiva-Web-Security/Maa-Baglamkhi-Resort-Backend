@@ -161,7 +161,7 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
       b.guest_name,
       b.booking_status,
       GROUP_CONCAT(rt.room_number ORDER BY rt.room_number) AS rooms,
-      COALESCE(SUM(rt.amount), 0) AS amount
+      COALESCE(SUM(rt.total), 0) AS amount
      FROM bookings b
      LEFT JOIN room_tariff rt ON b.id = rt.booking_id
      GROUP BY b.id, b.guest_name, b.booking_status, b.check_in, b.check_out`
