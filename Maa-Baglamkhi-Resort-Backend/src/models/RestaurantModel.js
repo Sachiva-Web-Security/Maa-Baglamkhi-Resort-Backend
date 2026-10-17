@@ -1,5 +1,8 @@
 const db = require("../config/db");
-const connection = db.promise();
+// config/db.js already exports a mysql2 promise pool; db.promise() belongs to
+// the callback API and throws TypeError here, aborting any process that requires
+// this module.
+const connection = db;
 const TABLES_TABLE = "restaurant_tables";
 const folioModel = require("./folioModel");
 

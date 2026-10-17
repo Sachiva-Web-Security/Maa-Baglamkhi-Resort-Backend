@@ -12,6 +12,10 @@ const db = require("./src/config/db");
 
 const SILENT = process.argv.includes("--no-boot");
 
+// db.query(sql, params, cb) is the shim over a mysql2 promise pool. Unlike a
+// real callback query, its second argument is the bare rows array, not a
+// [rows, fields] tuple — so callers below index into it directly instead of
+// destructuring.
 const run = (sql, params = []) =>
   new Promise((resolve, reject) => {
     db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
@@ -84,6 +88,9 @@ const reset = async () => {
   }
 };
 
+// Unique-ish key so a UNIQUE constraint never collides between runs.
+const seedTag = (prefix) => `${prefix}-VERIFY-${Date.now()}`;
+
 const round2 = (n) => Math.round(n * 100) / 100;
 let failures = 0;
 const check = (label, actual, expected) => {
@@ -108,12 +115,18 @@ const verify = async () => {
   // CEIL rounds UP, so fractional hours bill a full hour. That is intended and
   // is the formula the reports module already used — not a bug.
   await run(`INSERT INTO banquet_halls (name, rate_per_hour) VALUES ('Grand Hall', 500)`);
-  const [halls] = await run(`SELECT id FROM banquet_halls WHERE name = 'Grand Hall'`);
-  await run(`INSERT INTO banquet_bookings (hall_id, start_time, end_time, decoration_fee, guests, status)
-    VALUES (?, '2026-10-17 10:00:00', '2026-10-17 11:30:00', 150.00, 20, 'confirmed')`, [halls[0].id]);
+  const halls = await run(`SELECT id FROM banquet_halls WHERE name = 'Grand Hall'`);
+  await run(
+    `INSERT INTO banquet_bookings
+      (hall_id, customer_name, phone, event_title, event_date, start_time, end_time, decoration_fee, guests, status)
+    VALUES (?, 'Seed Guest', '9999999999', 'Seed Dinner', '2026-10-17',
+            '2026-10-17 10:00:00', '2026-10-17 11:30:00', 150.00, 20, 'confirmed')`,
+    [halls[0].id],
+  );
 
   // invoices: total_amount 425 today.
-  await run(`INSERT INTO invoices (total_amount, created_at) VALUES (425.00, '2026-10-17 09:00:00')`);
+  await run(`INSERT INTO invoices (invoice_no, invoice_date, total_amount, created_at)
+    VALUES (?, '2026-10-17', 425.00, '2026-10-17 09:00:00')`, [seedTag("INV")]);
 
   // bills: total 80 today.
   await run(`INSERT INTO bills (table_number, total, payment_status, created_at) VALUES ('T4', 80.00, 'paid', '2026-10-17 11:00:00')`);
@@ -172,13 +185,13 @@ const verify = async () => {
   check("housekeeping report rows", (await run(
     "SELECT COUNT(*) AS c FROM housekeeping"))[0].c, 3);
 
-  const [hkRows] = await run(
+  const hkRows = await run(
     `SELECT id, DATE(COALESCE(updated_at, created_at)) AS date, CAST(roomNo AS CHAR) AS roomNo,
             COALESCE(NULLIF(roomType,''), CAST(roomNo AS CHAR)) AS roomType, status, assignee
      FROM housekeeping`);
   check("housekeeping report shape", hkRows.length && hkRows[0].roomNo === "101" && hkRows[0].assignee === "Anita" ? 1 : 0, 1);
 
-  const [allBills] = await run(
+  const allBills = await run(
     `SELECT b.id, DATE(b.date) AS billDate, COALESCE(
         (COALESCE(h.rate_per_hour,0) * GREATEST(1, CEIL(TIMESTAMPDIFF(MINUTE,b.start_time,b.end_time)/60)))
         + COALESCE(b.decoration_fee,0), COALESCE(b.decoration_fee,0)) AS amount

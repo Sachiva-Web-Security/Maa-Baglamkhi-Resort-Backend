@@ -13,19 +13,39 @@ const pool = mysql.createPool({
 });
 
 /**
- * Compatibility shim for the callback query style.
+ * Compatibility shim so the callback query style works on a mysql2 promise pool.
  *
- * Parts of the codebase were written against the callback API:
- *   db.query(sql, params, (err, rows) => ...)
+ * A promise pool's query(sql, args) ignores a third callback argument, so code
+ * written against the callback API hangs forever waiting for a callback that
+ * never fires. With this shim both styles work:
  *
- * This pool is a mysql2 *promise* pool, whose query(sql, args) takes only two
- * arguments — a third callback is silently ignored. The callback therefore
- * never fires and the request hangs until it times out.
+ *   await db.query(sql, params)             -> rows
+ *   db.query(sql, params, (err, rows) => {}) -> callback receives rows
  *
- * With this shim both styles work:
- *   await db.query(sql, params)                -> [rows, fields]
- *   db.query(sql, params, (err, rows) => {})   -> callback receives rows
+ * Both resolve to ROWS, never the mysql2 [rows, fields] tuple.
  */
+const isResultSetHeader = (value) =>
+  !!value && typeof value === "object" && "affectedRows" in value;
+
+// The [rows, fields] tuple cannot be told apart from a SELECT that happens to
+// return exactly two rows, so never decide from length alone. execute() is the
+ // prepared-statement path: it returns rows for SELECT and a ResultSetHeader
+ // for everything else, which is unambiguous.
+const unwrapResult = (result) =>
+  isResultSetHeader(result) ? result : result[0];
+
+const toCallback = (original, callback) => (sql, params = undefined) => {
+  const promise = params === undefined ? original(sql) : original(sql, params);
+  promise.then(
+    (result) => {
+      const rows = unwrapResult(result);
+      callback(null, rows, rows);
+    },
+    (err) => callback(err),
+  );
+  return promise;
+};
+
 const enableCallbackStyle = (target, method) => {
   const original = target[method].bind(target);
 
@@ -35,21 +55,12 @@ const enableCallbackStyle = (target, method) => {
       params = undefined;
     }
 
-    const promise = params === undefined ? original(sql) : original(sql, params);
-
     if (typeof callback === "function") {
-      promise.then(
-        (result) => {
-          // The promise API resolves [rows, fields]; callback style expects the
-          // rows (or ResultSetHeader) directly, plus fields as third argument.
-          const isTuple = Array.isArray(result) && result.length === 2;
-          callback(null, isTuple ? result[0] : result, isTuple ? result[1] : undefined);
-        },
-        (err) => callback(err),
-      );
+      return toCallback(original, callback)(sql, params);
     }
 
-    return promise;
+    const promise = params === undefined ? original(sql) : original(sql, params);
+    return promise.then(unwrapResult);
   };
 };
 

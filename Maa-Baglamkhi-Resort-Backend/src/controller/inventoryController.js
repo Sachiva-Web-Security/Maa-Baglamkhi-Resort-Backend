@@ -30,6 +30,29 @@ const queryWithConnection = async (connection, sql, params = []) => {
   return rows;
 };
 
+// Resolves a location by explicit id or name against inventory_locations, or
+// null so the caller can skip the location-scoped bookkeeping.
+const resolveStockLocation = async (connection, locationName, locationId) => {
+  const explicit = Number(locationId);
+  if (explicit > 0) return explicit;
+  if (!locationName || !(await tableExists("inventory_locations"))) return null;
+  const rows = await queryWithConnection(
+    connection,
+    "SELECT id FROM inventory_locations WHERE LOWER(name) = LOWER(?) ORDER BY id LIMIT 1",
+    [String(locationName).trim()],
+  );
+  return rows?.[0]?.id || null;
+};
+
+const locationStock = async (connection, itemId, locationId) => {
+  const rows = await queryWithConnection(
+    connection,
+    "SELECT COALESCE(SUM(quantity), 0) AS total FROM inventory_stock WHERE inventory_item_id = ? AND location_id = ?",
+    [itemId, locationId],
+  );
+  return normalizeNumber(rows?.[0]?.total);
+};
+
 const beginTransaction = async (connection) => {
   await connection.beginTransaction();
 };
@@ -55,23 +78,39 @@ const normalizeDateOnly = (value) => {
   return /^\d{4}-\d{2}-\d{2}$/.test(dateOnly) ? dateOnly : null;
 };
 
-const findInventoryItem = async (connection, itemId, itemName) => {
-  if (itemId) {
-    const byId = await queryWithConnection(
-      connection,
-      "SELECT id, name, stock, unit FROM inventory WHERE id = ? LIMIT 1",
-      [itemId],
-    );
-    if (byId.length) return byId[0];
-  }
+// Items live in one of two tables and their columns do not overlap: the
+// legacy `inventory` table keeps stock/unit/price inline, `inventory_items`
+// has sku and hsn_code but no stock at all (stock is per location in
+// inventory_stock). The projection below lists only columns that exist on
+// both, so the same query runs against either.
+const ITEM_TABLES = ["inventory", "inventory_items"];
+const ITEM_SELECT = `SELECT id, name, unit_cost, selling_price, unit, stock, price`;
 
-  if (itemName) {
-    const byName = await queryWithConnection(
-      connection,
-      "SELECT id, name, stock, unit FROM inventory WHERE LOWER(name) = LOWER(?) ORDER BY id ASC LIMIT 1",
-      [itemName],
-    );
-    if (byName.length) return byName[0];
+const normaliseItemRow = (row) => ({
+  id: Number(row.id),
+  name: row.name,
+  stock: row.stock != null ? normalizeNumber(row.stock) : null,
+  unit: row.unit ?? row.unit_cost ?? null,
+  price: row.price ?? row.selling_price ?? row.unit_cost ?? 0,
+});
+
+const findInventoryItem = async (connection, itemId, itemName) => {
+  for (const table of ITEM_TABLES) {
+    if (!(await tableExists(table))) continue;
+
+    if (itemId) {
+      const byId = await queryWithConnection(connection, `${ITEM_SELECT} FROM ${table} WHERE id = ? LIMIT 1`, [itemId]);
+      if (byId.length) return normaliseItemRow(byId[0]);
+    }
+
+    if (itemName) {
+      const byName = await queryWithConnection(
+        connection,
+        `${ITEM_SELECT} FROM ${table} WHERE LOWER(name) = LOWER(?) ORDER BY id ASC LIMIT 1`,
+        [itemName],
+      );
+      if (byName.length) return normaliseItemRow(byName[0]);
+    }
   }
 
   return null;
@@ -83,12 +122,18 @@ const getInventoryStock = async (connection, itemId) => {
 };
 
 const getInventoryItemDetails = async (connection, itemId) => {
-  const rows = await queryWithConnection(
+  const rows = await queryWithConnection(connection, `${ITEM_SELECT} FROM inventory WHERE id = ? LIMIT 1`, [itemId]);
+  if (rows.length) return normaliseItemRow(rows[0]);
+
+  const other = await queryWithConnection(connection, `${ITEM_SELECT} FROM inventory_items WHERE id = ? LIMIT 1`, [itemId]);
+  if (!other.length) return null;
+  // inventory_items has no stock column; derive it from the location rows.
+  const stockRows = await queryWithConnection(
     connection,
-    "SELECT id, name, stock, unit, price, branch FROM inventory WHERE id = ? LIMIT 1",
+    "SELECT COALESCE(SUM(quantity), 0) AS stock FROM inventory_stock WHERE inventory_item_id = ?",
     [itemId],
   );
-  return rows[0] || null;
+  return { ...normaliseItemRow(other[0]), stock: normalizeNumber(stockRows?.[0]?.stock) };
 };
 
 const syncInventoryExpiryFromInwards = async (connection, itemId) => {
@@ -2078,7 +2123,20 @@ exports.recordTransfer = async (req, res) => {
       );
 
       if (matchedItem && quantity > 0) {
-        const currentItem = await getInventoryItemDetails(connection, matchedItem.id);
+        const rate = normalizeNumber(currentItem?.price);
+        const destination = await resolveStockLocation(connection, req.body.toStore, req.body.toStoreId);
+        let balanceAfter = normalizeNumber(currentItem?.stock);
+
+        if (destination) {
+          balanceAfter = normalizeNumber(await locationStock(connection, matchedItem.id, destination)) + quantity;
+          await connection.query(
+            `INSERT INTO inventory_stock (inventory_item_id, location_id, quantity)
+             VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)`,
+            [matchedItem.id, destination, quantity],
+          );
+        }
+
         await writeLedgerEntry(connection, {
           itemId: matchedItem.id,
           itemName: matchedItem.name,
@@ -2088,9 +2146,9 @@ exports.recordTransfer = async (req, res) => {
           quantity,
           unit: req.body.unit || matchedItem.unit || null,
           locationName: req.body.fromStore || null,
-          rate: currentItem?.price || 0,
-          amount: (currentItem?.price || 0) * quantity,
-          balanceAfter: Number(currentItem?.stock || 0),
+          rate,
+          amount: rate * quantity,
+          balanceAfter: normalizeNumber(currentItem?.stock),
           remarks: req.body.notes || null,
           entryDate: req.body.date || null,
         });
@@ -2103,9 +2161,9 @@ exports.recordTransfer = async (req, res) => {
           quantity,
           unit: req.body.unit || matchedItem.unit || null,
           locationName: req.body.toStore || null,
-          rate: currentItem?.price || 0,
-          amount: (currentItem?.price || 0) * quantity,
-          balanceAfter: Number(currentItem?.stock || 0),
+          rate,
+          amount: rate * quantity,
+          balanceAfter,
           remarks: req.body.notes || null,
           entryDate: req.body.date || null,
         });

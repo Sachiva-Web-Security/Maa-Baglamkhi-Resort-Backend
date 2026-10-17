@@ -7,6 +7,13 @@ const roleMiddleware = require("../middleware/roleMiddleware");
 // /employees must come before /:userId or it is captured as a user id.
 router.get("/employees", authMiddleware, roleMiddleware(["admin"]), employeeController.listEmployees);
 
+// Self routes first so /me is not captured as a user id.
+// Self: Get my salary
+router.get("/me", authMiddleware, salaryController.getMySalary);
+
+// Self: Get my attendance with calculated salary
+router.get("/me/attendance", authMiddleware, salaryController.getMyAttendanceWithSalary);
+
 // Admin-only: Set salary for any employee
 router.post("/:userId", authMiddleware, roleMiddleware(["admin"]), salaryController.setEmployeeSalary);
 
@@ -15,12 +22,6 @@ router.get("/", authMiddleware, roleMiddleware(["admin"]), salaryController.getA
 
 // Admin or self: Get salary of a specific user
 router.get("/:userId", authMiddleware, salaryController.getEmployeeSalary);
-
-// Self: Get my salary
-router.get("/me", authMiddleware, salaryController.getMySalary);
-
-// Self: Get my attendance with calculated salary
-router.get("/me/attendance", authMiddleware, salaryController.getMyAttendanceWithSalary);
 
 // Admin: Recalculate attendance salary for a user
 router.post("/:userId/recalculate", authMiddleware, roleMiddleware(["admin"]), salaryController.recalculateAttendance);
