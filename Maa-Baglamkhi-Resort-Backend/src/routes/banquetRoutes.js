@@ -1,6 +1,12 @@
 const express = require("express");
 const router = express.Router();
+const authMiddleware = require("../middleware/authMiddleware");
 const upload = require("../utils/upload");
+
+// Hall pricing, bookings, cancellations and refunds are all financial records,
+// so the whole mount stays closed to unauthenticated requests.
+router.use(authMiddleware);
+
 const db = require("../config/db");
 
 const {

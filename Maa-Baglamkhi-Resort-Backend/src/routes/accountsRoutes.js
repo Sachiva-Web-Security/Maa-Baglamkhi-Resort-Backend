@@ -1,4 +1,11 @@
 const router = require("express").Router();
+const authMiddleware = require("../middleware/authMiddleware");
+
+// Nothing in this module is public: every route reads or writes the money
+// tables (transactions, payments, petty cash, gst returns, vendor payments,
+// purchase orders, payroll, profit centres, payment gateway settings).
+router.use(authMiddleware);
+
 const {
   getTransactions,
   getTransactionById,

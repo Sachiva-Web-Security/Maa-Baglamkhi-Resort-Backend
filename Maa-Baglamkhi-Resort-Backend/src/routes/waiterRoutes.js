@@ -1,6 +1,10 @@
 const express = require("express");
 const router  = express.Router();
+const authMiddleware = require("../middleware/authMiddleware");
 const waiterController = require("../controller/waiterController");
+
+// Ready orders, pickup and served updates, live board, pickup-lock release.
+router.use(authMiddleware);
 
 // GET /api/waiter/orders/ready — list of orders ready for pickup
 router.get("/orders/ready", waiterController.getReadyOrders);

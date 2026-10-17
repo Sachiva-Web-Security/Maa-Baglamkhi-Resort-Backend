@@ -4,6 +4,10 @@ const upload = require("../utils/upload");
 const restaurantWaController = require("../controller/restaurantWhatsappController");
 
 const router = express.Router();
+const authMiddleware = require("../middleware/authMiddleware");
+
+// Tables, menu, orders and bills - writes and payment endpoints included.
+router.use(authMiddleware);
 
 // TABLES
 router.post("/tables", controller.addTable);

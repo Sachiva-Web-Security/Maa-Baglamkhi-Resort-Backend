@@ -2,7 +2,11 @@
 // FIX: Added DELETE /orders/:id (removeKitchenOrder) - was missing, crashed Kitchen.jsx
 const express = require("express");
 const router  = express.Router();
+const authMiddleware = require("../middleware/authMiddleware");
 const kitchenController = require("../controller/kitchenController");
+
+// Kitchen order reads, status updates, cancellations and deletes.
+router.use(authMiddleware);
 
 router.post("/order",           kitchenController.createOrder);
 router.get("/",                 kitchenController.getOrders);
