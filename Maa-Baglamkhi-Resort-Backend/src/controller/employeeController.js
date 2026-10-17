@@ -17,16 +17,6 @@ const STAFF_ROLE_ID = 3;
 
 const DEFAULT_PASSWORD = "password";
 
-const DAY_STATUS_MULTIPLIER = {
-  present: 1,
-  absent: 0,
-  late: 0.5,
-  half_day: 0.5,
-  on_leave: 0,
-  holiday: 1,
-  week_off: 1,
-};
-
 function normalizeRoleName(raw) {
   const base = String(raw == null ? "" : raw).trim().toLowerCase();
   if (base === "receptionist") return "reception";

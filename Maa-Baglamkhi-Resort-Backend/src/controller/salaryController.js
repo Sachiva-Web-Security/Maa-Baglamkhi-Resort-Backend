@@ -14,7 +14,14 @@ const DAY_STATUS_MULTIPLIER = {
 const calculateDaySalary = (monthlySalary, status, year, month) => {
   const daysInMonth = new Date(year, month, 0).getDate();
   const daily = Number(monthlySalary || 0) / daysInMonth;
-  const multiplier = DAY_STATUS_MULTIPLIER[String(status || "").toLowerCase()] || 0;
+  const key = String(status || "").toLowerCase();
+  let multiplier = DAY_STATUS_MULTIPLIER[key];
+  // An unrecognised status is paid at full rate and logged, never paid zero.
+  // Returning 0 here was how a typo could wipe a whole month of pay.
+  if (multiplier === undefined) {
+    console.warn(`salary: unknown attendance status "${status}" — paid at full rate`);
+    multiplier = 1;
+  }
   return Number((daily * multiplier).toFixed(2));
 };
 

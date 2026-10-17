@@ -846,6 +846,17 @@ const processBillPayment = async (data) => {
         throw error;
       }
 
+      // bills.payment_status is the only live status column here (it is the
+      // column that drives which bills get collected). The guard above checks
+      // billRow.invoiceStatus, which bills does not have, so it never fired and
+      // every re-submit accumulated another total on top of paid_amount.
+      const currentStatus = String(billRow.payment_status || "").toLowerCase();
+      if (currentStatus === "paid" || currentStatus === "posted to room") {
+        const error = new Error("Bill already paid");
+        error.statusCode = 409;
+        throw error;
+      }
+
       await conn.query(
         `
           UPDATE bills
@@ -1040,7 +1051,8 @@ const chargeBillToRoom = async (data) => {
       throw error;
     }
 
-    if (isSettledInvoiceStatus(billRow.invoiceStatus) && !String(billRow.invoiceStatus || "").toLowerCase().includes("posted")) {
+    const currentStatus = String(billRow.payment_status || "").toLowerCase();
+    if (currentStatus === "paid") {
       const error = new Error("Bill already settled");
       error.statusCode = 409;
       throw error;

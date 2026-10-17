@@ -47,8 +47,17 @@ function daysInMonth(year, month) {
   return new Date(year, month, 0).getDate();
 }
 
+// Money must not vanish for an unrecognised status. An unknown value is paid at
+// full rate and logged, so a new status or a typo surfaces in the backend log
+// instead of silently earning the person zero.
 function statusMultiplier(status) {
-  return DAY_STATUS_MULTIPLIER[String(status || "").toLowerCase()] || 0;
+  const key = String(status || "").toLowerCase();
+  const multiplier = DAY_STATUS_MULTIPLIER[key];
+  if (multiplier === undefined) {
+    console.warn(`payroll: unknown attendance status "${status}" — paid at full rate`);
+    return 1;
+  }
+  return multiplier;
 }
 
 // Accepts employees.id OR users.id. A bare `id` match alone is ambiguous —
