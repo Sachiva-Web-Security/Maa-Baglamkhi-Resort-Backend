@@ -24,6 +24,14 @@ exports.getRoomSetup = async (req, res) => {
   }
 };
 
+/**
+ * POST /hotel/rooms
+ *
+ * Every failure used to collapse into a generic 500 "Failed to add room", so a
+ * bad room type (the actual cause of the reported bug) read identically to a
+ * database outage. The model now raises specific errors with a statusCode, and
+ * this handler passes the real reason through to the UI.
+ */
 exports.addRoom = async (req, res) => {
   try {
     const body = req.body || {};
@@ -33,11 +41,19 @@ exports.addRoom = async (req, res) => {
     const room = await roomInventoryModel.addRoom(body);
     res.json({ message: "Room added successfully", room });
   } catch (error) {
-    if (error.code !== "ER_DUP_ENTRY" && process.env.NODE_ENV !== "test") {
-      console.error(error);
+    const isDuplicate = error.code === "ER_DUP_ENTRY";
+    if (!isDuplicate && process.env.NODE_ENV !== "test") {
+      console.error("[addRoom] ERROR:", error?.sqlMessage || error?.message);
     }
-    res.status(500).json({
-      message: error.code === "ER_DUP_ENTRY" ? "Room already exists" : "Failed to add room",
+    const status = error.statusCode || (isDuplicate ? 409 : 500);
+    res.status(status).json({
+      message:
+        error.statusCode
+          ? error.message
+          : isDuplicate
+            ? "Room already exists"
+            : "Failed to add room",
+      error: error.sqlMessage || error.message,
     });
   }
 };

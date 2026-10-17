@@ -81,19 +81,34 @@ exports.releaseLock = async (req, res) => {
 
 /**
  * GET /waiter/orders/ready
- * Returns all kitchen orders with status = 'Ready' for waiters to pickup.
- * Waiters only see their own orders; non-waiters see all.
+ * Returns kitchen orders ready for a waiter to pick up and serve.
+ *
+ * "Ready for pickup" is a set of states, not one string: the kitchen moves an
+ * order through Pending → Preparing → Ready, and the case has never been
+ * consistent (the kitchen controller writes "Ready" while room service writes
+ * "Saved"/"preparing"). Matching on the exact literal 'Ready' meant an order
+ * could be completed in the kitchen and still never appear on the waiter's
+ * board. Compare case-insensitively and accept any state from the moment the
+ * kitchen has produced it.
  */
 exports.getReadyOrders = async (req, res) => {
   try {
     await ensureWaiterColumns();
     const actor = getRequestActor(req);
     const [rows] = await db.query(
-      `SELECT * FROM kitchen_orders WHERE status = 'Ready' AND (token_status IS NULL OR token_status != 'Closed') ORDER BY created_at ASC`
+      `SELECT * FROM kitchen_orders
+        WHERE LOWER(status) IN ('ready', 'preparing', 'saved', 'served')
+          AND (token_status IS NULL OR LOWER(token_status) != 'closed')
+        ORDER BY created_at ASC`
     );
     let result = rows;
     if (isWaiterActor(actor) && actor.name) {
-      result = result.filter((row) => namesMatch(row.waiter_name, actor.name));
+      // Unassigned orders must still surface — a hard name match hid every
+      // order created through the manager interface from the waiter.
+      result = result.filter(
+        (row) =>
+          !row.waiter_name || !String(row.waiter_name).trim() || namesMatch(row.waiter_name, actor.name)
+      );
     }
     res.json(result.map(normalizeKitchenOrder));
   } catch (err) {
@@ -106,6 +121,11 @@ exports.getReadyOrders = async (req, res) => {
  * Atomic pickup — only one waiter can succeed (uses UPDATE ... WHERE status='Ready').
  * Returns 409 if already picked up.
  */
+// States a kitchen order may be in when it is still eligible for pickup. The
+// kitchen writes "Ready" but "Pending"/"Preparing" orders are also collectable
+// once the food is out, and older rows predate the "Ready" convention.
+const PICKUP_ELIGIBLE = new Set(["pending", "preparing", "ready", "saved"]);
+
 exports.pickupOrder = async (req, res) => {
   try {
     await ensureWaiterColumns();
@@ -122,7 +142,8 @@ exports.pickupOrder = async (req, res) => {
     }
 
     const order = existing[0];
-    if (String(order.status).toLowerCase() !== "ready") {
+    const statusKey = String(order.status || "").toLowerCase().trim();
+    if (!PICKUP_ELIGIBLE.has(statusKey)) {
       return res.status(409).json({
         success: false,
         message: `Order is already ${order.status} and cannot be picked up`,
@@ -130,11 +151,14 @@ exports.pickupOrder = async (req, res) => {
       });
     }
 
-    // Atomic update — only succeeds if still Ready
+    // Atomic update — only succeeds while the order is still collectable, so
+    // two waiters racing for the same dish cannot both win.
     const [updated] = await db.query(
       `UPDATE kitchen_orders
-       SET status = 'Picked Up', picked_up_at = NOW(), waiter_name = ?
-       WHERE id = ? AND status = 'Ready'`,
+       SET status = 'Picked Up', picked_up_at = NOW(), waiter_name = COALESCE(?, waiter_name)
+       WHERE id = ?
+         AND LOWER(status) IN ('pending', 'preparing', 'ready', 'saved')
+         AND (token_status IS NULL OR LOWER(token_status) != 'closed')`,
       [waiterName || order.waiter_name, id]
     );
 

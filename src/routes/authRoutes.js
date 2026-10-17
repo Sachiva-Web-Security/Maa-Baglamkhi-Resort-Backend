@@ -15,5 +15,20 @@ router.get("/me", require("../middleware/authMiddleware"), (req, res) => {
     role: String(user.role || "").toLowerCase(),
   });
 });
+router.post("/logout", (req, res) => {
+  const isProd = process.env.NODE_ENV === "production";
 
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+    partitioned: isProd,
+    path: "/",
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "Logged out successfully",
+  });
+});
 module.exports = router;

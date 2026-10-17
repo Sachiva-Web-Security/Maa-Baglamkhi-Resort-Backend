@@ -174,7 +174,23 @@ exports.updateOrderStatus = async (req, res) => {
     }
 
     const fields = [], vals = [];
-    if (status !== undefined) { fields.push("status = ?"); vals.push(status); }
+    if (status !== undefined) {
+      const statusKey = String(status).toLowerCase().trim();
+      // Canonicalize case: the waiter board and EditToken both compare with
+      // lowercase === "ready", so a stored "PreparIng" would never match.
+      const canonical =
+        statusKey === "pending" || statusKey === "preparing" || statusKey === "saved"
+          ? "Pending"
+          : statusKey === "ready"
+            ? "Ready"
+            : statusKey === "served"
+              ? "Served"
+              : statusKey === "cancelled"
+                ? "Cancelled"
+                : String(status);
+      fields.push("status = ?");
+      vals.push(canonical);
+    }
     if (readyMessage !== undefined) { fields.push("ready_message = ?"); vals.push(readyMessage); }
     if (prepTimeMinutes !== undefined) {
       const normalizedPrepTime = normalizePrepTime(prepTimeMinutes);
@@ -184,7 +200,7 @@ exports.updateOrderStatus = async (req, res) => {
       fields.push("expected_ready_at = ?");
       vals.push(expectedAt);
     }
-    if (status === "Ready") {
+    if (String(status || "").toLowerCase().trim() === "ready") {
       fields.push("ready_at = NOW()");
     }
     if (!fields.length) return res.status(400).json({ message: "Nothing to update" });

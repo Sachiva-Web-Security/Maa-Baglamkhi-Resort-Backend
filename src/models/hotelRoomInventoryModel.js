@@ -48,13 +48,23 @@ const ensureSchema = async () => {
   if (!(await tableExists("room_categories"))) return;
 
   // Keep the default room categories present across repeated starts.
+  //
+  // The explicit ids in DEFAULT_CATEGORIES are a seeding hint only — the live
+  // table already holds these categories under its own ids (1 and 9003..9008),
+  // and `slug` is what actually makes this idempotent. Matching on id here
+  // would either duplicate every category or, worse, rewrite an unrelated row
+  // that happens to own id 2..6.
   for (const category of DEFAULT_CATEGORIES) {
     await runQuery(
       `INSERT INTO room_categories (name, slug, default_price, unit_label, is_active)
        VALUES (?, ?, ?, ?, 1)
        ON DUPLICATE KEY UPDATE
-         default_price = VALUES(default_price),
-         unit_label   = VALUES(unit_label)`,
+         name         = VALUES(name),
+         default_price = CASE
+           WHEN COALESCE(default_price, 0) = 0 THEN VALUES(default_price)
+           ELSE default_price
+         END,
+         unit_label   = COALESCE(NULLIF(unit_label, ''), VALUES(unit_label))`,
       [category.name, CATEGORY_SLUG(category.name), category.defaultPrice, category.unitLabel],
     );
   }
@@ -173,21 +183,98 @@ const getRoomSetup = async ({ checkIn = null, checkOut = null } = {}) => {
 };
 
 // ─── addRoom ──────────────────────────────────────────────────────────────────
-const addRoom = async ({ categoryId, roomNumber }) => {
+/**
+ * Create a room under a category.
+ *
+ * ROOT CAUSE (issue 2 — "rooms in Duplex / Classic / other types won't add"):
+ * `rooms.category_id` is a foreign key onto `room_categories.id`. The room
+ * screens used to be driven by a hard-coded catalogue whose ids (2..6) do not
+ * exist in this database, whose real ids are 1 and 9003..9008. Posting one of
+ * those stale ids violated the FK, MySQL raised ER_NO_REFERENCED_ROW_2, and the
+ * controller flattened every failure to a blanket 500 "Failed to add room" —
+ * so the UI showed a generic failure with no hint that the room *type* was the
+ * problem. Rooms under a valid category saved fine all along.
+ *
+ * Now the category is resolved (and, when the id is unknown, matched by name)
+ * before the insert, so the caller gets a specific, actionable error instead of
+ * a mystery 500.
+ */
+const addRoom = async ({ categoryId, category_id, categoryName, roomNumber }) => {
   await ensureSchema();
+
+  const roomNo = String(roomNumber || "").trim();
+  if (!roomNo) {
+    const err = new Error("Room number is required");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Resolve the category: prefer a valid id, else fall back to a name match.
+  const categories = await runQuery(
+    "SELECT id, name FROM room_categories WHERE is_active = 1 ORDER BY id",
+  );
+
+  const wantedId = categoryId ?? category_id;
+  let resolved = wantedId
+    ? categories.find((c) => String(c.id) === String(wantedId))
+    : null;
+
+  if (!resolved && categoryName) {
+    resolved = categories.find(
+      (c) =>
+        String(c.name || "").trim().toLowerCase() ===
+        String(categoryName).trim().toLowerCase(),
+    );
+  }
+
+  if (!resolved) {
+    const err = new Error(
+      wantedId
+        ? `Unknown room type (category id ${wantedId}). Pick a room type from the list and try again.`
+        : "Room type is required. Pick a room type before adding a room.",
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Mirror the real constraint. `rooms` carries UNIQUE KEY uniq_room_number on
+  // room_number alone — a room number is unique across the WHOLE inventory, not
+  // per category — so the check is global and compares the full identifier
+  // ("N104" and "T104" are different rooms; "104" twice is not).
+  const duplicate = await runQuery(
+    `SELECT r.id, c.name AS categoryName
+       FROM rooms r
+       LEFT JOIN room_categories c ON c.id = r.category_id
+      WHERE CAST(r.room_number AS CHAR) = CAST(? AS CHAR)
+      LIMIT 1`,
+    [roomNo],
+  );
+  if (duplicate.length) {
+    const owner = duplicate[0].categoryName;
+    const err = new Error(
+      owner
+        ? `Room ${roomNo} already exists under ${owner}. Room numbers must be unique.`
+        : `Room ${roomNo} already exists. Room numbers must be unique.`,
+    );
+    err.statusCode = 409;
+    err.code = "ER_DUP_ENTRY";
+    throw err;
+  }
+
   // runQuery resolves with mysql2's OkPacket for a write, which is an object
   // (not an array) — destructuring it as [result] throws
   // "(intermediate value) is not iterable", which the controller turns into a
   // blanket "Failed to add room" and hid the real cause.
   const result = await runQuery(
     "INSERT INTO rooms (category_id, room_number) VALUES (?, ?)",
-    [categoryId, String(roomNumber || "").trim()],
+    [Number(resolved.id), roomNo],
   );
   return {
-    id:          result.insertId,
-    categoryId:  Number(categoryId),
-    roomNumber:  String(roomNumber || "").trim(),
-    status:      "available",
+    id:           result.insertId,
+    categoryId:   Number(resolved.id),
+    categoryName: resolved.name,
+    roomNumber:   roomNo,
+    status:       "available",
   };
 };
 

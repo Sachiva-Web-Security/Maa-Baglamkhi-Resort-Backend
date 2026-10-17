@@ -9,9 +9,10 @@
     "init:prod": "node initialize.js",
     "seed": "node seed-runner.js",
     "repair:payments": "node repair-payments.js",
-    "test": "npm run test:routes && npm run test:lifecycle",
+    "test": "npm run test:routes && npm run test:lifecycle && npm run test:rooms",
     "test:routes": "node test/api-routes.test.js",
-    "test:lifecycle": "node test/lifecycle.test.js"
+    "test:lifecycle": "node test/lifecycle.test.js",
+    "test:rooms": "node test/room-inventory.test.js"
   },
   "keywords": [],
   "author": "",

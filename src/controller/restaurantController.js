@@ -382,19 +382,117 @@ exports.deleteMenuItem = async (req, res) => {
 
 /* ================= ORDER ================= */
 
+/**
+ * Totals for a set of order_items rows.
+ *
+ * Kept deliberately simple and reused by every endpoint that returns an
+ * order, so the frontend and the printed invoice can never disagree on the
+ * arithmetic. `total` is the per-line amount already including that line's
+ * own tax, so subtotal is the sum of line subtotals and tax the sum of the
+ * per-line tax amounts — they are not re-derived from each other.
+ */
+const orderTotalsFromItems = (items) => {
+  const list = Array.isArray(items) ? items : [];
+  let subtotal = 0;
+  let tax = 0;
+
+  for (const it of list) {
+    const unit = Number(it.unit_price ?? it.unitPrice ?? it.price ?? 0);
+    const qty = Math.max(1, Math.round(Number(it.quantity ?? it.qty ?? 1) || 1));
+    const percent = Number(it.tax_percent ?? it.taxPercent ?? 0);
+    const lineSubtotal = Number((unit * qty).toFixed(2));
+    const lineTax = Number((lineSubtotal * (percent / 100)).toFixed(2));
+
+    subtotal += lineSubtotal;
+    tax += lineTax;
+  }
+
+  subtotal = Number(subtotal.toFixed(2));
+  tax = Number(tax.toFixed(2));
+  return { subtotal, tax, total: Number((subtotal + tax).toFixed(2)) };
+};
+
+/**
+ * Resolve a menu item from the master menu by name.
+ *
+ * Menu price and tax are sourced of record here so a client cannot submit an
+ * arbitrary price — the item's own rate and tax percent are authoritative and
+ * stored on the order line for later invoicing.
+ */
+const findMenuItemByName = async (name) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT id, name, price, tax_percent, tax, availability_status, prep_time_minutes
+       FROM menu_items
+       WHERE LOWER(name) = LOWER(?) LIMIT 1`,
+      [String(name)]
+    );
+    return rows?.[0] || null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Write an order line and roll the order totals back up in one go.
+ *
+ * `order_items` requires NOT NULL unit_price and total with no column
+ * defaults, so every value has to be supplied explicitly — omitting either
+ * used to raise "Failed to add order item" on every insert.
+ */
+const insertOrderLineAndRecalc = async (orderId, line) => {
+  const unitPrice = Number(line.unitPrice) || 0;
+  const quantity = Math.max(1, Math.round(Number(line.quantity) || 1));
+  const taxPercent = Number(line.taxPercent) || 0;
+  const lineSubtotal = Number((unitPrice * quantity).toFixed(2));
+  const lineTax = Number((lineSubtotal * (taxPercent / 100)).toFixed(2));
+  const lineTotal = Number((lineSubtotal + lineTax).toFixed(2));
+
+  await db.query(
+    `INSERT INTO order_items
+      (order_id, menu_item_id, name, quantity, unit_price, tax_percent, tax_amount, total)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [orderId, line.menuItemId || null, line.name, quantity, unitPrice, taxPercent, lineTax, lineTotal]
+  );
+
+  const [agg] = await db.query(
+    `SELECT COALESCE(SUM(total), 0) AS subtotal, COALESCE(SUM(tax_amount), 0) AS tax
+       FROM order_items WHERE order_id = ?`,
+    [orderId]
+  );
+  const subtotal = Number(agg?.[0]?.subtotal || 0);
+  const taxAmount = Number(agg?.[0]?.tax || 0);
+  await db.query(
+    `UPDATE orders SET subtotal = ?, tax_amount = ?, total_amount = ?, updated_at = NOW() WHERE id = ?`,
+    [subtotal, taxAmount, Number((subtotal + taxAmount).toFixed(2)), orderId]
+  );
+
+  return { subtotal, taxAmount, total: Number((subtotal + taxAmount).toFixed(2)) };
+};
+
 exports.addOrderItem = async (req, res) => {
   const actor = getRequestActor(req);
   const { tableNumber, item, itemId, qty, price, name } = req.body || {};
   const resolvedItem = item || {};
   const itemName = String(name || resolvedItem.name || "").trim();
-  const itemQty = Number((resolvedItem.quantity || qty || 1));
-  const itemPrice = Number((resolvedItem.price || price || 0));
+  const itemQty = Math.max(1, Math.round(Number(resolvedItem.quantity || qty || 1) || 1));
+  const itemPrice = Number(resolvedItem.price || price || 0);
   if (!tableNumber || !itemName) return res.status(400).json({ message: "tableNumber and item required" });
   const waiterName = resolveAssignedWaiterName(req);
 
   try {
+    // Menu of record: prefer the stored menu price/tax over whatever the client
+    // sent, so line totals cannot drift from the published menu.
+    const menuRow = await findMenuItemByName(itemName);
+    const unitPrice = menuRow ? Number(menuRow.price || 0) : itemPrice;
+    const taxPercent = Number(menuRow?.tax_percent || menuRow?.tax || 0);
+    const menuItemId = menuRow?.id || null;
+
     let created = false;
-    const [orderRows] = await db.query("SELECT id, waiter_name FROM orders WHERE table_number=? AND status='pending' ORDER BY id DESC LIMIT 1", [tableNumber]);
+    const [orderRows] = await db.query(
+      "SELECT id, waiter_name FROM orders WHERE table_number=? AND status='pending' ORDER BY id DESC LIMIT 1",
+      [tableNumber]
+    );
     let order = orderRows[0];
 
     if (isWaiterActor(actor) && order?.waiter_name && !namesMatch(order.waiter_name, actor.name)) {
@@ -403,25 +501,35 @@ exports.addOrderItem = async (req, res) => {
 
     if (!order) {
       const [result] = await db.query(
-        "INSERT INTO orders (table_number, waiter_name, status) VALUES (?, ?, 'pending')",
-        [tableNumber, waiterName || null],
+        "INSERT INTO orders (table_number, waiter_name, entity_type, status) VALUES (?, ?, ?, 'pending')",
+        [tableNumber, waiterName || null, String(req.body?.entityType || "Table")]
       );
-      order = { id: result.insertId };
+      order = { id: result.insertId, waiter_name: waiterName || null };
       created = true;
     } else if (!order.waiter_name && waiterName) {
       await db.query("UPDATE orders SET waiter_name = ? WHERE id = ?", [waiterName, order.id]);
+      order.waiter_name = waiterName;
     }
 
-    await db.query(
-      "INSERT INTO order_items (order_id, name, price, quantity) VALUES (?,?,?,?)",
-      [order.id, itemName, itemPrice, itemQty]
-    );
+    const totals = await insertOrderLineAndRecalc(order.id, {
+      menuItemId,
+      name: itemName,
+      unitPrice,
+      quantity: itemQty,
+      taxPercent,
+    });
 
     res.json({
       orderId: order.id,
+      menuItemId,
+      unitPrice,
+      taxPercent,
+      quantity: itemQty,
+      totals,
       message: created ? "Order created and item added" : "Item added",
     });
   } catch (err) {
+    console.error("[restaurant/addOrderItem] ERROR:", err?.sqlMessage || err?.message);
     res.status(500).json({ message: "Failed to add order item", error: err.message });
   }
 };
@@ -432,8 +540,14 @@ exports.getOrders = async (req, res) => {
     const conditions = [];
     const params = [];
 
+    // A waiter with a single assignment (or no explicit owner on the order) sees
+    // everything: a strict "waiter_name = me" filter made orders created by a
+    // manager or room service invisible to the waiter, so they could never
+    // pick them up or invoice them.
     if (isWaiterActor(actor) && actor.name) {
-      conditions.push("LOWER(COALESCE(o.waiter_name, '')) = LOWER(?)");
+      conditions.push(
+        "LOWER(COALESCE(o.waiter_name, '')) = LOWER(?) OR o.waiter_name IS NULL OR TRIM(o.waiter_name) = ''"
+      );
       params.push(actor.name);
     }
 
@@ -468,12 +582,32 @@ exports.getOrder = async (req, res) => {
     const params = [tableNumber];
     let sql = "SELECT * FROM orders WHERE table_number=? AND status='pending'";
     if (isWaiterActor(actor) && actor.name) {
-      sql += " AND LOWER(COALESCE(waiter_name, '')) = LOWER(?)";
+      // Same rule as getOrders: unassigned orders stay visible so the waiter
+      // can claim and clear them instead of seeing an empty cart.
+      sql += " AND (LOWER(COALESCE(waiter_name, '')) = LOWER(?) OR waiter_name IS NULL OR TRIM(waiter_name) = '')";
       params.push(actor.name);
     }
     sql += " ORDER BY id DESC LIMIT 1";
     const [rows] = await db.query(sql, params);
-    res.json(rows[0] || {});
+    const order = rows[0] || {};
+    if (!order.id) return res.json({});
+
+    // Attach the lines and computed totals — the caller used to receive the
+    // order row alone and had to re-fetch items, which is where totals drifted.
+    const [items] = await db.query(
+      "SELECT * FROM order_items WHERE order_id=? ORDER BY id ASC",
+      [order.id]
+    );
+    const totals = orderTotalsFromItems(items);
+
+    res.json({
+      ...order,
+      items,
+      subtotal: totals.subtotal,
+      tax_amount: totals.tax,
+      taxAmount: totals.tax,
+      total: totals.total,
+    });
   } catch (err) {
     res.status(500).json({ message: "Failed to load order", error: err.message });
   }
@@ -482,12 +616,18 @@ exports.getOrder = async (req, res) => {
 exports.getOrderItems = async (req, res) => {
   const { orderId } = req.params;
   try {
-    const [rows] = await db.query("SELECT * FROM order_items WHERE order_id=?", [orderId]);
+    const [rows] = await db.query("SELECT * FROM order_items WHERE order_id=? ORDER BY id ASC", [orderId]);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ message: "Failed to load order items", error: err.message });
   }
 };
+
+// The orders.status ENUM. Anything else used to blow up as a 500 from MySQL,
+// so reject it here with a readable message instead.
+const ORDER_STATUSES = [
+  "pending", "confirmed", "preparing", "ready", "served", "completed", "cancelled",
+];
 
 exports.updateOrder = async (req, res) => {
   const actor = getRequestActor(req);
@@ -507,19 +647,27 @@ exports.updateOrder = async (req, res) => {
     const values = [];
 
     if (status !== undefined) {
+      const statusKey = String(status).toLowerCase().trim();
+      if (!ORDER_STATUSES.includes(statusKey)) {
+        return res.status(400).json({
+          message: `Invalid order status: ${status}`,
+          allowed: ORDER_STATUSES,
+        });
+      }
       fields.push("status = ?");
-      values.push(status);
+      values.push(statusKey);
     }
 
     if (tableNumber !== undefined) {
       fields.push("table_number = ?");
-      values.push(tableNumber);
+      values.push(String(tableNumber));
     }
 
     if (!fields.length) {
       return res.status(400).json({ message: "Nothing to update" });
     }
 
+    fields.push("updated_at = NOW()");
     values.push(orderId);
     await db.query(`UPDATE orders SET ${fields.join(", ")} WHERE id = ?`, values);
     res.json({ message: "Order updated" });
@@ -540,7 +688,14 @@ exports.deleteOrder = async (req, res) => {
       return res.status(403).json({ message: "You can delete only your own order" });
     }
 
-    const result = await db.query("DELETE FROM orders WHERE id = ?", [orderId]);
+    // Lines first — orders is ON DELETE SET NULL on order_items.order_id, so
+    // deleting the parent alone would orphan and then null out every line.
+    await db.query("DELETE FROM order_items WHERE order_id = ?", [orderId]);
+    const [result] = await db.query("DELETE FROM orders WHERE id = ?", [orderId]);
+
+    if (!result?.affectedRows) {
+      return res.status(404).json({ message: "Order not found" });
+    }
     res.json({ message: "Order deleted" });
   } catch (err) {
     res.status(500).json({ message: "Failed to delete order", error: err.message });
@@ -552,9 +707,12 @@ exports.payOrder = async (req, res) => {
   const { tableNumber } = req.params;
   try {
     const params = [tableNumber];
-    let sql = "UPDATE orders SET status='paid' WHERE table_number=? AND status='pending'";
+    // 'paid' is not part of the orders.status ENUM (pending/confirmed/
+    // preparing/ready/served/completed/cancelled), so writing it failed the
+    // whole request. 'completed' is the settled state in this schema.
+    let sql = "UPDATE orders SET status='completed' WHERE table_number=? AND status='pending'";
     if (isWaiterActor(actor) && actor.name) {
-      sql += " AND LOWER(COALESCE(waiter_name, '')) = LOWER(?)";
+      sql += " AND (LOWER(COALESCE(waiter_name, '')) = LOWER(?) OR waiter_name IS NULL OR TRIM(waiter_name) = '')";
       params.push(actor.name);
     }
     const [result] = await db.query(sql, params);
@@ -1293,11 +1451,13 @@ exports.getBillById = async (req, res) => {
 exports.payBill = async (req, res) => {
   try {
     const actor = getRequestActor(req);
-    const billId = req.body?.billId || req.params?.id || null;
-    if (!billId) {
-      return res.status(400).json({ message: "billId is required" });
-    }
 
+    // No billId guard here. The bill id is optional: processBillPayment() looks
+    // up an unpaid bill by tokenId (then by tableNumber) and, finding none,
+    // creates one with status Paid. The frontend's createBill auto-save is best
+    // effort -- when it fails or has not finished, the pay request legitimately
+    // carries billId: null and payment still has to work. Rejecting with
+    // "billId is required" broke "Pay Now & Save Bill" on every such token.
     const result = await processBillPayment({
       ...req.body,
       billId: req.body?.billId || req.params?.id || null,
