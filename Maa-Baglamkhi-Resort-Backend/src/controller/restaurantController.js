@@ -1231,8 +1231,27 @@ exports.createBill = async (req, res) => {
   }
 };
 
+// Bills have no invoice/billed date column, so created_at is the only field a report window can match.
+// A bare "from" must span midnight, otherwise 2026-10-01 excludes everything dated earlier that day.
+const buildBillDateFilter = (query = {}) => {
+  const from = String(query.from || "").slice(0, 10);
+  const to = String(query.to || "").slice(0, 10);
+  const conditions = [];
+  const params = [];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(from)) {
+    conditions.push("b.created_at >= ?");
+    params.push(`${from} 00:00:00`);
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    conditions.push("b.created_at < ?");
+    params.push(`${to} 00:00:00`);
+  }
+  return [conditions.length ? "WHERE " + conditions.join(" AND ") : "", params];
+};
+
 exports.getBills = async (req, res) => {
   try {
+    const [conditions, params] = buildBillDateFilter(req.query);
     const [rows] = await db.query(
       `
         SELECT
@@ -1256,9 +1275,11 @@ exports.getBills = async (req, res) => {
           b.created_at
         FROM bills b
         LEFT JOIN tokens t ON t.id = b.token_id
+        ${conditions}
         ORDER BY b.created_at DESC
         LIMIT 200
-      `
+      `,
+      params
     );
     const actor = getRequestActor(req);
     let resultRows = rows;
