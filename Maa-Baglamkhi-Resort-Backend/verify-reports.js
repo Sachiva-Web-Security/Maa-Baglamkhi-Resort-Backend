@@ -105,6 +105,8 @@ const verify = async () => {
     ('2026-10-17','Expense','Room','seed expense', 60.00, 'Cash', 0)`);
 
   // banquet: hall 500/hr, booking 10:00-11:30 = 1.5h -> ceil(2) = 1000 + 150 decor = 1150.
+  // CEIL rounds UP, so fractional hours bill a full hour. That is intended and
+  // is the formula the reports module already used — not a bug.
   await run(`INSERT INTO banquet_halls (name, rate_per_hour) VALUES ('Grand Hall', 500)`);
   const [halls] = await run(`SELECT id FROM banquet_halls WHERE name = 'Grand Hall'`);
   await run(`INSERT INTO banquet_bookings (hall_id, start_time, end_time, decoration_fee, guests, status)
