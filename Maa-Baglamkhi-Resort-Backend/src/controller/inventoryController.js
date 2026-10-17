@@ -78,20 +78,24 @@ const normalizeDateOnly = (value) => {
   return /^\d{4}-\d{2}-\d{2}$/.test(dateOnly) ? dateOnly : null;
 };
 
-// Items live in one of two tables and their columns do not overlap: the
-// legacy `inventory` table keeps stock/unit/price inline, `inventory_items`
-// has sku and hsn_code but no stock at all (stock is per location in
-// inventory_stock). The projection below lists only columns that exist on
-// both, so the same query runs against either.
+// Items live in one of two tables whose columns do not overlap: the legacy
+// `inventory` table keeps stock/unit/price inline, `inventory_items` has
+// unit_cost/selling_price but no stock column at all (stock is per location
+// in inventory_stock). Each table is therefore read with its own projection.
 const ITEM_TABLES = ["inventory", "inventory_items"];
-const ITEM_SELECT = `SELECT id, name, unit_cost, selling_price, unit, stock, price`;
+const ITEM_SELECT = {
+  inventory: `SELECT id, name, unit, price, stock, price AS unit_cost, price AS selling_price`,
+  inventory_items: `SELECT id, name, unit_id, unit_cost, selling_price, 0 AS price`,
+};
 
 const normaliseItemRow = (row) => ({
   id: Number(row.id),
   name: row.name,
   stock: row.stock != null ? normalizeNumber(row.stock) : null,
-  unit: row.unit ?? row.unit_cost ?? null,
-  price: row.price ?? row.selling_price ?? row.unit_cost ?? 0,
+  unit: row.unit ?? row.unit_id ?? null,
+  price: normalizeNumber(row.price ?? row.selling_price ?? row.unit_cost),
+  unit_cost: normalizeNumber(row.unit_cost),
+  selling_price: normalizeNumber(row.selling_price),
 });
 
 const findInventoryItem = async (connection, itemId, itemName) => {
@@ -99,14 +103,14 @@ const findInventoryItem = async (connection, itemId, itemName) => {
     if (!(await tableExists(table))) continue;
 
     if (itemId) {
-      const byId = await queryWithConnection(connection, `${ITEM_SELECT} FROM ${table} WHERE id = ? LIMIT 1`, [itemId]);
+      const byId = await queryWithConnection(connection, `${ITEM_SELECT[table]} FROM ${table} WHERE id = ? LIMIT 1`, [itemId]);
       if (byId.length) return normaliseItemRow(byId[0]);
     }
 
     if (itemName) {
       const byName = await queryWithConnection(
         connection,
-        `${ITEM_SELECT} FROM ${table} WHERE LOWER(name) = LOWER(?) ORDER BY id ASC LIMIT 1`,
+        `${ITEM_SELECT[table]} FROM ${table} WHERE LOWER(name) = LOWER(?) ORDER BY id ASC LIMIT 1`,
         [itemName],
       );
       if (byName.length) return normaliseItemRow(byName[0]);
@@ -122,10 +126,10 @@ const getInventoryStock = async (connection, itemId) => {
 };
 
 const getInventoryItemDetails = async (connection, itemId) => {
-  const rows = await queryWithConnection(connection, `${ITEM_SELECT} FROM inventory WHERE id = ? LIMIT 1`, [itemId]);
+  const rows = await queryWithConnection(connection, `${ITEM_SELECT.inventory} FROM inventory WHERE id = ? LIMIT 1`, [itemId]);
   if (rows.length) return normaliseItemRow(rows[0]);
 
-  const other = await queryWithConnection(connection, `${ITEM_SELECT} FROM inventory_items WHERE id = ? LIMIT 1`, [itemId]);
+  const other = await queryWithConnection(connection, `${ITEM_SELECT.inventory_items} FROM inventory_items WHERE id = ? LIMIT 1`, [itemId]);
   if (!other.length) return null;
   // inventory_items has no stock column; derive it from the location rows.
   const stockRows = await queryWithConnection(
@@ -2115,17 +2119,18 @@ exports.recordTransfer = async (req, res) => {
       await beginTransaction(connection);
       const quantity = normalizeNumber(req.body.quantity);
       const matchedItem = await findInventoryItem(connection, req.body.itemId, req.body.itemName);
+      const currentItem = matchedItem || null;
       const result = await queryWithConnection(
         connection,
-        `INSERT INTO inventory_transfers (item_id, item_name, from_store, to_store, quantity, unit, approved_by, transfer_date, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [matchedItem?.id || req.body.itemId || null, matchedItem?.name || req.body.itemName, req.body.fromStore, req.body.toStore, quantity, req.body.unit || matchedItem?.unit || null, req.body.approvedBy || null, req.body.date || null, req.body.notes || null],
+        `INSERT INTO inventory_transfers (item_name, from_store, to_store, quantity, unit, approved_by, transfer_date, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [matchedItem?.name || req.body.itemName, req.body.fromStore, req.body.toStore, quantity, req.body.unit || matchedItem?.unit || null, req.body.approvedBy || null, req.body.date || null, req.body.notes || null],
       );
 
       if (matchedItem && quantity > 0) {
-        const rate = normalizeNumber(currentItem?.price);
+        const rate = normalizeNumber(currentItem.price);
         const destination = await resolveStockLocation(connection, req.body.toStore, req.body.toStoreId);
-        let balanceAfter = normalizeNumber(currentItem?.stock);
+        let balanceAfter = normalizeNumber(currentItem.stock);
 
         if (destination) {
           balanceAfter = normalizeNumber(await locationStock(connection, matchedItem.id, destination)) + quantity;
@@ -2148,7 +2153,7 @@ exports.recordTransfer = async (req, res) => {
           locationName: req.body.fromStore || null,
           rate,
           amount: rate * quantity,
-          balanceAfter: normalizeNumber(currentItem?.stock),
+          balanceAfter: normalizeNumber(currentItem.stock),
           remarks: req.body.notes || null,
           entryDate: req.body.date || null,
         });

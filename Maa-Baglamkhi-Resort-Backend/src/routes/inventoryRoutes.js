@@ -87,8 +87,71 @@ router.post("/purchases", authMiddleware, roleMiddleware(EDITORS), (req, res) =>
   res.status(501).json({ message: "Not implemented yet" });
 });
 
-router.get("/stock", authMiddleware, roleMiddleware(READERS), (req, res) => {
-  res.json([]);
+router.get("/stock", authMiddleware, roleMiddleware(READERS), async (req, res) => {
+  const db = require("../config/db");
+  const tableExists = async (tableName) => {
+    const [rows] = await db.query(
+      `SELECT COUNT(*) AS c FROM information_schema.tables
+       WHERE table_schema = DATABASE() AND table_name = ?`,
+      [tableName],
+    );
+    return Number(rows?.[0]?.c || 0) > 0;
+  };
+  const columnExists = async (tableName, columnName) => {
+    const [rows] = await db.query(
+      `SELECT COUNT(*) AS c FROM information_schema.columns
+       WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`,
+      [tableName, columnName],
+    );
+    return Number(rows?.[0]?.c || 0) > 0;
+  };
+  const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+  try {
+    if (!(await tableExists("inventory_stock"))) return res.json([]);
+
+    const itemCols = ["name", "category", "category_id", "stock", "unit", "price", "reorder_point", "expiry", "is_perishable"];
+    const hasItemCol = {};
+    if (await tableExists("inventory_items")) {
+      for (const c of itemCols) hasItemCol[c] = await columnExists("inventory_items", c);
+    }
+
+    const cols = itemCols.filter((c) => hasItemCol[c]);
+    const itemSelect = cols.length ? cols.map((c) => `i.${c}`).join(", ") : "i.id";
+    const locJoin = await tableExists("inventory_locations")
+      ? "LEFT JOIN inventory_locations l ON l.id = s.location_id"
+      : "";
+
+    const [rows] = await db.query(
+      `SELECT s.id AS stockId, s.inventory_item_id AS itemId, s.quantity,
+              s.batch_no AS batchNo, s.expiry_date AS expiryDate,
+              s.location_id AS locationId, l.name AS store,
+              ${itemSelect}
+       FROM inventory_stock s
+       ${locJoin}
+       LEFT JOIN inventory_items i ON i.id = s.inventory_item_id
+       ORDER BY i.name, l.name`,
+    );
+
+    res.json(
+      rows.map((r) => ({
+        stockId: r.stockId,
+        id: r.itemId,
+        itemId: r.itemId,
+        itemName: r.name || null,
+        category: r.category ?? null,
+        quantity: num(r.quantity),
+        stock: num(r.quantity),
+        reorderLevel: hasItemCol.reorder_point ? num(r.reorder_point) : 5,
+        expiryDate: r.expiryDate ? String(r.expiryDate).slice(0, 10) : null,
+        store: r.store || null,
+        unit: r.unit ?? null,
+        price: r.price != null ? num(r.price) : 0,
+        type: hasItemCol.is_perishable ? (r.is_perishable ? "menu" : "raw") : "raw",
+      })),
+    );
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch stock.", error });
+  }
 });
 router.post("/stock", authMiddleware, roleMiddleware(EDITORS), (req, res) => {
   res.status(501).json({ message: "Not implemented yet" });
