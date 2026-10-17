@@ -1,6 +1,16 @@
 const express = require("express");
 const router = express.Router();
 const controller = require("../controller/roomServiceController");
+const authMiddleware = require("../middleware/authMiddleware");
+const roleMiddleware = require("../middleware/roleMiddleware");
+
+// Room list, room-service menu, order placement and bill writing. Nothing in
+// the frontend calls this mount today, so the list stays wide on purpose: the
+// mount is closed to unauthenticated requests, not narrowed by role.
+const OPERATORS = ["admin", "manager", "reception", "accounts", "housekeeping", "waiter", "kitchen", "staff"];
+
+router.use(authMiddleware);
+router.use(roleMiddleware(OPERATORS));
 
 // ROOMS
 router.post("/rooms", controller.addRoom);
