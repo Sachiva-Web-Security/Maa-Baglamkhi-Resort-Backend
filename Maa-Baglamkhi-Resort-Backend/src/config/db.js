@@ -13,66 +13,111 @@ const pool = mysql.createPool({
 });
 
 /**
- * Compatibility shim so the callback query style works on a mysql2 promise pool.
+ * Compatibility shim for the callback query style, and one shape rule for the
+ * whole tree.
  *
- * A promise pool's query(sql, args) ignores a third callback argument, so code
- * written against the callback API hangs forever waiting for a callback that
- * never fires. With this shim both styles work:
+ * A mysql2 promise pool's query(sql, args) takes only two arguments, so code
+ * written against the callback API
  *
- *   await db.query(sql, params)             -> rows
- *   db.query(sql, params, (err, rows) => {}) -> callback receives rows
+ *   db.query(sql, params, (err, rows) => ...)
  *
- * Both resolve to ROWS, never the mysql2 [rows, fields] tuple.
+ * passes a callback that is silently dropped. The promise still resolves, the
+ * callback never fires, and the request hangs until the socket times out.
+ *
+ * Nothing here may convert that tuple to a bare value. Every write's
+ * ResultSetHeader sits at index 0, and the codebase reads
+ * `const [header] = await db.query(...)` then `header.insertId` - InventoryModel,
+ * guestModel, roomBlockModel, InvoiceModel. Unwrapping a write would make
+ * insertId unreachable and every INSERT that stores its new id back would
+ * silently write null.
+ *
+ * A read is a tuple either way: [[rows], [fields]] from query() and
+ * [rows, [fields]] from execute(). The callback branch must unwrap only the
+ * outer layer, never pick between rows and a header.
+ *
+ * And never test result.length === 2. A SELECT returning exactly two rows is
+ * indistinguishable from a tuple by length, and SHOW statements return two
+ * result sets that must both survive.
  */
-const isResultSetHeader = (value) =>
-  !!value && typeof value === "object" && "affectedRows" in value;
+const asRows = (result) =>
+  Array.isArray(result) && Array.isArray(result[1]) ? result[0] : result;
 
-// The [rows, fields] tuple cannot be told apart from a SELECT that happens to
-// return exactly two rows, so never decide from length alone. execute() is the
- // prepared-statement path: it returns rows for SELECT and a ResultSetHeader
- // for everything else, which is unambiguous.
-const unwrapResult = (result) =>
-  isResultSetHeader(result) ? result : result[0];
-
-const toCallback = (original, callback) => (sql, params = undefined) => {
-  const promise = params === undefined ? original(sql) : original(sql, params);
+const withCallback = (promise, callback) => {
   promise.then(
     (result) => {
-      const rows = unwrapResult(result);
-      callback(null, rows, rows);
+      const value = asRows(result);
+      callback(null, value, value);
     },
     (err) => callback(err),
   );
+};
+
+const originalQuery = pool.query.bind(pool);
+const originalExecute = pool.execute.bind(pool);
+
+pool.query = function (sql, params, callback) {
+  if (typeof params === "function") {
+    callback = params;
+    params = undefined;
+  }
+
+  const promise = params === undefined ? originalQuery(sql) : originalQuery(sql, params);
+
+  if (typeof callback === "function") {
+    withCallback(promise, callback);
+  }
+
   return promise;
 };
 
-const enableCallbackStyle = (target, method) => {
-  const original = target[method].bind(target);
+pool.execute = function (sql, params, callback) {
+  if (typeof params === "function") {
+    callback = params;
+    params = undefined;
+  }
 
-  target[method] = function (sql, params, callback) {
-    if (typeof params === "function") {
-      callback = params;
-      params = undefined;
-    }
+  const promise = params === undefined ? originalExecute(sql) : originalExecute(sql, params);
 
-    if (typeof callback === "function") {
-      return toCallback(original, callback)(sql, params);
-    }
+  if (typeof callback === "function") {
+    withCallback(promise, callback);
+  }
 
-    const promise = params === undefined ? original(sql) : original(sql, params);
-    return promise.then(unwrapResult);
-  };
+  return promise;
 };
-
-enableCallbackStyle(pool, "query");
-enableCallbackStyle(pool, "execute");
 
 const originalGetConnection = pool.getConnection.bind(pool);
 
 pool.getConnection = async (...args) => {
   const connection = await originalGetConnection(...args);
-  enableCallbackStyle(connection, "query");
-  enableCallbackStyle(connection, "execute");
+
+  const originalConnectionQuery = connection.query.bind(connection);
+  connection.query = function (sql, params, callback) {
+    if (typeof params === "function") {
+      callback = params;
+      params = undefined;
+    }
+    const promise =
+      params === undefined ? originalConnectionQuery(sql) : originalConnectionQuery(sql, params);
+    if (typeof callback === "function") {
+      withCallback(promise, callback);
+    }
+    return promise;
+  };
+
+  const originalConnectionExecute = connection.execute.bind(connection);
+  connection.execute = function (sql, params, callback) {
+    if (typeof params === "function") {
+      callback = params;
+      params = undefined;
+    }
+    const promise =
+      params === undefined ? originalConnectionExecute(sql) : originalConnectionExecute(sql, params);
+    if (typeof callback === "function") {
+      withCallback(promise, callback);
+    }
+    return promise;
+  };
+
   return connection;
 };
 
