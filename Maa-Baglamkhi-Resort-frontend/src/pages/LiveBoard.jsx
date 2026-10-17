@@ -5,8 +5,16 @@ import { FiRefreshCw } from "react-icons/fi";
 import API from "../api";
 import { getCurrentActor } from "../utils/currentActor";
 
+// kitchen_orders.status is human-readable ("Picked Up", "Ready"), not snake_case.
+// Normalising first means the stat cards and colour chips match the data.
+const normalizeStatus = (status) =>
+  String(status || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "_");
+
 const getStatusColor = (status) => {
-  switch (status) {
+  switch (normalizeStatus(status)) {
     case "pending":
       return "bg-amber-100 text-amber-700 border-amber-200";
     case "preparing":
@@ -23,7 +31,7 @@ const getStatusColor = (status) => {
 };
 
 const getStatusLabel = (status) => {
-  switch (status) {
+  switch (normalizeStatus(status)) {
     case "pending":
       return "Pending";
     case "preparing":
@@ -157,31 +165,31 @@ const LiveBoard = () => {
           <div className="rounded-2xl bg-white p-4 shadow-sm">
             <p className="text-xs font-bold uppercase tracking-wider text-red-500">Pending</p>
             <p className="mt-1 text-2xl font-black text-red-600">
-              {orders.filter((o) => o.orderStatus === "pending").length}
+              {orders.filter((o) => normalizeStatus(o.orderStatus) === "pending").length}
             </p>
           </div>
           <div className="rounded-2xl bg-white p-4 shadow-sm">
             <p className="text-xs font-bold uppercase tracking-wider text-sky-500">Preparing</p>
             <p className="mt-1 text-2xl font-black text-sky-600">
-              {orders.filter((o) => o.orderStatus === "preparing").length}
+              {orders.filter((o) => normalizeStatus(o.orderStatus) === "preparing").length}
             </p>
           </div>
           <div className="rounded-2xl bg-white p-4 shadow-sm">
             <p className="text-xs font-bold uppercase tracking-wider text-amber-500">Ready to Pick</p>
             <p className="mt-1 text-2xl font-black text-amber-600">
-              {orders.filter((o) => o.orderStatus === "ready").length}
+              {orders.filter((o) => normalizeStatus(o.orderStatus) === "ready").length}
             </p>
           </div>
           <div className="rounded-2xl bg-white p-4 shadow-sm">
             <p className="text-xs font-bold uppercase tracking-wider text-purple-500">Picked Up</p>
             <p className="mt-1 text-2xl font-black text-purple-600">
-              {orders.filter((o) => o.orderStatus === "picked_up").length}
+              {orders.filter((o) => normalizeStatus(o.orderStatus) === "picked_up").length}
             </p>
           </div>
           <div className="rounded-2xl bg-white p-4 shadow-sm">
             <p className="text-xs font-bold uppercase tracking-wider text-cyan-500">Served</p>
             <p className="mt-1 text-2xl font-black text-cyan-600">
-              {orders.filter((o) => o.orderStatus === "served").length}
+              {orders.filter((o) => normalizeStatus(o.orderStatus) === "served").length}
             </p>
           </div>
         </div>
@@ -269,7 +277,7 @@ const LiveBoard = () => {
                 <div className="flex flex-wrap gap-2">
                   {order.isOwnedByCurrentWaiter ? (
                     <>
-                      {String(order.orderStatus).toLowerCase() === "ready" && (
+                      {normalizeStatus(order.orderStatus) === "ready" && (
                         <button
                           onClick={() => handlePickup(order)}
                           disabled={actionLoading === order.tokenId}
@@ -285,7 +293,7 @@ const LiveBoard = () => {
                           )}
                         </button>
                       )}
-                      {String(order.orderStatus).toLowerCase() === "picked_up" && (
+                      {normalizeStatus(order.orderStatus) === "picked_up" && (
                         <button
                           onClick={() => handleServed(order)}
                           disabled={actionLoading === order.tokenId}
