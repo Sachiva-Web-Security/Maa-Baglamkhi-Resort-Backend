@@ -141,6 +141,8 @@ router.post("/profit-centers", addProfitCenter);
 router.put("/profit-centers/:id", updateProfitCenter);
 router.delete("/profit-centers/:id", deleteProfitCenter);
 router.get("/payment-settings", listPaymentGatewaySettings);
+router.post("/payment-settings", addPaymentGatewaySetting);
+router.put("/payment-settings/:id", updatePaymentGatewaySetting);
 router.delete("/payment-settings/:id", deletePaymentGatewaySetting);
 router.get("/payment-history", getAllPaymentHistory);
 

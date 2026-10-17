@@ -2025,6 +2025,9 @@ const addPaymentGatewaySetting = async (req, res) => {
     );
     res.status(201).json({ message: "Payment setting added", id: result.insertId });
   } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({ message: `Payment setting "${name}" already exists` });
+    }
     res.status(500).json({ message: "Failed to add payment setting", error: error.message });
   }
 };
