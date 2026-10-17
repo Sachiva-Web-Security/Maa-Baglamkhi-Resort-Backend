@@ -2,21 +2,23 @@ const db = require("../config/db");
 const PaymentMethodsModel = require("../models/PaymentMethodsModel");
 
 // ---------------------------------------------------------------------------
-// Query helper — keeps the existing callback style used across this controller.
-// See src/config/db.js: both `await db.query(sql, params)` ( -> [rows, fields] )
-// and callback style ( -> rows directly ) are supported by the shim.
+// Query helper — this controller's contract: `await query()` resolves the whole
+// mysql2 result tuple, so callers index it themselves.
+//
+//   const [header] = await query(INSERT...)  -> header.insertId
+//   const [rows]   = await query(SELECT...)  -> rows[]
+//
+// It must not use the shim's callback argument. That callback gets
+// `asRows(result)` from src/config/db.js, which unwraps by `Array.isArray(result[1])`
+// — and the write header sits at index 0 there too, so a write resolves to the
+// header object (a non-array, which `.length`/`.map` then throw on) and a
+// LIMIT 1 read resolves to the fields array, not the row.
 // ---------------------------------------------------------------------------
-const query = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (error, results) => {
-      if (error) return reject(error);
-      resolve(results);
-    });
-  });
+const query = async (sql, params = []) => db.query(sql, params);
 
 // Single-row helper.
 const queryOne = async (sql, params = []) => {
-  const rows = await query(sql, params);
+  const [rows] = await query(sql, params);
   return Array.isArray(rows) ? rows[0] || null : null;
 };
 
@@ -159,7 +161,7 @@ const ensurePaymentMethodId = async (paymentMode) => {
     // Insert if the method table is writable; ignore duplicate-name races.
     const code = normalizeText(label).replace(/[^a-z0-9]+/g, "_").slice(0, 30) || "other";
     try {
-      const result = await query(
+      const [result] = await query(
         "INSERT INTO payment_methods (name, code, is_active) VALUES (?, ?, 1)",
         [label, code],
       );
@@ -262,8 +264,8 @@ const ledgerRowToRecord = (row) => {
   };
 };
 
-const getTransactionEntriesForHeader = (id) =>
-  query(
+const getTransactionEntriesForHeader = async (id) => {
+  const [rows] = await query(
     `SELECT e.id, e.entry_type, e.amount, e.description, ca.code, ca.name AS account_name, ca.type AS account_type
        FROM transaction_entries e
        JOIN chart_of_accounts ca ON ca.id = e.account_id
@@ -271,6 +273,8 @@ const getTransactionEntriesForHeader = (id) =>
       ORDER BY e.id ASC`,
     [id],
   );
+  return safeArray(rows);
+};
 
 // GET /accounts/transactions — flat ARRAY (Accounts.jsx setRecords(res.data || []))
 const getTransactions = async (req, res) => {
@@ -295,7 +299,7 @@ const getTransactions = async (req, res) => {
   sql += " GROUP BY t.id ORDER BY t.transaction_date DESC, t.id DESC";
 
   try {
-    const rows = await query(sql, params);
+    const [rows] = await query(sql, params);
     let records = safeArray(rows).map(ledgerRowToRecord);
 
     // type/department live on the derived record, so filter after mapping.
@@ -332,7 +336,7 @@ const getSummary = async (req, res) => {
     }
 
     // Income / expense from the double-entry ledger.
-    const ledger = await query(
+    const [ledger] = await query(
       `SELECT
          COALESCE(SUM(CASE WHEN ca.type = 'revenue' THEN e.amount ELSE 0 END), 0) AS revenue,
          COALESCE(SUM(CASE WHEN ca.type = 'expense' THEN e.amount ELSE 0 END), 0) AS expense
@@ -458,7 +462,7 @@ const recordLedgerTransaction = async ({ date, type, description, amount, paymen
   const referenceType = "accounts-manual";
   const transactionNo = `TXN-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-  const header = await query(
+  const [header] = await query(
     `INSERT INTO transactions (transaction_no, transaction_date, description, reference_type, created_by)
      VALUES (?, ?, ?, ?, ?)`,
     [transactionNo, entryDate, String(description).slice(0, 255), referenceType, createdBy || null],
@@ -566,7 +570,7 @@ const deleteTransaction = async (req, res) => {
 // ---------------------------------------------------------------------------
 const getDepartmentSummary = async (req, res) => {
   try {
-    const rows = await query(
+    const [rows] = await query(
       `SELECT
          ca.name AS account_name,
          ca.type AS account_type,
@@ -898,7 +902,7 @@ const savePaymentHistory = async (req, res) => {
     const methodId = await ensurePaymentMethodId(payment_mode);
     if (!methodId) return res.status(400).json({ message: "No payment method available" });
 
-    const result = await query(
+    const [result] = await query(
       `INSERT INTO payments (booking_id, bill_id, invoice_id, amount, payment_method_id, payment_type, reference_no, status)
        VALUES (?, ?, ?, ?, ?, 'payment', ?, 'completed')`,
       [booking_id || null, bill_id || null, invoice_id || null, round2(amount), methodId, reference_no || null],
@@ -1090,7 +1094,7 @@ const getReconciliationLedgerRows = async (filters = {}) => {
 const getReconciliationItemsFromSources = async () => {
   // Source rows = operational money already recorded against invoices / bills,
   // joined to any bank movement that references them.
-  const invoiceRows = await query(`
+  const [invoiceRows] = await query(`
     SELECT
       'invoice' AS source_type,
       i.id AS source_id,
@@ -1104,7 +1108,7 @@ const getReconciliationItemsFromSources = async () => {
     FROM invoices i
   `);
 
-  const billRows = await query(`
+  const [billRows] = await query(`
     SELECT
       'restaurant_bill' AS source_type,
       b.id AS source_id,
@@ -1191,7 +1195,7 @@ const getReconciliationSummary = async (req, res) => {
       where += " AND COALESCE(pm.name, 'Manual') = ?";
       params.push(paymentMode);
     }
-    const bankTotals = await query(
+    const [bankTotals] = await query(
       `SELECT
          COALESCE(SUM(CASE WHEN p.status = 'refunded' THEN 0 ELSE p.amount END), 0) AS total_in,
          COALESCE(SUM(CASE WHEN p.status = 'refunded' THEN p.amount ELSE 0 END), 0) AS total_out
@@ -1327,7 +1331,7 @@ const addBankLedger = async (req, res) => {
     // bank and notes distinctly.
     const details = [description, bankName ? `Bank: ${bankName}` : null, notes].filter(Boolean).join(" | ").slice(0, 500) || "Manual bank entry";
 
-    const result = await query(
+    const [result] = await query(
       `INSERT INTO payments (amount, payment_method_id, payment_type, reference_no, transaction_details, status, entry_date, bank_name, reconciliation_status, notes)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -1492,7 +1496,7 @@ const addVendorPayment = async (req, res) => {
     if (!vendorName) return res.status(400).json({ message: "vendorName is required" });
     if (toNumber(amount) <= 0) return res.status(400).json({ message: "A positive amount is required" });
 
-    const result = await query(
+    const [result] = await query(
       `INSERT INTO vendor_payment_records (vendor_name, invoice_ref, payment_date, amount, payment_mode, status, notes)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -1595,7 +1599,7 @@ const addPurchaseOrder = async (req, res) => {
   try {
     if (!poNumber || !vendorName) return res.status(400).json({ message: "poNumber and vendorName are required" });
 
-    const result = await query(
+    const [result] = await query(
       `INSERT INTO purchase_orders (po_number, vendor_name, order_date, expected_date, total_amount, status, notes)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -1744,7 +1748,7 @@ const resolveEmployeeId = async (staffName) => {
 
   const code = `EMP-${Date.now().toString().slice(-6)}`;
   try {
-    const result = await query(
+    const [result] = await query(
       "INSERT INTO employees (employee_code, first_name, last_name, is_active) VALUES (?, ?, ?, 1)",
       [code, first, last],
     );
@@ -1778,7 +1782,7 @@ const addPayrollRecord = async (req, res) => {
       ? round2(netSalary)
       : round2(toNumber(baseSalary) + toNumber(allowance) - toNumber(deduction));
 
-    const result = await query(
+    const [result] = await query(
       `INSERT INTO salary_payments
          (employee_id, month, basic_salary, allowances, deductions, net_salary, status)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -1843,7 +1847,7 @@ const deletePayrollRecord = async (req, res) => {
 // the GET derives honest per-department net figures.
 // ---------------------------------------------------------------------------
 const getProfitCenterRows = async () => {
-  const rows = await query(
+  const [rows] = await query(
     `SELECT ca.name AS account_name, ca.type AS account_type, COALESCE(SUM(e.amount), 0) AS total
        FROM transaction_entries e JOIN chart_of_accounts ca ON ca.id = e.account_id
       WHERE ca.type IN ('revenue', 'expense')
@@ -1898,10 +1902,10 @@ const PROFIT_CENTER_ACCOUNT_TYPES = {
 };
 
 const ensureProfitAccount = async (centerName) => {
-  const rows = await query("SELECT id, name, type FROM chart_of_accounts WHERE name = ? ORDER BY id LIMIT 1", [centerName]);
+  const [rows] = await query("SELECT id, name, type FROM chart_of_accounts WHERE name = ? ORDER BY id LIMIT 1", [centerName]);
   if (rows.length > 0) return rows[0];
 
-  const [result] = await db.query(
+  const [result] = await query(
     "INSERT INTO chart_of_accounts (code, name, type, parent_id, is_active) VALUES (?, ?, ?, NULL, 1)",
     [String(centerName).slice(0, 20).toUpperCase().replace(/\s+/g, "-"), centerName, "revenue"],
   );
@@ -1937,7 +1941,7 @@ const createProfitEntry = async (req, res) => {
   try {
     await ensureProfitAccount(centerName);
 
-    const [txnResult] = await db.query(
+    const [txnResult] = await query(
       `INSERT INTO transactions (transaction_no, transaction_date, description, reference_type)
        VALUES (?, ?, ?, 'profit_center')`,
       [`PC-${Date.now()}`, entryDate || "2000-01-01", `Profit entry: ${centerName}`.slice(0, 255)],
@@ -1950,7 +1954,7 @@ const createProfitEntry = async (req, res) => {
     if (expense > 0) entries.push([txnId, centerName, "credit", expense]);
 
     for (const [tid, name, type, amount] of entries) {
-      const acctRows = await query(
+      const [acctRows] = await query(
         "SELECT id FROM chart_of_accounts WHERE name = ? AND type = ? LIMIT 1",
         [name, "revenue"],
       );
@@ -1987,7 +1991,7 @@ const updateProfitCenter = async (req, res) => {
 
 const deleteProfitCenter = async (req, res) => {
   const { id } = req.params;
-  const rows = await query("SELECT name FROM chart_of_accounts WHERE id = ? LIMIT 1", [id]);
+  const [rows] = await query("SELECT name FROM chart_of_accounts WHERE id = ? LIMIT 1", [id]);
   if (rows.length === 0) return res.status(404).json({ message: "Profit center not found" });
   await query("UPDATE chart_of_accounts SET is_active = 0 WHERE id = ?", [id]);
   res.json({ message: "Profit center archived" });
@@ -2063,14 +2067,15 @@ const addPaymentGatewaySetting = async (req, res) => {
     const code = normalizeText(name).replace(/[^a-z0-9]+/g, "_").slice(0, 30) || "method";
     const activeFlag = is_active === null ? 1 : is_active;
     await PaymentMethodsModel.ensureSchema();
-    const result = await query(
+    const [result] = await query(
       `INSERT INTO payment_methods (name, code, is_active, department, provider_name, upi_id,
         account_holder_name, bank_name, qr_image_url, notes)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [name, code, activeFlag, department, provider_name, upi_id, account_holder_name, bank_name, qr_image_url, notes],
     );
-    const created = await queryOne("SELECT * FROM payment_methods WHERE id = ?", [result.insertId]);
-    res.status(201).json({ message: "Payment setting added", ...paymentSettingToRow(created) });
+    const setting = await queryOne("SELECT * FROM payment_methods WHERE id = ?", [result.insertId]);
+    if (!setting) return res.status(500).json({ message: "Payment setting was inserted but could not be read back" });
+    res.status(201).json({ message: "Payment setting added", ...paymentSettingToRow(setting) });
   } catch (error) {
     if (error.code === "ER_DUP_ENTRY") {
       return res.status(409).json({ message: `Payment setting "${name}" already exists` });
@@ -2304,7 +2309,7 @@ const createBillPayment = async (req, res) => {
   try {
     if (!billId) return res.status(400).json({ message: "billId is required" });
     const methodId = await ensurePaymentMethodId(paymentMode || "Cash");
-    const result = await query(
+    const [result] = await query(
       `INSERT INTO payments (bill_id, amount, payment_method_id, payment_type, transaction_details, status)
        VALUES (?, ?, ?, 'payment', ?, 'completed')`,
       [billId, round2(amount), methodId, notes || null],
