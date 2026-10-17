@@ -1,12 +1,27 @@
 const db = require("../config/db");
 
 const tableExists = async (tableName) => {
-  const [rows] = await db.query("SHOW TABLES LIKE ?", [tableName]);
+  // Information_schema instead of SHOW: mysql2's query() returns SHOW output as
+  // two result sets, which is also Array(2), so rows.length there is the number
+  // of result sets — 2 whether the table exists or not, and this check went
+  // permanently true for every table. execute() cannot be used either: this
+  // server rejects `SHOW TABLES LIKE ?` with ER_PARSE_ERROR.
+  const [rows] = await db.query(
+    "SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ? LIMIT 1",
+    [tableName],
+  );
   return Array.isArray(rows) && rows.length > 0;
 };
 
 const columnExists = async (tableName, columnName) => {
-  const [rows] = await db.query(`SHOW COLUMNS FROM \`${tableName}\` LIKE ?`, [columnName]);
+  // Identifiers cannot be bound as placeholders, so interpolate with escaping.
+  // Binding the column name made mysql2 send `LIKE ?`, which this server
+  // rejects with ER_PARSE_ERROR — every columnExists call failed, so every
+  // schema-drift guard in this controller was dead.
+  const [rows] = await db.query(
+    "SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ? LIMIT 1",
+    [tableName, columnName],
+  );
   return Array.isArray(rows) && rows.length > 0;
 };
 
@@ -18,10 +33,19 @@ const getColumnMap = async (tableName) => {
     columnMapCache.set(
       tableName,
       (async () => {
-        const [rows] = await db.query(`SHOW COLUMNS FROM \`${tableName}\``);
         const map = {};
+        // information_schema, not SHOW COLUMNS: query() returns SHOW output as
+        // two result sets, so the tuple destructures to the array of result
+        // sets and this map came back empty for every table. With an empty map
+        // every column guard in this controller decided "column missing",
+        // which is how the room report joined room_categories without ever
+        // checking it existed.
+        const [rows] = await db.query(
+          "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ?",
+          [tableName],
+        );
         (Array.isArray(rows) ? rows : []).forEach((row) => {
-          map[row.Field] = true;
+          map[row.column_name] = true;
         });
         return map;
       })(),
@@ -129,10 +153,14 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
   const restaurantHasCreatedAt = await columnExists(restaurantTable, "created_at");
   const billColumns = hasRestaurantBills ? null : await getColumnMap("bills");
 
+  // restaurant_bills has no payment_method column, so emit an empty literal
+  // (normalizePaymentMode turns that into "N/A") when getRestaurantBillsColumnMap
+  // reports none. A bare `NULL AS paymentMode` resolves against the outer column
+  // set and errors with ER_BAD_FIELD_ERROR on this server.
   const restaurantSql = hasRestaurantBills
-    ? `SELECT id, DATE(created_at) AS billDate, COALESCE(total, 0) AS amount, ${
-        restaurantColumns?.paymentMethod || "NULL"
-      } AS paymentMode, ${
+    ? `SELECT id, DATE(created_at) AS billDate, COALESCE(total, 0) AS amount, '${
+        restaurantColumns?.paymentMethod || ""
+      }' AS paymentMode, ${
         restaurantColumns?.status || "'Paid'"
       } AS status FROM restaurant_bills`
     : `SELECT id, ${restaurantHasCreatedAt ? "DATE(created_at)" : "NULL"} AS billDate, COALESCE(total, 0) AS amount, ` +
@@ -154,17 +182,23 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
     });
   });
 
+  // bookings has no guest_name or booking_status. Guest names live on
+  // booking_rooms (one row per room in the stay) and total_amount on bookings
+  // itself. room_tariff has no room_number, so the real room number comes
+  // through rooms via booking_rooms.room_id.
   const [hotelRows] = await db.query(
     `SELECT
       b.id,
       DATE(COALESCE(b.check_out, b.check_in)) AS billDate,
-      b.guest_name,
-      b.booking_status,
-      GROUP_CONCAT(rt.room_number ORDER BY rt.room_number) AS rooms,
-      COALESCE(SUM(rt.total), 0) AS amount
+      b.status AS bookingStatus,
+      COALESCE(NULLIF(SUM(rt.total), 0), COALESCE(b.total_amount, 0)) AS amount,
+      GROUP_CONCAT(DISTINCT NULLIF(br.guest_name, '')) AS guests,
+      GROUP_CONCAT(DISTINCT r.room_number ORDER BY r.room_number) AS rooms
      FROM bookings b
      LEFT JOIN room_tariff rt ON b.id = rt.booking_id
-     GROUP BY b.id, b.guest_name, b.booking_status, b.check_in, b.check_out`
+     LEFT JOIN booking_rooms br ON br.booking_id = b.id
+     LEFT JOIN rooms r ON r.id = br.room_id
+     GROUP BY b.id, b.status, b.total_amount, b.check_in, b.check_out`
   );
   hotelRows
     .filter((r) => Number(r.amount) > 0)
@@ -174,10 +208,10 @@ const getAllBillsRows = async ({ dateFrom, dateTo, status, paymentMode }) => {
         date: toISODate(r.billDate),
         source: "Hotel",
         billNo: `HOT-${String(r.id).padStart(6, "0")}`,
-        description: `${r.guest_name || "Guest"} / Room ${r.rooms || "-"}`,
+        description: `${r.guests || "Guest"} / Room ${r.rooms || "-"}`,
         amount: Number(r.amount) || 0,
         paymentMode: "N/A",
-        status: r.booking_status || "Billed",
+        status: r.bookingStatus || "Billed",
         type: "Income",
       });
     });
@@ -311,7 +345,7 @@ exports.getReportData = async (req, res) => {
     let params = [];
     const hasRoomTariffCategory = await columnExists("room_tariff", "category_name").catch(() => false);
     const hasHotelInventory = await tableExists("hotel_room_inventory").catch(() => false);
-    const hasRoomCategories = await tableExists("hotel_room_categories").catch(() => false);
+    const hasRoomCategories = await tableExists("room_categories").catch(() => false);
     const hasLegacyRooms = await tableExists("rooms").catch(() => false);
     const hasLegacyRoomType = hasLegacyRooms
       ? await columnExists("rooms", "room_type").catch(() => false)
@@ -329,36 +363,54 @@ exports.getReportData = async (req, res) => {
     };
 
     if (type === "room") {
-      const roomTypeExprParts = [];
-      if (hasRoomTariffCategory) roomTypeExprParts.push("NULLIF(rt.category_name, '')");
-      if (hasRoomCategories) roomTypeExprParts.push("NULLIF(hrc.name, '')");
-      if (hasLegacyRoomType) roomTypeExprParts.push("NULLIF(r.room_type, '')");
-      roomTypeExprParts.push("CAST(rt.room_number AS CHAR)");
-      const roomTypeExpr = `COALESCE(${roomTypeExprParts.join(", ")})`;
+      // Driven by booking_rooms, which is the real per-room row for a stay.
+      // room_tariff has no room_number, so a room_tariff join cannot carry the
+      // room identifier and every row was filtered out by the WHERE clause.
+      const [brCols, rCols, rcCols] = await Promise.all([
+        getColumnMap("booking_rooms"),
+        hasLegacyRooms ? getColumnMap("rooms") : Promise.resolve({}),
+        hasRoomCategories ? getColumnMap("room_categories") : Promise.resolve({}),
+      ]);
+
+      // room_categories is the live category table; hotel_room_categories is
+      // the older name this branch also looked for.
+      const categoryTable = rcCols.name ? "room_categories" : null;
+      // Qualified with the join alias, not the table name: the join binds the
+      // table as `rc`, so `room_categories.name` is not a valid column reference
+      // and MariaDB rejects the SELECT with ER_BAD_FIELD_ERROR.
+      const categoryExpr = categoryTable ? "NULLIF(COALESCE(rc.name, ''), '')" : null;
+
+      // room_type comes from whichever legacy column actually exists; rooms has
+      // no room_type column, so that branch is a no-op here.
+      const legacyTypeExpr = hasLegacyRoomType ? "NULLIF(r.room_type, '')" : null;
+
+      const roomNumberExpr = `COALESCE(NULLIF(r.room_number, ''), hri.room_number, CONCAT('Room #', br.room_id))`;
+      const roomTypeExpr = `COALESCE(${[categoryExpr, legacyTypeExpr, roomNumberExpr].filter(Boolean).join(", ")})`;
 
       sql = `SELECT
-        CONCAT(b.id, '-', rt.id) as id,
+        CONCAT(b.id, '-', br.id) as id,
         DATE(b.check_in) as date,
-        CAST(rt.room_number AS CHAR) as roomNumber,
+        ${roomNumberExpr} as roomNumber,
         ${roomTypeExpr} as roomType,
-        b.booking_status as status,
-        b.guest_name as guest,
+        b.status as status,
+        COALESCE(NULLIF(br.guest_name, ''), g.first_name) as guest,
         DATE(b.check_out) as checkOut,
-        COALESCE(rt.total, 0) as revenue,
+        COALESCE(br.total, br.room_charge, br.rate_per_night, 0) as revenue,
         'N/A' as paymentMode
         FROM bookings b
-        LEFT JOIN room_tariff rt ON b.id = rt.booking_id
-        ${hasHotelInventory ? "LEFT JOIN hotel_room_inventory hri ON CAST(hri.room_number AS CHAR) = CAST(rt.room_number AS CHAR)" : ""}
-        ${hasRoomCategories ? "LEFT JOIN hotel_room_categories hrc ON hrc.id = hri.category_id" : ""}
-        ${hasLegacyRooms ? "LEFT JOIN rooms r ON CAST(r.room_number AS CHAR) = CAST(rt.room_number AS CHAR)" : ""}
-        WHERE rt.room_number IS NOT NULL`;
+        INNER JOIN booking_rooms br ON br.booking_id = b.id
+        ${hasLegacyRooms ? "LEFT JOIN rooms r ON r.id = br.room_id" : ""}
+        ${categoryTable && brCols.category_id ? `LEFT JOIN ${categoryTable} rc ON rc.id = br.category_id` : ""}
+        ${hasHotelInventory ? "LEFT JOIN hotel_room_inventory hri ON CAST(hri.room_number AS CHAR) = CAST(r.room_number AS CHAR)" : ""}
+        LEFT JOIN guest_profiles g ON g.id = b.source_id
+        WHERE b.check_in IS NOT NULL`;
       addDateFilter("b.check_in");
-      if (status && status !== "All") { sql += " AND b.booking_status = ?"; params.push(status); }
+      if (status && status !== "All") { sql += " AND b.status = ?"; params.push(status); }
       if (roomType && roomType !== "All") {
         sql += ` AND ${roomTypeExpr} = ?`;
         params.push(roomType);
       }
-      sql += " ORDER BY b.id DESC, rt.room_number";
+      sql += " ORDER BY b.id DESC, br.id";
 
     } else if (type === "banquet") {
       const banquetHallRateColumn = await getBanquetHallRateColumn();

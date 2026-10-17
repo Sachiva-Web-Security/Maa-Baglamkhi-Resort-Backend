@@ -24,32 +24,43 @@ const pool = mysql.createPool({
  * passes a callback that is silently dropped. The promise still resolves, the
  * callback never fires, and the request hangs until the socket times out.
  *
- * On this server the pool's default multipleStatements is off, so one statement
- * cannot produce more than one result set and query() always resolves to the
- * bare value: rows for a read, the ResultSetHeader for a write. That is what
- * db.execute has always returned, and it is also what the callback branch
- * hands its caller.
+ * Nothing here may convert that tuple to a bare value. Every write's
+ * ResultSetHeader sits at index 0, and the codebase reads
+ * `const [header] = await db.query(...)` then `header.insertId` - InventoryModel,
+ * guestModel, roomBlockModel, InvoiceModel. Unwrapping a write would make
+ * insertId unreachable and every INSERT that stores its new id back would
+ * silently write null.
  *
- * The reason for this: query() with multipleStatements set to true returns
- * multi-statement results as an array of result sets, which is a two-element
- * array. That collides with the [rows, fields] tuple shape, and it also
- * collides with a SELECT that happens to return exactly two rows. Every
- * tableExists and columnExists call in the codebase reads
- * `const [rows] = await db.query(...)` then tests rows.length - which counted
- * result sets instead of rows, so every such check went permanently true and
- * every schema-drift guard was dead. Resolving to the bare value removes the
- * ambiguity rather than working around it.
+ * A read is a tuple either way: [[rows], [fields]] from query() and
+ * [rows, [fields]] from execute(). The callback branch must unwrap only the
+ * outer layer, never pick between rows and a header.
  *
- * db.query and db.execute are therefore the same thing here. execute() is kept
- * as an alias because call sites already use it, not because it behaves
- * differently.
+ * And never test result.length === 2. A SELECT returning exactly two rows is
+ * indistinguishable from a tuple by length, and SHOW statements return two
+ * result sets that must both survive.
  */
+// Measured on this server, for every statement type:
+//
+//   SELECT rows  -> [rows,   fields]   both arrays, r0.len is the row count
+//   INSERT       -> [header, undefined] header carries affectedRows / insertId
+//   execute()    -> [header, undefined] same, for both reads and writes
+//
+// query() and execute() therefore always resolve to a [result, fields] tuple.
+// The result sits at index 0 and so must never be unwrapped. index 1 is only
+// ever an array for a query() read; a write's is undefined, so testing
+// result[1] to decide "is this a write" is wrong in both directions.
+
+const isHeader = (result) =>
+  !!result && typeof result === "object" && !Array.isArray(result) && "affectedRows" in result;
+
 const withCallback = (promise, callback) => {
   promise.then(
     (result) => {
-      // A write returns a ResultSetHeader, which must stay a header so that
-      // insertId is reachable; a SELECT returns rows.
-      callback(null, result, result);
+      // A write returns [header, undefined]; the callback must get the header
+      // itself, not the tuple, so insertId stays reachable. A read returns
+      // rows as the callback's first result argument.
+      const value = isHeader(result) ? result : result[0];
+      callback(null, value, result);
     },
     (err) => callback(err),
   );

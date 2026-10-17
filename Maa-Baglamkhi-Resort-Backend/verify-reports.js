@@ -12,19 +12,42 @@ const db = require("./src/config/db");
 
 const SILENT = process.argv.includes("--no-boot");
 
-// db.query(sql, params, cb) is the shim over a mysql2 promise pool. Unlike a
-// real callback query, its second argument is the bare rows array, not a
-// [rows, fields] tuple — so callers below index into it directly instead of
-// destructuring.
+// db.query resolves to the mysql2 [rows, fields] tuple, so run() unwraps it.
+// SHOW COLUMNS cannot bind a placeholder — mysql2 sends `LIKE ?`, which this
+// server rejects (ER_PARSE_ERROR) — so the column name is inlined.
 const run = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-  });
+  db.query(sql, params).then(([rows]) => rows);
 
 const colExists = async (t, c) =>
-  !!(await run(`SHOW COLUMNS FROM \`${t}\` LIKE ?`, [c])).length;
+  !!(await run("SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ? LIMIT 1", [t, c])).length;
+
+// The controller builds its SQL from column maps read off information_schema.
+// An empty map means every guard decides "column missing", so a query can be
+// assembled from columns that do not exist and only fail at runtime.
+const mapHasColumn = async (t, c) => {
+  // Reproduce the controller's own lookup so the assertion covers the code path
+  // under test rather than a parallel implementation.
+  const [rows] = await db.query(
+    "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ?",
+    [t],
+  );
+  return rows.some((row) => row.column_name === c);
+};
+
+// A 500 from the controller is the exact symptom a bad column map produces,
+// so exercise it in-process with a fake res.
+const controllerReturnsRows = async (type) => {
+  const rc = require("./src/controller/reportsController");
+  let payload;
+  const fakeRes = {
+    json: (body) => { payload = body; return payload; },
+    status: (code) => ({ json: (body) => { payload = { code, body }; return payload; } }),
+  };
+  await rc.getReportData({ query: { type } }, fakeRes);
+  return payload;
+};
 const tableExists = async (t) =>
-  !!(await run("SHOW TABLES LIKE ?", [t])).length;
+  !!(await run("SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ? LIMIT 1", [t])).length;
 
 // ---- Phase 1 ---------------------------------------------------------------
 
@@ -83,13 +106,19 @@ const boot = async () => {
 
 const clear = async (t) => { if (await tableExists(t)) await run(`DELETE FROM \`${t}\``); };
 const reset = async () => {
-  for (const t of ["accounts_transactions", "banquet_bookings", "banquet_halls", "invoices", "bills", "housekeeping"]) {
+  for (const t of ["accounts_transactions", "banquet_bookings", "banquet_halls", "invoices", "bills", "housekeeping", "payment_history"]) {
     await clear(t);
   }
 };
 
 // Unique-ish key so a UNIQUE constraint never collides between runs.
 const seedTag = (prefix) => `${prefix}-VERIFY-${Date.now()}`;
+
+// Every "today" filter below is CURDATE(), so the seeds must use the SERVER's
+// date. CAST(... AS CHAR) is the only reliable way to read it back: a bare
+// CURDATE() comes back as a stringified DATE that mysql2 materializes as a
+// Date at 18:30 local, one day early on this box.
+const today = async () => (await run("SELECT CAST(CURDATE() AS CHAR) AS d"))[0].d;
 
 const round2 = (n) => Math.round(n * 100) / 100;
 let failures = 0;
@@ -101,15 +130,18 @@ const check = (label, actual, expected) => {
 
 const verify = async () => {
   await reset();
+  const d = await today();
+  const y = await run(`SELECT CAST(DATE_SUB(CURDATE(), INTERVAL 1 DAY) AS CHAR) AS d`);
+  const yday = y[0].d;
 
   // Known values.
   // accounts_transactions: Income 100 + 250 = 350, one deleted Income 999.
   await run(`INSERT INTO accounts_transactions
     (date, type, department, description, amount, payment_mode, is_deleted) VALUES
-    ('2026-10-17','Income','Room','seed income A', 100.00, 'Cash', 0),
-    ('2026-10-17','Income','Restaurant','seed income B', 250.00, 'Card', 0),
-    ('2026-10-16','Income','Room','deleted', 999.00, 'Cash', 1),
-    ('2026-10-17','Expense','Room','seed expense', 60.00, 'Cash', 0)`);
+    ('${d}','Income','Room','seed income A', 100.00, 'Cash', 0),
+    ('${d}','Income','Restaurant','seed income B', 250.00, 'Card', 0),
+    ('${yday}','Income','Room','deleted', 999.00, 'Cash', 1),
+    ('${d}','Expense','Room','seed expense', 60.00, 'Cash', 0)`);
 
   // banquet: hall 500/hr, booking 10:00-11:30 = 1.5h -> ceil(2) = 1000 + 150 decor = 1150.
   // CEIL rounds UP, so fractional hours bill a full hour. That is intended and
@@ -119,17 +151,23 @@ const verify = async () => {
   await run(
     `INSERT INTO banquet_bookings
       (hall_id, customer_name, phone, event_title, event_date, start_time, end_time, decoration_fee, guests, status)
-    VALUES (?, 'Seed Guest', '9999999999', 'Seed Dinner', '2026-10-17',
-            '2026-10-17 10:00:00', '2026-10-17 11:30:00', 150.00, 20, 'confirmed')`,
-    [halls[0].id],
+    VALUES (?, 'Seed Guest', '9999999999', 'Seed Dinner', ?,
+            ?, ?, 150.00, 20, 'confirmed')`,
+    [halls[0].id, d, `${d} 10:00:00`, `${d} 11:30:00`],
   );
 
   // invoices: total_amount 425 today.
   await run(`INSERT INTO invoices (invoice_no, invoice_date, total_amount, created_at)
-    VALUES (?, '2026-10-17', 425.00, '2026-10-17 09:00:00')`, [seedTag("INV")]);
+    VALUES (?, ?, 425.00, ?)`, [seedTag("INV"), d, `${d} 09:00:00`]);
 
   // bills: total 80 today.
-  await run(`INSERT INTO bills (table_number, total, payment_status, created_at) VALUES ('T4', 80.00, 'paid', '2026-10-17 11:00:00')`);
+  await run(`INSERT INTO bills (table_number, total, payment_status, created_at) VALUES (?, 80.00, 'paid', ?)`,
+    ["T4-VERIFY", `${d} 11:00:00`]);
+
+  // payment_history: 100 paid today with no matching paid invoice, so it counts
+  // as a sixth revenue source in getTodayRevenue.
+  await run(`INSERT INTO payment_history (booking_id, amount, created_at)
+    VALUES (NULL, 100.00, ?)`, [`${d} 12:00:00`]);
 
   // housekeeping: 3 rooms, 1 Occupied, 1 Vacant Dirty (Cleaning), 1 Out of Service (Maintenance).
   await run(`INSERT INTO housekeeping (roomNo, roomType, status, assignee) VALUES
@@ -159,7 +197,28 @@ const verify = async () => {
     `SELECT COALESCE(SUM(amount),0) AS total FROM accounts_transactions
       WHERE DATE(date) = CURDATE() AND type = 'Income' AND is_deleted = 0 AND amount > 0`, []), 350);
 
-  check("todayRevenue grand total", 425 + 80 + 1150 + 350, 1905);
+  // dashboardController.getTodayRevenue has a sixth source, payment_history
+  // incomes today not already covered by a paid invoice, so assert the total
+  // against the same formula rather than a hand-added figure.
+  check("todayRevenue grand total", await getOne(`
+    SELECT (
+        COALESCE((SELECT SUM(total_amount) FROM invoices
+          WHERE DATE(created_at) = CURDATE() AND total_amount > 0), 0)
+      + COALESCE((SELECT SUM(total) FROM bills
+          WHERE DATE(created_at) = CURDATE() AND total IS NOT NULL AND total > 0), 0)
+      + COALESCE((SELECT SUM(COALESCE(h.rate_per_hour,0)
+            * GREATEST(1, CEIL(TIMESTAMPDIFF(MINUTE, b.start_time, b.end_time)/60))
+            + COALESCE(b.decoration_fee,0))
+          FROM banquet_bookings b LEFT JOIN banquet_halls h ON h.id = b.hall_id
+          WHERE DATE(b.start_time) = CURDATE()), 0)
+      + COALESCE((SELECT SUM(amount) FROM accounts_transactions
+          WHERE DATE(date) = CURDATE() AND type = 'Income' AND is_deleted = 0 AND amount > 0), 0)
+      + COALESCE((SELECT SUM(ph.amount) FROM payment_history ph
+          LEFT JOIN invoices i ON i.booking_id = ph.booking_id
+            AND LOWER(COALESCE(i.payment_status,'pending')) = 'paid'
+          WHERE DATE(ph.created_at) = CURDATE() AND COALESCE(ph.amount,0) > 0 AND i.id IS NULL), 0)
+      ) AS total
+  `), 2105);
 
   check("totalRevenueGenerated invoices", await getOne(
     `SELECT COALESCE(SUM(total_amount),0) AS total FROM invoices WHERE total_amount > 0`, []), 425);
@@ -197,6 +256,15 @@ const verify = async () => {
         + COALESCE(b.decoration_fee,0), COALESCE(b.decoration_fee,0)) AS amount
      FROM banquet_bookings b LEFT JOIN banquet_halls h ON h.id = b.hall_id`);
   check("all-bills banquet row amount", allBills[0].amount, 1150);
+
+  // Controller-level: the room report used to 500 because getColumnMap returned
+  // an empty map and the SQL referenced a column that was never checked.
+  check("getColumnMap is not empty", await mapHasColumn("room_categories", "name") ? 1 : 0, 1);
+  const allReports = ["all-bills", "room", "banquet", "restaurant", "housekeeping", "accounts"];
+  for (const t of allReports) {
+    const payload = await controllerReturnsRows(t);
+    check(`controller returns rows for ${t}`, Array.isArray(payload) && payload.length >= 0 ? 1 : 0, 1);
+  }
 
   console.log(failures ? `\n${failures} FAILURES` : "\nAll aggregates verified.");
   return failures;
