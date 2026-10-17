@@ -202,7 +202,11 @@ export default function AuditReport() {
         },
       });
 
-      setLogs(Array.isArray(res.data?.rows) ? res.data.rows : []);
+      // The endpoint returns a bare array and ignores page/limit, so take the
+      // first page locally rather than expecting a rows envelope.
+      const raw = res.data?.rows ?? res.data?.logs ?? res.data ?? [];
+      const all = Array.isArray(raw) ? raw : [];
+      setLogs(all.slice(0, pagination.limit));
       setSummary(res.data?.summary || { total: 0, successCount: 0, errorCount: 0, uniqueUsers: 0 });
       setLiveSummary(res.data?.liveSummary || { total: 0, successCount: 0, errorCount: 0 });
       setPagination((current) => ({
