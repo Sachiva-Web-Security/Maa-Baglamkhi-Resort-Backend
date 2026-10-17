@@ -167,7 +167,7 @@ async function cancelHotelBookingViaApi(request, baseURL, bookingId, reason) {
 async function openAllBookings(page) {
   await page.goto("/hotel/all-bookings");
   await expect(
-    page.getByRole("heading", { name: "All bookings in a" }),
+    page.getByRole("heading", { name: /All bookings in a/ }),
   ).toBeVisible();
 }
 

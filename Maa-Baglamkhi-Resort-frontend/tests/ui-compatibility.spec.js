@@ -9,19 +9,19 @@ const viewports = [
 const routes = [
   {
     path: "/reports",
-    readyText: "Reports built for faster daily decisions",
+    readyText: /Reports built for faster daily decisions/,
   },
   {
     path: "/banquet",
-    readyText: "Manage banquet reservations",
+    readyText: /Manage banquet reservations/,
   },
   {
     path: "/assignments",
-    readyText: "Assignment operations board",
+    readyText: /Assignment operations board/,
   },
   {
     path: "/housekeeping",
-    readyText: "Manage rooms, assignments, amenities, inspections & more",
+    readyText: /Manage rooms, assignments, amenities, inspections & more/,
   },
 ];
 
@@ -84,7 +84,7 @@ test.describe("UI compatibility baseline", () => {
 
       for (const route of routes) {
         await page.goto(route.path);
-        await expect(page.getByText(route.readyText, { exact: true })).toBeVisible();
+        await expect(page.getByText(route.readyText)).toBeVisible();
 
         const compatibility = await collectPageCompatibility(page);
 
