@@ -12,23 +12,35 @@ const ACTION_COLORS = {
 };
 
 const AuditLogs = () => {
-  const [logs, setLogs] = useState([]);
+  const [allLogs, setAllLogs] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("all");
 
+  const norm = (log) => ({
+    ...log,
+    httpMethod: log.httpMethod ?? log.http_method,
+    responseStatus: log.responseStatus ?? log.response_status,
+    oldValue: log.oldValue ?? log.old_value,
+    newValue: log.newValue ?? log.new_value,
+    requestData: log.requestData ?? log.request_data,
+  });
+
   const fetchLogs = async () => {
     setLoading(true);
+    setError("");
     try {
-      const params = { page, limit: PAGE_SIZE };
-      if (search.trim()) params.search = search.trim();
-      if (actionFilter !== "all") params.action = actionFilter;
-
-      const res = await API.get("/audit-logs", { params });
-      setLogs(res.data.logs || res.data || []);
+      const res = await API.get("/audit-logs");
+      // The endpoint ignores page/limit/search and returns the whole table, so
+      // filter and page client-side.
+      const raw = res.data?.logs ?? res.data ?? [];
+      setAllLogs(Array.isArray(raw) ? raw : []);
     } catch (err) {
       console.error("Failed to load audit logs:", err);
+      setError("Could not load audit logs.");
+      setAllLogs([]);
     } finally {
       setLoading(false);
     }
@@ -36,15 +48,24 @@ const AuditLogs = () => {
 
   useEffect(() => {
     fetchLogs();
-  }, [page, actionFilter]);
+  }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setPage(1);
-      fetchLogs();
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [search]);
+    setPage(1);
+  }, [search, actionFilter]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return allLogs.filter((log) => {
+      if (actionFilter !== "all" && String(log.action || "").toLowerCase() !== actionFilter) return false;
+      if (!q) return true;
+      const l = norm(log);
+      return [l.action, l.endpoint, l.http_method, l.user_id, l.user_name, l.requestData?.clientUserEmail]
+        .some((v) => String(v ?? "").toLowerCase().includes(q));
+    });
+  }, [allLogs, search, actionFilter]);
+
+  const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const getActionBadge = (action) => {
     const key = String(action || "").toLowerCase();
@@ -152,47 +173,50 @@ const AuditLogs = () => {
                   Loading audit logs...
                 </td>
               </tr>
-            ) : logs.length === 0 ? (
+            ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={7} className="px-4 py-12 text-center text-sm font-medium text-slate-400">
                   No audit logs found.
                 </td>
               </tr>
             ) : (
-              logs.map((log) => (
-                <tr key={log.id} className="transition-colors duration-150 hover:bg-slate-50/80">
+              rows.map((log) => {
+                const l = norm(log);
+                return (
+                <tr key={l.id} className="transition-colors duration-150 hover:bg-slate-50/80">
                   <td className="whitespace-nowrap px-4 py-3 text-xs font-medium text-slate-600">
-                    {formatTimestamp(log.created_at)}
+                    {formatTimestamp(l.created_at)}
                   </td>
                   <td className="px-4 py-3 text-xs font-semibold text-slate-700">
-                    {log.requestData?.clientUserEmail ||
-                     log.userEmail ||
-                     `User #${log.user_id || "system"}`}
+                    {l.requestData?.clientUserEmail ||
+                     l.userEmail ||
+                     l.user_name ||
+                     `User #${l.user_id || "system"}`}
                   </td>
-                  <td className="px-4 py-3">{getActionBadge(log.action)}</td>
+                  <td className="px-4 py-3">{getActionBadge(l.action)}</td>
                   <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">
-                    {log.endpoint}
+                    {l.endpoint}
                   </td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-bold ${
-                      log.httpMethod === "GET" ? "bg-slate-100 text-slate-600" :
-                      log.httpMethod === "POST" ? "bg-emerald-50 text-emerald-700" :
-                      log.httpMethod === "PUT" ? "bg-amber-50 text-amber-700" :
-                      log.httpMethod === "DELETE" ? "bg-rose-50 text-rose-700" :
+                      l.httpMethod === "GET" ? "bg-slate-100 text-slate-600" :
+                      l.httpMethod === "POST" ? "bg-emerald-50 text-emerald-700" :
+                      l.httpMethod === "PUT" ? "bg-amber-50 text-amber-700" :
+                      l.httpMethod === "DELETE" ? "bg-rose-50 text-rose-700" :
                       "bg-slate-50 text-slate-600"
                     }`}>
-                      {log.httpMethod}
+                      {l.httpMethod}
                     </span>
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-center">
                     <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
-                      log.responseStatus >= 200 && log.responseStatus < 300
+                      l.responseStatus >= 200 && l.responseStatus < 300
                         ? "bg-emerald-50 text-emerald-700"
-                        : log.responseStatus >= 400 && log.responseStatus < 500
+                        : l.responseStatus >= 400 && l.responseStatus < 500
                         ? "bg-amber-50 text-amber-700"
                         : "bg-rose-50 text-rose-700"
                     }`}>
-                      {log.responseStatus}
+                      {l.responseStatus}
                     </span>
                   </td>
                   <td className="px-4 py-3">
@@ -201,29 +225,30 @@ const AuditLogs = () => {
                         View Details
                       </summary>
                       <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600 space-y-2">
-                        {log.oldValue && (
+                        {l.oldValue && (
                           <div>
                             <div className="font-bold text-slate-500 mb-1">OLD VALUE:</div>
-                            <pre className="whitespace-pre-wrap break-all font-mono text-[10px]">{formatJson(log.oldValue)}</pre>
+                            <pre className="whitespace-pre-wrap break-all font-mono text-[10px]">{formatJson(l.oldValue)}</pre>
                           </div>
                         )}
-                        {log.newValue && (
+                        {l.newValue && (
                           <div>
                             <div className="font-bold text-slate-500 mb-1">NEW VALUE:</div>
-                            <pre className="whitespace-pre-wrap break-all font-mono text-[10px]">{formatJson(log.newValue)}</pre>
+                            <pre className="whitespace-pre-wrap break-all font-mono text-[10px]">{formatJson(l.newValue)}</pre>
                           </div>
                         )}
                         <div>
                           <div className="font-bold text-slate-500 mb-1">REQUEST:</div>
                           <pre className="whitespace-pre-wrap break-all font-mono text-[10px] max-h-40 overflow-auto">
-                            {formatJson(log.requestData)}
+                            {formatJson(l.requestData)}
                           </pre>
                         </div>
                       </div>
                     </details>
                   </td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>
@@ -235,42 +260,71 @@ const AuditLogs = () => {
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-8 text-center text-sm text-slate-400">
             Loading audit logs...
           </div>
-        ) : logs.length === 0 ? (
+        ) : rows.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-8 text-center text-sm text-slate-400">
             No audit logs found.
           </div>
         ) : (
-          logs.map((log) => (
-            <div key={log.id} className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs">
+          rows.map((log) => {
+            const l = norm(log);
+            return (
+            <div key={l.id} className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-xs font-bold text-slate-900">
-                  {log.requestData?.clientUserEmail || `User #${log.user_id || "system"}`}
+                  {l.requestData?.clientUserEmail || `User #${l.user_id || "system"}`}
                 </div>
-                {getActionBadge(log.action)}
+                {getActionBadge(l.action)}
               </div>
               <div className="mt-2 space-y-1 text-[11px] text-slate-600">
-                <div><span className="font-semibold text-slate-500">Endpoint:</span> {log.endpoint}</div>
-                <div><span className="font-semibold text-slate-500">Method:</span> {log.httpMethod}</div>
-                <div><span className="font-semibold text-slate-500">Status:</span> {log.responseStatus}</div>
-                <div><span className="font-semibold text-slate-500">Time:</span> {formatTimestamp(log.created_at)}</div>
+                <div><span className="font-semibold text-slate-500">Endpoint:</span> {l.endpoint}</div>
+                <div><span className="font-semibold text-slate-500">Method:</span> {l.httpMethod}</div>
+                <div><span className="font-semibold text-slate-500">Status:</span> {l.responseStatus}</div>
+                <div><span className="font-semibold text-slate-500">Time:</span> {formatTimestamp(l.created_at)}</div>
               </div>
               <details className="mt-2 group">
                 <summary className="cursor-pointer text-[11px] font-semibold text-blue-600">View Details</summary>
                 <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-[10px] text-slate-600 space-y-2">
-                  {log.oldValue && <div><div className="font-bold">OLD:</div><pre className="whitespace-pre-wrap">{formatJson(log.oldValue)}</pre></div>}
-                  {log.newValue && <div><div className="font-bold">NEW:</div><pre className="whitespace-pre-wrap">{formatJson(log.newValue)}</pre></div>}
+                  {l.oldValue && <div><div className="font-bold">OLD:</div><pre className="whitespace-pre-wrap">{formatJson(l.oldValue)}</pre></div>}
+                  {l.newValue && <div><div className="font-bold">NEW:</div><pre className="whitespace-pre-wrap">{formatJson(l.newValue)}</pre></div>}
                 </div>
               </details>
             </div>
-          ))
+            );
+          })
         )}
       </div>
 
       {/* Pagination */}
-      {logs.length > 0 && (
+      {error && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">
+          {error}
+        </div>
+      )}
+      {filtered.length > 0 && (
         <div className="mt-5 flex flex-col items-center gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:justify-between">
           <div className="text-xs font-medium text-slate-500">
-            Showing {logs.length} record{logs.length !== 1 ? "s" : ""}
+            Showing {rows.length} of {filtered.length} record{filtered.length !== 1 ? "s" : ""}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Prev
+            </button>
+            <span className="text-xs font-semibold text-slate-600">
+              Page {page} of {Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)), p + 1))}
+              disabled={rows.length < PAGE_SIZE}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Next
+            </button>
           </div>
         </div>
       )}
