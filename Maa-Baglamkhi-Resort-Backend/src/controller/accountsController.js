@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const PaymentMethodsModel = require("../models/PaymentMethodsModel");
 
 // ---------------------------------------------------------------------------
 // Query helper — keeps the existing callback style used across this controller.
@@ -1969,22 +1970,27 @@ const profitCenterWriteUnsupported = async (req, res) =>
 // Payment settings — backed by `payment_methods` joined to `app_settings`.
 // GET emits the snake_case shape PaymentSettingsManager.jsx reads.
 // ---------------------------------------------------------------------------
+// Reads the gateway settings as the frontend expects: it shows every field and
+// round-trips it back verbatim, so a dropped column shows up as a blank form.
+const paymentSettingToRow = (m) => ({
+  id: m.id,
+  payment_mode: m.name,
+  code: m.code,
+  department: m.department || "Hotel",
+  provider_name: m.provider_name || m.name,
+  upi_id: m.upi_id || null,
+  account_holder_name: m.account_holder_name || null,
+  bank_name: m.bank_name || null,
+  qr_image_url: m.qr_image_url || null,
+  is_active: toNumber(m.is_active) === 1 ? 1 : 0,
+  notes: m.notes || null,
+});
+
 const listPaymentGatewaySettings = async (req, res) => {
   try {
-    const methods = safeArray(await query("SELECT id, name, code, is_active FROM payment_methods ORDER BY id ASC"));
-    const rows = methods.map((m) => ({
-      id: m.id,
-      payment_mode: m.name,
-      department: "Hotel",
-      provider_name: m.name,
-      upi_id: null,
-      account_holder_name: null,
-      bank_name: null,
-      qr_image_url: null,
-      is_active: toNumber(m.is_active) === 1 ? 1 : 0,
-      notes: null,
-    }));
-    res.json(rows);
+    await PaymentMethodsModel.ensureSchema();
+    const methods = safeArray(await query("SELECT * FROM payment_methods ORDER BY id ASC"));
+    res.json(methods.map(paymentSettingToRow));
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch payment settings", error: error.message });
   }
@@ -1992,38 +1998,49 @@ const listPaymentGatewaySettings = async (req, res) => {
 
 const getPaymentGatewaySettingById = async (req, res) => {
   try {
-    const method = await queryOne("SELECT id, name, code, is_active FROM payment_methods WHERE id = ?", [req.params.id]);
+    await PaymentMethodsModel.ensureSchema();
+    const method = await queryOne("SELECT * FROM payment_methods WHERE id = ?", [req.params.id]);
     if (!method) return res.status(404).json({ message: "Payment setting not found" });
-    res.json({
-      id: method.id,
-      payment_mode: method.name,
-      department: "Hotel",
-      provider_name: method.name,
-      upi_id: null,
-      account_holder_name: null,
-      bank_name: null,
-      qr_image_url: null,
-      is_active: toNumber(method.is_active) === 1 ? 1 : 0,
-      notes: null,
-    });
+    res.json(paymentSettingToRow(method));
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch payment setting", error: error.message });
   }
 };
 
-// Writes map onto the real `payment_methods` table (name + is_active).
+// Maps the frontend form onto `payment_methods`. All form fields are persisted
+// so saving a setting actually changes what the form shows afterwards.
+const readPaymentSettingBody = (body = {}) => {
+  const providerName = String(body.providerName || "").trim();
+  const name = String(body.paymentMode || providerName || "").trim();
+  const flag = body.isActive === undefined ? null : String(body.isActive) === "1" || body.isActive === true || body.isActive === 1 ? 1 : 0;
+  return {
+    name,
+    provider_name: providerName || null,
+    department: String(body.department || "").trim() || null,
+    upi_id: String(body.upiId || "").trim() || null,
+    account_holder_name: String(body.accountHolderName || "").trim() || null,
+    bank_name: String(body.bankName || "").trim() || null,
+    qr_image_url: String(body.qrImageUrl || "").trim() || null,
+    notes: String(body.notes || "").trim() || null,
+    is_active: flag,
+  };
+};
+
 const addPaymentGatewaySetting = async (req, res) => {
-  const { paymentMode, providerName, isActive } = req.body;
-  const name = String(paymentMode || providerName || "").trim();
+  const { name, provider_name, department, upi_id, account_holder_name, bank_name, qr_image_url, notes, is_active } = readPaymentSettingBody(req.body);
   try {
     if (!name) return res.status(400).json({ message: "paymentMode is required" });
     const code = normalizeText(name).replace(/[^a-z0-9]+/g, "_").slice(0, 30) || "method";
-    const activeFlag = String(isActive) === "1" || isActive === true || isActive === 1 ? 1 : 0;
+    const activeFlag = is_active === null ? 1 : is_active;
+    await PaymentMethodsModel.ensureSchema();
     const result = await query(
-      "INSERT INTO payment_methods (name, code, is_active) VALUES (?, ?, ?)",
-      [name, code, activeFlag],
+      `INSERT INTO payment_methods (name, code, is_active, department, provider_name, upi_id,
+        account_holder_name, bank_name, qr_image_url, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, code, activeFlag, department, provider_name, upi_id, account_holder_name, bank_name, qr_image_url, notes],
     );
-    res.status(201).json({ message: "Payment setting added", id: result.insertId });
+    const created = await queryOne("SELECT * FROM payment_methods WHERE id = ?", [result.insertId]);
+    res.status(201).json({ message: "Payment setting added", ...paymentSettingToRow(created) });
   } catch (error) {
     if (error.code === "ER_DUP_ENTRY") {
       return res.status(409).json({ message: `Payment setting "${name}" already exists` });
@@ -2033,17 +2050,21 @@ const addPaymentGatewaySetting = async (req, res) => {
 };
 
 const updatePaymentGatewaySetting = async (req, res) => {
-  const { paymentMode, providerName, isActive } = req.body;
   try {
+    await PaymentMethodsModel.ensureSchema();
     const existing = await queryOne("SELECT id FROM payment_methods WHERE id = ?", [req.params.id]);
     if (!existing) return res.status(404).json({ message: "Payment setting not found" });
-    const name = String(paymentMode || providerName || "").trim();
-    const activeFlag = isActive === undefined ? null : (String(isActive) === "1" || isActive === true || isActive === 1 ? 1 : 0);
+    const { name, provider_name, department, upi_id, account_holder_name, bank_name, qr_image_url, notes, is_active } = readPaymentSettingBody(req.body);
     await query(
-      "UPDATE payment_methods SET name = COALESCE(?, name), is_active = COALESCE(?, is_active) WHERE id = ?",
-      [name || null, activeFlag, req.params.id],
+      `UPDATE payment_methods SET
+         name = COALESCE(?, name),
+         is_active = COALESCE(?, is_active),
+         department = ?, provider_name = ?, upi_id = ?, account_holder_name = ?,
+         bank_name = ?, qr_image_url = ?, notes = ?
+       WHERE id = ?`,
+      [name || null, is_active, department, provider_name, upi_id, account_holder_name, bank_name, qr_image_url, notes, req.params.id],
     );
-    res.json({ message: "Payment setting updated" });
+    res.json({ message: "Payment setting updated", ...paymentSettingToRow(await queryOne("SELECT * FROM payment_methods WHERE id = ?", [req.params.id])) });
   } catch (error) {
     res.status(500).json({ message: "Failed to update payment setting", error: error.message });
   }

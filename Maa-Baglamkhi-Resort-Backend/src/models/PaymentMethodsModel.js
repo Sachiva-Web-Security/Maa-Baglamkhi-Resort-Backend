@@ -19,6 +19,27 @@ class PaymentMethods {
   PRIMARY KEY (\`id\`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 
+      // The gateway settings form posts more than name/code/is_active. Without
+      // these columns every extra field was silently dropped and saving looked
+      // like a no-op. Added one by one so a partially migrated db still boots.
+      const additions = [
+        'ALTER TABLE `payment_methods` ADD COLUMN `department` VARCHAR(100)',
+        'ALTER TABLE `payment_methods` ADD COLUMN `provider_name` VARCHAR(255)',
+        'ALTER TABLE `payment_methods` ADD COLUMN `upi_id` VARCHAR(255)',
+        'ALTER TABLE `payment_methods` ADD COLUMN `account_holder_name` VARCHAR(255)',
+        'ALTER TABLE `payment_methods` ADD COLUMN `bank_name` VARCHAR(255)',
+        'ALTER TABLE `payment_methods` ADD COLUMN `qr_image_url` TEXT',
+        'ALTER TABLE `payment_methods` ADD COLUMN `notes` TEXT',
+      ]
+      for (const sql of additions) {
+        try {
+          await conn.query(sql)
+        } catch (err) {
+          if (err.code === 'ER_DUP_FIELDNAME' || /already exists/i.test(err.message || '')) continue
+          throw err
+        }
+      }
+
       await conn.commit()
     } catch (err) {
       await conn.rollback()
