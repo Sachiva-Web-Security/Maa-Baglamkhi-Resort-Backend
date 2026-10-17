@@ -15,6 +15,7 @@ import ReportFilters from "../components/Reports/ReportFilters";
 import ReportTable from "../components/Reports/ReportTable";
 import ReportTypeSelector from "../components/Reports/ReportTypeSelector";
 import API from "../api";
+import { localDate } from "../utils/localDate";
 
 const REPORT_TYPES = [
   { id: "room", label: "Room", note: "Occupancy and stay performance" },
@@ -49,7 +50,7 @@ const STATUSES = [
 const formatCurrency = (amount) =>
   `Rs. ${Number(amount || 0).toLocaleString("en-IN")}`;
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => localDate();
 const normalizeDate = (value) => {
   if (!value) return null;
   const raw = String(value).trim();
@@ -57,7 +58,7 @@ const normalizeDate = (value) => {
 
   const parsed = new Date(raw);
   if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toISOString().slice(0, 10);
+    return localDate(parsed);
   }
 
   return raw.slice(0, 10);
@@ -881,7 +882,7 @@ const Reports = () => {
 
     setFilters((prev) => ({
       ...prev,
-      dateFrom: d.toISOString().slice(0, 10),
+      dateFrom: localDate(d),
       dateTo: todayISO(),
     }));
   };

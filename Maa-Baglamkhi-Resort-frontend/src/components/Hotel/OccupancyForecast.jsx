@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../../api";
+import { localDate } from "../../utils/localDate";
 import {
   BedDouble,
   TrendingUp,
@@ -91,7 +92,7 @@ const OccupancyForecast = ({ isModal = false, onClose }) => {
       const end = new Date(b.check_out);
       const cur = new Date(start);
       while (cur < end) {
-        const key = cur.toISOString().slice(0, 10);
+        const key = localDate(cur);
         if (!map[key]) map[key] = { bookings: [], blocks: [] };
         map[key].bookings.push(b);
         cur.setDate(cur.getDate() + 1);
@@ -104,7 +105,7 @@ const OccupancyForecast = ({ isModal = false, onClose }) => {
       const end = new Date(bl.blocked_until);
       const cur = new Date(start);
       while (cur <= end) {
-        const key = cur.toISOString().slice(0, 10);
+        const key = localDate(cur);
         if (!map[key]) map[key] = { bookings: [], blocks: [] };
         map[key].blocks.push(bl);
         cur.setDate(cur.getDate() + 1);
@@ -172,7 +173,7 @@ const OccupancyForecast = ({ isModal = false, onClose }) => {
 
   const days = daysInMonth(year, month);
   const firstDay = firstDayOfMonth(year, month);
-  const todayStr = now.toISOString().slice(0, 10);
+  const todayStr = localDate(now);
 
   const getOccupancyColor = (pct) => {
     if (pct === 0) return "bg-white border-slate-100 hover:border-slate-200";

@@ -13,6 +13,7 @@ import AttendanceRow from "../components/Attendance/AttendanceRow";
 import FiltersSection from "../components/Attendance/FiltersSection";
 import SummaryCard from "../components/Attendance/SummaryCard";
 import API from "../api";
+import { localDate } from "../utils/localDate";
 
 const Attendance = () => {
   /* ================= ROLE ================= */
@@ -23,7 +24,7 @@ const Attendance = () => {
   /* ================= STATE ================= */
 
   const [date, setDate] = useState(
-    new Date().toISOString().split("T")[0]
+    localDate()
   );
 
   const [department, setDepartment] = useState("All Departments");

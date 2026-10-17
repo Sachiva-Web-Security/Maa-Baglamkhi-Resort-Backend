@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { FaTimes, FaBroom, FaPlus, FaSyncAlt, FaDownload, FaChevronLeft, FaChevronRight } from "react-icons/fa";
 import API from "../../api";
+import { localDate } from "../../utils/localDate";
 
 const SHIFTS = ["Morning (6am-2pm)", "Afternoon (2pm-10pm)", "Night (10pm-6am)", "Day (8am-8pm)", "Off"];
 const SHIFT_COLORS = {
@@ -30,7 +31,7 @@ export default function ShiftRosterModal({ housekeepers, onClose, apiBase }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const weekDates = getWeekDates(weekOffset);
-  const weekStart = weekDates[0].toISOString().slice(0, 10);
+  const weekStart = localDate(weekDates[0]);
 
   const fetchRoster = useCallback(async () => {
     setLoading(true);
@@ -76,16 +77,16 @@ export default function ShiftRosterModal({ housekeepers, onClose, apiBase }) {
   };
 
   const exportCSV = () => {
-    const rows = [["Staff", ...weekDates.map(d => d.toISOString().slice(0, 10))]];
+    const rows = [["Staff", ...weekDates.map(d => localDate(d))]];
     housekeepers.forEach(h => {
-      rows.push([h, ...weekDates.map(d => roster[h]?.[d.toISOString().slice(0, 10)] || "Off")]);
+      rows.push([h, ...weekDates.map(d => roster[h]?.[localDate(d)] || "Off")]);
     });
     const csv = rows.map(r => r.join(",")).join("\n");
     const a = document.createElement("a"); a.href = "data:text/csv," + encodeURIComponent(csv); a.download = `roster_${weekStart}.csv`; a.click();
   };
 
   // Stats
-  const workingToday = weekDates[0] ? housekeepers.filter(h => roster[h]?.[new Date().toISOString().slice(0, 10)] && roster[h][new Date().toISOString().slice(0, 10)] !== "Off").length : 0;
+  const workingToday = weekDates[0] ? housekeepers.filter(h => roster[h]?.[localDate()] && roster[h][localDate()] !== "Off").length : 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -154,7 +155,7 @@ export default function ShiftRosterModal({ housekeepers, onClose, apiBase }) {
                   <tr>
                     <th className="px-4 py-3 text-left text-xl font-semibold text-slate-500 uppercase sticky left-0 bg-slate-50 min-w-36">Staff</th>
                     {weekDates.map((d, i) => {
-                      const isToday = d.toISOString().slice(0, 10) === new Date().toISOString().slice(0, 10);
+                      const isToday = localDate(d) === localDate();
                       return (
                         <th key={i} className={`px-2 py-3 text-center text-xl font-semibold uppercase min-w-36 ${isToday ? "text-indigo-600 bg-indigo-50" : "text-slate-500"}`}>
                           <div>{DAY_NAMES[i]}</div>
@@ -169,7 +170,7 @@ export default function ShiftRosterModal({ housekeepers, onClose, apiBase }) {
                     <tr key={`${staff}-${staffIndex}`} className="border-t border-slate-100 hover:bg-slate-50">
                       <td className="px-4 py-3 font-semibold text-slate-800 sticky left-0 bg-white">{staff}</td>
                       {weekDates.map((d, i) => {
-                        const dateStr = d.toISOString().slice(0, 10);
+                        const dateStr = localDate(d);
                         const shift = roster[staff]?.[dateStr] || "Off";
                         return (
                           <td key={i} className="px-2 py-2 text-center">

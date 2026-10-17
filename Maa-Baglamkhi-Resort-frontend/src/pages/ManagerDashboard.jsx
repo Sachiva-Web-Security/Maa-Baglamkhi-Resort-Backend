@@ -10,12 +10,13 @@ import {
 } from "react-icons/fa";
 
 import API from "../api";
+import { localDate } from "../utils/localDate";
 import useDashboardAutoRefresh from "../hooks/useDashboardAutoRefresh";
 
 const formatINR = (amount) =>
   `Rs. ${Number(amount || 0).toLocaleString("en-IN")}`;
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => localDate();
 
 const ManagerDashboard = () => {
   const [loading, setLoading] = useState(true);

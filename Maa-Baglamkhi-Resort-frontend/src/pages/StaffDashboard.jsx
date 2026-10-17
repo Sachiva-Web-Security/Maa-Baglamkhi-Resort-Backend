@@ -7,11 +7,12 @@ import {
 } from "react-icons/fa";
 
 import API from "../api";
+import { localDate } from "../utils/localDate";
 import { getDashboardNotifications } from "../components/Dashboard/dashboardNotifications";
 import RoleDashboardShell from "../components/roleDashboards/RoleDashboardShell";
 import useDashboardAutoRefresh from "../hooks/useDashboardAutoRefresh";
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => localDate();
 
 const StaffDashboard = () => {
   const [loading, setLoading] = useState(true);

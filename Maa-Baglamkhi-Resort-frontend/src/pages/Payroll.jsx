@@ -8,6 +8,7 @@ import {
   FaUsersCog,
 } from "react-icons/fa";
 import API from "../api";
+import { localDate, localMonth } from "../utils/localDate";
 
 const STATUS_BADGE = {
   paid: "bg-emerald-100 text-emerald-700",
@@ -31,7 +32,7 @@ const Payroll = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState({ type: "", text: "" });
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState(localMonth());
   const [form, setForm] = useState({
     employee_id: "",
     basic_salary: "",

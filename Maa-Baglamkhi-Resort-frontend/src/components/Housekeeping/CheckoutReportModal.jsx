@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { FaTimes, FaSignOutAlt, FaSyncAlt, FaDownload, FaCheck, FaExclamationTriangle } from "react-icons/fa";
 import API from "../../api";
+import { localDate } from "../../utils/localDate";
 
 export default function CheckoutReportModal({ onClose, apiBase }) {
   const [checkouts, setCheckouts] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 10));
+  const [dateFilter, setDateFilter] = useState(localDate());
 
   const fetchCheckouts = useCallback(async () => {
     setLoading(true);

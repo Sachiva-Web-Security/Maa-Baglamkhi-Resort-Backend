@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { FaTimes, FaSearch, FaPlus, FaSyncAlt, FaDownload, FaCheckCircle, FaBoxOpen } from "react-icons/fa";
 import API from "../../api";
+import { localDate } from "../../utils/localDate";
 
 const CATEGORIES = ["Electronics", "Clothing", "Jewellery", "Documents", "Accessories", "Keys", "Cash / Wallet", "Books / Stationery", "Other"];
 const STATUSES = ["Found", "Stored", "Claimed", "Disposed"];
@@ -25,7 +26,7 @@ export default function LostFoundModal({ rooms, onClose, apiBase }) {
 
   // New item form
   const [form, setForm] = useState({
-    foundDate: new Date().toISOString().slice(0, 10),
+    foundDate: localDate(),
     foundRoom: "",
     foundBy: localStorage.getItem("username") || "",
     category: "Electronics",
@@ -217,7 +218,7 @@ export default function LostFoundModal({ rooms, onClose, apiBase }) {
                           {item.status !== "Claimed" && item.status !== "Disposed" && (
                             <button onClick={() => {
                               const claimedBy = window.prompt("Claimed by (name / contact):");
-                              if (claimedBy) handleStatusUpdate(item.id, "Claimed", { claimedBy, claimedDate: new Date().toISOString().slice(0, 10) });
+                              if (claimedBy) handleStatusUpdate(item.id, "Claimed", { claimedBy, claimedDate: localDate() });
                             }} className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition">
                               Mark Claimed
                             </button>
