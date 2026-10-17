@@ -345,11 +345,23 @@ const getSummary = async (req, res) => {
 
     // Operational payments (money actually collected) — the real operational
     // money table in v4. Refunds are money going OUT, so they must not be
-    // summed as if they were receipts.
+    // summed as if they were receipts. Bills carry duplicate payment rows
+    // (bill 1 has 36 identical ones), so one row per bill is summed.
     const payments = await queryOne(
-      `SELECT COALESCE(SUM(CASE WHEN payment_type = 'refund' THEN 0 ELSE amount END), 0) AS total
-         FROM payments
-        WHERE status = 'completed'`,
+      `SELECT COALESCE(SUM(amount), 0) AS total
+         FROM (
+           SELECT MAX(id) AS last_id FROM payments
+           WHERE status = 'completed'
+             AND payment_type <> 'refund'
+             AND bill_id IS NOT NULL
+           GROUP BY bill_id
+           UNION ALL
+           SELECT id FROM payments
+           WHERE status = 'completed'
+             AND payment_type <> 'refund'
+             AND bill_id IS NULL
+         ) dedup
+         JOIN payments p ON p.id = dedup.last_id`,
     );
 
     // Money returned to guests, tracked separately so the UI can show it.
@@ -926,8 +938,16 @@ const getExtendedSummary = async (req, res) => {
       // the real payments table; cash is identified via payment_methods.
       queryOne(
         `SELECT COALESCE(SUM(CASE WHEN p.payment_type = 'refund' THEN -p.amount ELSE p.amount END), 0) AS balance
-           FROM payments p LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id
-          WHERE p.status = 'completed' AND LOWER(COALESCE(pm.name, '')) LIKE '%cash%'`,
+           FROM (
+             SELECT MAX(id) AS last_id FROM payments
+             WHERE status = 'completed' AND bill_id IS NOT NULL
+             GROUP BY bill_id
+             UNION ALL
+             SELECT id FROM payments WHERE status = 'completed' AND bill_id IS NULL
+           ) dedup
+           JOIN payments p ON p.id = dedup.last_id
+           LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id
+          WHERE LOWER(COALESCE(pm.name, '')) LIKE '%cash%'`,
       ),
       query(
         `SELECT ca.name AS account_name, ca.type AS account_type, COALESCE(SUM(e.amount), 0) AS total
@@ -1173,9 +1193,19 @@ const getReconciliationSummary = async (req, res) => {
     }
     const bankTotals = await query(
       `SELECT
-         COALESCE(SUM(CASE WHEN p.status <> 'refunded' THEN p.amount ELSE 0 END), 0) AS total_in,
+         COALESCE(SUM(CASE WHEN p.status = 'refunded' THEN 0 ELSE p.amount END), 0) AS total_in,
          COALESCE(SUM(CASE WHEN p.status = 'refunded' THEN p.amount ELSE 0 END), 0) AS total_out
-       FROM payments p LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id${where}`,
+       FROM (
+         SELECT MAX(id) AS last_id FROM payments
+         WHERE status <> 'refunded' AND bill_id IS NOT NULL
+         GROUP BY bill_id
+         UNION ALL
+         SELECT id FROM payments WHERE status <> 'refunded' AND bill_id IS NULL
+         UNION ALL
+         SELECT id FROM payments WHERE status = 'refunded'
+       ) dedup
+       JOIN payments p ON p.id = dedup.last_id
+       LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id${where}`,
       params,
     );
 

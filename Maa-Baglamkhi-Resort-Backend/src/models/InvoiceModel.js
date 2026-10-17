@@ -279,8 +279,14 @@ const getBookingInvoiceBase = async (customerId) => {
       LEFT JOIN (
         SELECT booking_id,
                SUM(CASE WHEN payment_type = 'refund' THEN 0 ELSE amount END) AS paidAmount
-        FROM payments
-        WHERE status = 'completed'
+        FROM (
+          SELECT MAX(id) AS last_id FROM payments
+          WHERE status = 'completed' AND bill_id IS NOT NULL
+          GROUP BY bill_id
+          UNION ALL
+          SELECT id FROM payments WHERE status = 'completed' AND bill_id IS NULL
+        ) dedup
+        JOIN payments ON payments.id = dedup.last_id
         GROUP BY booking_id
       ) py ON py.booking_id = b.id
       LEFT JOIN (

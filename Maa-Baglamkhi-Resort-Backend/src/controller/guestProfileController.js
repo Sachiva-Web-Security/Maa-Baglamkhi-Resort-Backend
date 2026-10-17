@@ -77,7 +77,15 @@ const loadProfileForMobile = async (mobile) => {
        SELECT booking_id,
               SUM(CASE WHEN payment_type = 'refund' THEN 0 ELSE amount END) AS paidAmount,
               SUM(CASE WHEN payment_type = 'refund' THEN amount ELSE 0 END) AS refundAmount
-       FROM payments WHERE status = 'completed' GROUP BY booking_id
+       FROM (
+         SELECT MAX(id) AS last_id FROM payments
+         WHERE status = 'completed' AND bill_id IS NOT NULL
+         GROUP BY bill_id
+         UNION ALL
+         SELECT id FROM payments WHERE status = 'completed' AND bill_id IS NULL
+       ) dedup
+       JOIN payments ON payments.id = dedup.last_id
+       GROUP BY booking_id
      ) pay ON pay.booking_id = b.id
      LEFT JOIN (
        SELECT br.booking_id,

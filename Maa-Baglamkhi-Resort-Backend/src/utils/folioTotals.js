@@ -264,9 +264,15 @@ exports.getAdvancePaid = async (bookingId) => {
 
   const rows = await runQuery(
     `SELECT COALESCE(SUM(CASE WHEN payment_type = 'refund' THEN 0 ELSE amount END), 0) AS paid
-       FROM payments
-      WHERE booking_id = ?`,
-    [Number(bookingId)],
+       FROM (
+         SELECT MAX(id) AS last_id FROM payments
+         WHERE booking_id = ? AND bill_id IS NOT NULL
+         GROUP BY bill_id
+         UNION ALL
+         SELECT id FROM payments WHERE booking_id = ? AND bill_id IS NULL
+       ) dedup
+       JOIN payments ON payments.id = dedup.last_id`,
+    [Number(bookingId), Number(bookingId)],
   );
   return exports.round2((rows && rows[0] && rows[0].paid) || 0);
 };

@@ -19,12 +19,24 @@ exports.daywise = async (req, res) => {
 
   try {
     await ensureSchema();
+    // Bills accumulate duplicate payment rows (bill 1 has 36), so count one
+    // row per bill and keep the rest as single rows.
     const [rows] = await db.query(
-      `SELECT DATE(created_at) as date, SUM(amount) as total
-       FROM payments
-       WHERE DATE(created_at) BETWEEN ? AND ?
-       GROUP BY DATE(created_at)`,
-      [start, end],
+      `SELECT day AS date, SUM(amount) as total
+       FROM (
+         SELECT DATE(p.created_at) AS day, p.amount
+         FROM (
+           SELECT MAX(id) AS last_id FROM payments
+           WHERE bill_id IS NOT NULL AND DATE(created_at) BETWEEN ? AND ?
+           GROUP BY bill_id
+           UNION ALL
+           SELECT id FROM payments
+           WHERE bill_id IS NULL AND DATE(created_at) BETWEEN ? AND ?
+         ) dedup
+         JOIN payments p ON p.id = dedup.last_id
+       ) deduped
+       GROUP BY day`,
+      [start, end, start, end],
     );
     res.json(rows);
   } catch (err) {

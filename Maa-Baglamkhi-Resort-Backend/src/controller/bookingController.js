@@ -160,8 +160,14 @@ const paymentsJoin = `
            SUM(CASE WHEN payment_type = 'refund' THEN 0 ELSE amount END) AS paidAmount,
            SUM(CASE WHEN payment_type = 'refund' THEN amount ELSE 0 END) AS refundAmount,
            SUBSTRING_INDEX(GROUP_CONCAT(payment_method_id ORDER BY id DESC), ',', 1) AS lastMethodId
-    FROM payments
-    WHERE status = 'completed'
+    FROM (
+      SELECT MAX(id) AS last_id FROM payments
+      WHERE status = 'completed' AND bill_id IS NOT NULL
+      GROUP BY bill_id
+      UNION ALL
+      SELECT id FROM payments WHERE status = 'completed' AND bill_id IS NULL
+    ) dedup
+    JOIN payments ON payments.id = dedup.last_id
     GROUP BY booking_id
   ) pay ON pay.booking_id = b.id
   LEFT JOIN payment_methods pm ON pm.id = pay.lastMethodId`;
@@ -1963,8 +1969,15 @@ exports.cancelBooking = async (req, res) => {
         `SELECT
            SUM(CASE WHEN payment_type = 'refund' THEN 0 ELSE amount END) AS received,
            SUM(CASE WHEN payment_type = 'refund' THEN amount ELSE 0 END) AS alreadyRefunded
-         FROM payments WHERE booking_id = ? AND status = 'completed'`,
-        [req.params.id],
+         FROM (
+           SELECT MAX(id) AS last_id FROM payments
+           WHERE bill_id IS NOT NULL AND booking_id = ? AND status = 'completed'
+           GROUP BY bill_id
+           UNION ALL
+           SELECT id FROM payments WHERE bill_id IS NULL AND booking_id = ? AND status = 'completed'
+         ) dedup
+         JOIN payments ON payments.id = dedup.last_id`,
+        [req.params.id, req.params.id],
       )
         .then((rows) => resolve(rows[0] || null))
         .catch(() => resolve(null));
