@@ -55,12 +55,16 @@ function isLocalDevelopmentOrigin(origin) {
   }
 }
 
-function isOriginAllowed(origin, allowedOrigins) {
+function isOriginAllowed(origin, allowedOrigins, { allowLocalInProduction = false } = {}) {
   if (!origin) {
     return true;
   }
 
   if (allowedOrigins.includes(origin)) {
+    return true;
+  }
+
+  if (allowLocalInProduction && isLocalDevelopmentOrigin(origin)) {
     return true;
   }
 
@@ -73,9 +77,14 @@ function isOriginAllowed(origin, allowedOrigins) {
 
 function createCorsOriginHandler() {
   const allowedOrigins = getAllowedOrigins();
+  const allowLocalInProduction =
+    String(process.env.CORS_ALLOW_LOCAL || "").toLowerCase() === "true";
 
   return (origin, callback) => {
-    return callback(null, isOriginAllowed(origin, allowedOrigins));
+    return callback(
+      null,
+      isOriginAllowed(origin, allowedOrigins, { allowLocalInProduction }),
+    );
   };
 }
 
@@ -141,4 +150,5 @@ module.exports = {
   getAllowedOrigins,
   getCorsOptions,
   getJwtSecret,
+  isOriginAllowed,
 };
