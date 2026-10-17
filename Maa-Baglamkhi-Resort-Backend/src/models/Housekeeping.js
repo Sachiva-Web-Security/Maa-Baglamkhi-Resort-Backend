@@ -386,24 +386,20 @@ const Housekeeping = {
     try {
       const hasRooms = await tableExists("rooms");
       const hasAssignments = await tableExists("assignments");
-      // The inventory table existing is not enough: the room/guest lookup below
-      // selects hri.guest, hri.check_in and hri.check_out directly. On a DB
-      // created from an older schema those columns are absent and the whole
-      // room list dies with ER_BAD_FIELD_ERROR, so require them here too.
-      const hasInventoryColumns =
+      // Only gate on the columns the SQL actually reads. Requiring guest /
+      // check_in / check_out here was fatal on the v4 schema, where those
+      // columns were removed from hotel_room_inventory and live on bookings:
+      // the gate went false, the hri.status join was dropped, and the room
+      // list came back with the guest blank. Each guest column is opt-in
+      // below so a legacy schema still contributes its own values.
+      const hasInventory =
+        (await tableExists("hotel_room_inventory")) &&
         (await columnExists("hotel_room_inventory", "room_number")) &&
-        (await columnExists("hotel_room_inventory", "status")) &&
-        (await columnExists("hotel_room_inventory", "guest")) &&
+        (await columnExists("hotel_room_inventory", "status"));
+      const hasLegacyInventoryGuest = await columnExists("hotel_room_inventory", "guest");
+      const hasLegacyInventoryDates =
         (await columnExists("hotel_room_inventory", "check_in")) &&
         (await columnExists("hotel_room_inventory", "check_out"));
-      // Only require the columns the SQL actually reads. On schemas where
-      // guest/check_in/check_out moved off hotel_room_inventory they are
-      // resolved through rooms.current_booking_id instead, so gating on them
-      // here silently dropped the hri.status join for no reason.
-      const hasInventory =
-        (await columnExists("hotel_room_inventory", "room_number")) &&
-        hasInventoryColumns &&
-        (await tableExists("hotel_room_inventory"));
       const hasHousekeepingPriority = await columnExists("housekeeping", "priority");
       const hasHousekeepingNotes = await columnExists("housekeeping", "notes");
       const hasHousekeepingCleaningStart = await columnExists("housekeeping", "cleaningStart");
@@ -537,6 +533,12 @@ const Housekeeping = {
         assignmentAssigneeExpr = "NULLIF(a.staff_name, '')";
       }
 
+      // v4 schemas keep guest details off hotel_room_inventory. Each column is
+      // opt-in so an older schema still returns the room list.
+      const hasRoomsBookingLink =
+        (await columnExists("rooms", "current_booking_id")) &&
+        (await tableExists("bookings"));
+
       let inventoryJoin = "";
       let hotelStatusExpr = `base.room_status`;
       let guestExpr = "NULL";
@@ -549,30 +551,31 @@ const Housekeeping = {
             ON CAST(hri.room_number AS CHAR) COLLATE utf8mb4_general_ci = CAST(base.room_number AS CHAR) COLLATE utf8mb4_general_ci
         `;
         hotelStatusExpr = `COALESCE(NULLIF(hri.status, ''), base.room_status)`;
-        guestExpr = "hri.guest";
-        checkInExpr = "hri.check_in";
-        checkOutExpr = "hri.check_out";
+        if (hasLegacyInventoryGuest) guestExpr = "hri.guest";
+        if (hasLegacyInventoryDates) {
+          checkInExpr = "hri.check_in";
+          checkOutExpr = "hri.check_out";
+        }
       }
 
-      // v4 schemas keep guest details off hotel_room_inventory: rooms points at
-      // the live booking via current_booking_id, which joins to guest_profiles.
-      // Each column is opt-in so an older schema still returns the room list.
-      const hasRoomsBookingLink =
-        (await columnExists("rooms", "current_booking_id")) &&
-        (await tableExists("bookings")) &&
-        (await tableExists("guest_profiles"));
-      const hasRoomStatus = await columnExists("hotel_room_inventory", "status");
-      if (!hasInventory && hasRoomStatus) {
-        inventoryJoin = `
-          LEFT JOIN hotel_room_inventory hri
-            ON CAST(hri.room_number AS CHAR) COLLATE utf8mb4_general_ci = CAST(base.room_number AS CHAR) COLLATE utf8mb4_general_ci
-        `;
-        hotelStatusExpr = `COALESCE(NULLIF(hri.status, ''), base.room_status)`;
-      }
+      // Guest identity for the v4 schema. Name and stay dates live on
+      // different tables, so both joins are needed:
+      //   rooms.current_booking_id -> bookings.id  = the stay
+      //   booking_rooms (booking_id, room_id)      = per-room dates
+      //   booking_guests                          = the occupant name
+      // Do NOT read the guest through bookings.source_id -> guest_profiles.
+      // source_id is NULL for most bookings, and where it is set it holds a
+      // guest_profile id against a different id sequence than
+      // booking_guests.guest_profile_id, so the join matched the wrong person
+      // or nobody at all while looking like a correct query.
+      const hasBookingRooms = await tableExists("booking_rooms");
+      const hasBookingGuests = await tableExists("booking_guests");
       if (hasRoomsBookingLink) {
-        const nameExpr = (await columnExists("guest_profiles", "last_name"))
-          ? "TRIM(CONCAT(gp.first_name, ' ', gp.last_name))"
-          : "gp.first_name";
+        const primaryGuestSubquery = `(
+              SELECT MIN(bkg2.id) FROM booking_guests bkg2
+              WHERE bkg2.booking_id = bk.id
+                AND NULLIF(TRIM(CONCAT(COALESCE(bkg2.first_name, ''), ' ', COALESCE(bkg2.last_name, ''))), '') IS NOT NULL
+            )`;
         const dateExpr = (t) =>
           `CASE WHEN LOWER(COALESCE(bk.status, 'confirmed')) NOT IN ('cancelled') THEN ${t} END`;
         inventoryJoin += `
@@ -580,11 +583,32 @@ const Housekeeping = {
             ON CAST(rmlnk.room_number AS CHAR) COLLATE utf8mb4_general_ci = CAST(base.room_number AS CHAR) COLLATE utf8mb4_general_ci
            AND rmlnk.current_booking_id IS NOT NULL
           LEFT JOIN bookings bk ON bk.id = rmlnk.current_booking_id
+        `;
+        if (hasBookingGuests) {
+          let nameExpr = `NULLIF(TRIM(CONCAT(COALESCE(bkg.first_name, ''), ' ', COALESCE(bkg.last_name, ''))), '')`;
+          if (await tableExists("guest_profiles")) {
+            const gpName = (await columnExists("guest_profiles", "last_name"))
+              ? "NULLIF(TRIM(CONCAT(gp.first_name, ' ', gp.last_name)), '')"
+              : "NULLIF(gp.first_name, '')";
+            nameExpr = `COALESCE(${nameExpr}, ${gpName})`;
+            inventoryJoin += `
           LEFT JOIN guest_profiles gp ON gp.id = bk.source_id
         `;
-        guestExpr = `${nameExpr}`;
-        checkInExpr = dateExpr("bk.check_in");
-        checkOutExpr = dateExpr("bk.check_out");
+          }
+          inventoryJoin += `
+          LEFT JOIN booking_guests bkg
+            ON bkg.booking_id = bk.id
+           AND (bkg.is_primary = 1 OR bkg.id = ${primaryGuestSubquery})
+        `;
+          guestExpr = nameExpr;
+        }
+        if (hasBookingRooms && (await columnExists("booking_rooms", "check_in"))) {
+          checkInExpr = dateExpr("COALESCE(brlk.check_in, bk.check_in)");
+          checkOutExpr = dateExpr("COALESCE(brlk.check_out, bk.check_out)");
+        } else {
+          checkInExpr = dateExpr("bk.check_in");
+          checkOutExpr = dateExpr("bk.check_out");
+        }
       }
 
       // Authoritative logic: housekeeping.status is the source of truth when set.
@@ -593,46 +617,52 @@ const Housekeeping = {
       // We UNION ALL 'rooms', 'hotel_room_inventory', AND 'housekeeping' so that
       // rooms created ONLY through the housekeeping UI (no row in rooms or
       // inventory) still appear on the dashboard.
-      let baseRoomListSql;
-      if (hasInventory) {
-        baseRoomListSql = `
-          SELECT room_number, MAX(room_status) AS room_status FROM (
-            SELECT
-              CAST(r.${roomNumberColumn} AS CHAR) COLLATE utf8mb4_general_ci AS room_number,
-              CAST(${roomStatusExpr} AS CHAR) COLLATE utf8mb4_general_ci AS room_status
-            FROM rooms r
-            UNION ALL
-            SELECT
-              CAST(hri.room_number AS CHAR) COLLATE utf8mb4_general_ci AS room_number,
-              CAST(COALESCE(NULLIF(hri.status, ''), 'available') AS CHAR) COLLATE utf8mb4_general_ci AS room_status
-            FROM hotel_room_inventory hri
-            LEFT JOIN rooms rr
-              ON CAST(rr.${roomNumberColumn} AS CHAR) COLLATE utf8mb4_general_ci = CAST(hri.room_number AS CHAR) COLLATE utf8mb4_general_ci
-            WHERE rr.${roomNumberColumn} IS NULL
-            UNION ALL
-            SELECT
-              CAST(hk.roomNo AS CHAR) COLLATE utf8mb4_general_ci AS room_number,
-              CAST(COALESCE(NULLIF(hk.status, ''), 'available') AS CHAR) COLLATE utf8mb4_general_ci AS room_status
-            FROM housekeeping hk
-          ) AS all_rooms
-          GROUP BY room_number
-        `;
-      } else {
-        baseRoomListSql = `
-          SELECT room_number, MAX(room_status) AS room_status FROM (
-            SELECT
-              CAST(r.${roomNumberColumn} AS CHAR) COLLATE utf8mb4_general_ci AS room_number,
-              CAST(${roomStatusExpr} AS CHAR) COLLATE utf8mb4_general_ci AS room_status
-            FROM rooms r
-            UNION ALL
-            SELECT
-              CAST(hk.roomNo AS CHAR) COLLATE utf8mb4_general_ci AS room_number,
-              CAST(COALESCE(NULLIF(hk.status, ''), 'available') AS CHAR) COLLATE utf8mb4_general_ci AS room_status
-            FROM housekeeping hk
-          ) AS all_rooms
-          GROUP BY room_number
-        `;
-      }
+      // Pick the real room status by precedence, not by MAX(). MAX() sorted
+      // alphabetically, so a leftover housekeeping value like 'Dirty' outranked
+      // the actual rooms.status of 'available' and the whole inventory read as
+      // dirty. rooms wins; inventory only fills rooms that do not exist there;
+      // housekeeping is last because it is a cleaning state, not a room state.
+      const statusPrecedence = `
+        SELECT room_number,
+          CASE MIN(status_rank)
+            WHEN 1 THEN MAX(CASE WHEN status_rank = 1 THEN room_status END)
+            WHEN 2 THEN MAX(CASE WHEN status_rank = 2 THEN room_status END)
+            ELSE         MAX(CASE WHEN status_rank = 3 THEN room_status END)
+          END AS room_status
+        FROM (
+      `;
+      const baseRoomListSqlTail = `
+        ) AS all_rooms
+        GROUP BY room_number
+      `;
+      const roomsStatusUnion = `
+          SELECT
+            CAST(r.${roomNumberColumn} AS CHAR) COLLATE utf8mb4_general_ci AS room_number,
+            CAST(${roomStatusExpr} AS CHAR) COLLATE utf8mb4_general_ci AS room_status,
+            1 AS status_rank
+          FROM rooms r`;
+      const inventoryStatusUnion = `
+          UNION ALL
+          SELECT
+            CAST(hri.room_number AS CHAR) COLLATE utf8mb4_general_ci AS room_number,
+            CAST(COALESCE(NULLIF(hri.status, ''), 'available') AS CHAR) COLLATE utf8mb4_general_ci AS room_status,
+            2 AS status_rank
+          FROM hotel_room_inventory hri
+          LEFT JOIN rooms rr
+            ON CAST(rr.${roomNumberColumn} AS CHAR) COLLATE utf8mb4_general_ci = CAST(hri.room_number AS CHAR) COLLATE utf8mb4_general_ci
+          WHERE rr.${roomNumberColumn} IS NULL`;
+      const housekeepingStatusUnion = `
+          UNION ALL
+          SELECT
+            CAST(hk.roomNo AS CHAR) COLLATE utf8mb4_general_ci AS room_number,
+            CAST(COALESCE(NULLIF(hk.status, ''), 'available') AS CHAR) COLLATE utf8mb4_general_ci AS room_status,
+            3 AS status_rank
+          FROM housekeeping hk`;
+
+      const parts = [statusPrecedence, roomsStatusUnion];
+      if (hasInventory) parts.push(inventoryStatusUnion);
+      parts.push(housekeepingStatusUnion, baseRoomListSqlTail);
+      const baseRoomListSql = parts.join("");
 
       // roomIdSelectId is the housekeeping.id (preferred) so frontend PUTs hit
       // the right row. If no housekeeping row exists yet, fall back to the
@@ -664,7 +694,7 @@ const Housekeeping = {
           NULLIF(hk.layout, '') AS layout,
           NULLIF(hk.articles, '') AS articles,
           NULLIF(hk.services, '') AS services,
-          base.room_status AS hotelStatus,
+          ${hotelStatusExpr} AS hotelStatus,
           ${guestExpr} AS guest,
           ${checkInExpr} AS checkIn,
           ${checkOutExpr} AS checkOut,
