@@ -357,9 +357,13 @@ exports.estimateSalary = async (req, res) => {
     const totalDays = daysInMonth(year, month);
     const dailyRate = totalDays > 0 ? Number((baseSalary / totalDays).toFixed(2)) : 0;
 
+    // Range predicate so idx_date is usable — MONTH()/YEAR() wrappers would scan the table.
+    const pad = (n) => String(n).padStart(2, "0");
+    const monthFrom = `${year}-${pad(month)}-01`;
+    const monthTo = month === 12 ? `${year + 1}-01-01` : `${year}-${pad(month + 1)}-01`;
     const [records] = await db.query(
-      "SELECT * FROM attendance_records WHERE employee_id = ? AND MONTH(date) = ? AND YEAR(date) = ? ORDER BY date",
-      [employeeId, month, year]
+      "SELECT * FROM attendance_records WHERE employee_id = ? AND date >= ? AND date < ? ORDER BY date",
+      [employeeId, monthFrom, monthTo]
     );
 
     const attendanceRecords = (records || []).map((record) => {

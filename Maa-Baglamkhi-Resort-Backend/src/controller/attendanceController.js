@@ -641,9 +641,13 @@ exports.getPayrollAttendance = async (req, res) => {
        ORDER BY e.id`
     );
 
+    // Range predicate so idx_date is usable — YEAR()/MONTH() wrappers would scan the table.
+    const pad = (n) => String(n).padStart(2, "0");
+    const monthFrom = `${year}-${pad(month)}-01`;
+    const monthTo = month === 12 ? `${year + 1}-01-01` : `${year}-${pad(month + 1)}-01`;
     const [records] = await db.query(
-      "SELECT * FROM attendance_records WHERE YEAR(date) = ? AND MONTH(date) = ?",
-      [year, month]
+      "SELECT * FROM attendance_records WHERE date >= ? AND date < ?",
+      [monthFrom, monthTo]
     );
     const byEmployee = new Map();
     for (const r of Array.isArray(records) ? records : []) {

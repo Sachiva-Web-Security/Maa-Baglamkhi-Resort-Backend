@@ -37,8 +37,15 @@ class AttendanceRecords {
     }
   }
 
-  async findByEmployeeAndMonth(...args) {
-    const [rows] = await this.pool.execute("SELECT * FROM \`attendance_records\` WHERE \`employee_id\` = ? AND MONTH(\`date\`) = ? AND YEAR(\`date\`) = ? ORDER BY \`date\`", args)
+  // (employeeId, month, year). A date range keeps idx_date usable; MONTH()/YEAR() wrapping would not.
+  async findByEmployeeAndMonth(employeeId, month, year) {
+    const pad = (n) => String(n).padStart(2, '0')
+    const from = `${year}-${pad(month)}-01`
+    const to = `${month === 12 ? year + 1 + '-01-01' : year + '-' + pad(month + 1) + '-01'}`
+    const [rows] = await this.pool.execute(
+      "SELECT * FROM \`attendance_records\` WHERE \`employee_id\` = ? AND \`date\` >= ? AND \`date\` < ? ORDER BY \`date\`",
+      [employeeId, from, to]
+    )
     return rows
   }
 
