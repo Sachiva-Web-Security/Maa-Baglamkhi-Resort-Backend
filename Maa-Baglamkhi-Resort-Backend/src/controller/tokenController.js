@@ -9,10 +9,16 @@ const denyIfNotOwnedByWaiter = (record, actor, responseMessage, res) => {
   return true;
 };
 
+// tokens.status is enum('active','completed','cancelled','expired'). Writing any other value
+// throws 1265 under STRICT_TRANS_TABLES, which is the "Token creation failed" 500 this route used
+// to return whenever a table already held an open token.
+const TOKEN_OPEN_STATUS = "active";
+const TOKEN_CLOSED_STATUS = "completed";
+
 const getActiveTokenByTable = async (tableNumber) => {
   const [rows] = await db.query(
-    `SELECT * FROM tokens WHERE table_number = ? AND status = 'active' ORDER BY id DESC LIMIT 1`,
-    [tableNumber]
+    `SELECT * FROM tokens WHERE table_number = ? AND status = ? ORDER BY id DESC LIMIT 1`,
+    [tableNumber, TOKEN_OPEN_STATUS]
   );
   return rows[0] || null;
 };
@@ -40,8 +46,10 @@ exports.createToken = async (req, res) => {
     }
 
     if (activeToken?.id) {
+      // bills.payment_status is the paid marker that exists in this schema; there is no
+      // invoiceStatus or account_transaction_id column to read here.
       const [paidBills] = await db.query(
-        `SELECT id FROM bills WHERE token_id = ? AND (LOWER(COALESCE(invoiceStatus, '')) = 'paid' OR account_transaction_id IS NOT NULL) ORDER BY id DESC LIMIT 1`,
+        `SELECT id FROM bills WHERE token_id = ? AND LOWER(COALESCE(payment_status, '')) = 'paid' ORDER BY id DESC LIMIT 1`,
         [activeToken.id]
       );
 
@@ -54,12 +62,15 @@ exports.createToken = async (req, res) => {
         });
       }
 
-      await db.query(`UPDATE tokens SET status = 'closed' WHERE id = ? AND status = 'active'`, [activeToken.id]);
+      await db.query(
+        `UPDATE tokens SET status = ? WHERE id = ? AND status = ?`,
+        [TOKEN_CLOSED_STATUS, activeToken.id, TOKEN_OPEN_STATUS]
+      );
     }
 
     const nextTokenCode = buildTokenCode();
     const [result] = await db.query(
-      `INSERT INTO tokens (token_code, table_number, waiter_name, status) VALUES (?, ?, ?, 'active')`,
+      `INSERT INTO tokens (token_code, table_number, waiter_name) VALUES (?, ?, ?)`,
       [nextTokenCode, tableNumber, resolvedWaiter]
     );
 
@@ -185,7 +196,10 @@ exports.closeTokenByTable = async (req, res) => {
     const token = await getActiveTokenByTable(table);
     if (denyIfNotOwnedByWaiter(token, actor, "You can close only your own token", res)) return;
 
-    await db.query(`UPDATE tokens SET status = 'closed' WHERE table_number = ? AND status = 'active'`, [table]);
+    await db.query(
+      `UPDATE tokens SET status = ? WHERE table_number = ? AND status = ?`,
+      [TOKEN_CLOSED_STATUS, table, TOKEN_OPEN_STATUS]
+    );
     res.json({ message: "Token closed" });
   } catch (err) {
     res.status(500).json(err);
