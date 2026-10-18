@@ -144,9 +144,12 @@ bound not to modify employee rows. The banquet booking check passes after the ch
 - `eaae1d7` — `Maa-Baglamkhi-Resort-Backend/src/app.js` (1 file, +1/−1)
 - `acb08ae` — `Maa-Baglamkhi-Resort-Backend/test/lifecycle.test.js` (1 file, +4/−4)
 
-Neither commit touches `src/config/db.js`, `test/reports/api-routes.json`, the five protected
-controllers, any fixture, or any untracked probe script. No packages added, no data rows deleted,
-inserted or updated, nothing pushed.
+Neither commit touches `src/config/db.js`, the five protected controllers, any fixture, or any
+untracked probe script. No packages added, no data rows deleted, inserted or updated, nothing pushed.
+
+`test/reports/api-routes.json` shows as modified after the sweep because
+`test/api-routes.test.js:295` rewrites it on every run; it is regenerated output, not an edit, and
+nothing reads it, so I left it unstaged as instructed.
 
 ## Open
 
