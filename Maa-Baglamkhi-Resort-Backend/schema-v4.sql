@@ -1349,3 +1349,179 @@ CREATE TABLE IF NOT EXISTS `communication_logs` (
   KEY `idx_status` (`status`),
   KEY `idx_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- Accounts side ledgers (added 2026-10-18, HAG-46)
+--
+-- The DDL for these nine tables is defined in
+-- src/models/AccountsExpansionModel.js, but nothing requires that model
+-- and nothing calls its ensureSchema(): app.js:34 imports a symbol named
+-- ensureAccountsExpansionSchema from ./models/TransactionsModel, which is a
+-- different model that creates only transactions. So on a clean install
+-- nothing else creates these tables, and schema-v4.sql has to.
+--
+-- They are also in migrations/20261018_accounts_schema_drift.sql, which
+-- holds the per-table rationale. Every statement is IF NOT EXISTS
+-- guarded, so re-running either file is a no-op.
+--
+-- "accounts" is deliberately NOT created. The v4 ledger is
+-- transactions + transaction_entries + chart_of_accounts, and
+-- transaction_entries.account_id FOREIGN KEYs to chart_of_accounts.id.
+-- See the migration header for the mapping.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `purchase_orders` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `po_number` VARCHAR(100) NOT NULL,
+  `vendor_name` VARCHAR(255) NOT NULL,
+  `order_date` DATE NOT NULL,
+  `expected_date` DATE DEFAULT NULL,
+  `total_amount` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `status` VARCHAR(50) NOT NULL DEFAULT 'Draft',
+  `notes` TEXT NULL,
+  `source_module` VARCHAR(80) NULL,
+  `source_id` INT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_purchase_order_number` (`po_number`),
+  KEY `idx_purchase_order_date` (`order_date`),
+  KEY `idx_purchase_order_source` (`source_module`, `source_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `vendor_payment_records` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `vendor_name` VARCHAR(255) NOT NULL,
+  `invoice_ref` VARCHAR(120) NULL,
+  `payment_date` DATE NOT NULL,
+  `amount` DECIMAL(12,2) NOT NULL,
+  `payment_mode` VARCHAR(50) NOT NULL DEFAULT 'Bank Transfer',
+  `status` VARCHAR(50) NOT NULL DEFAULT 'Scheduled',
+  `notes` TEXT NULL,
+  `source_module` VARCHAR(80) NULL,
+  `source_id` INT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_vendor_payment_date` (`payment_date`),
+  KEY `idx_vendor_payment_source` (`source_module`, `source_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `petty_cash_entries` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `entry_date` DATE NOT NULL,
+  `entry_type` VARCHAR(20) NOT NULL,
+  `category` VARCHAR(120) NOT NULL,
+  `description` VARCHAR(255) NOT NULL,
+  `amount` DECIMAL(12,2) NOT NULL,
+  `approved_by` VARCHAR(255) NULL,
+  `notes` TEXT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_petty_cash_date` (`entry_date`),
+  KEY `idx_petty_cash_type` (`entry_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `gst_return_records` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `filing_period` VARCHAR(20) NOT NULL,
+  `return_type` VARCHAR(50) NOT NULL,
+  `taxable_amount` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `gst_collected` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `gst_paid` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `net_payable` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `status` VARCHAR(50) NOT NULL DEFAULT 'Draft',
+  `filed_on` DATE NULL,
+  `notes` TEXT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_gst_period` (`filing_period`),
+  KEY `idx_gst_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `payroll_records` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `staff_name` VARCHAR(255) NOT NULL,
+  `payroll_month` VARCHAR(20) NOT NULL,
+  `attendance_days` INT NOT NULL DEFAULT 0,
+  `base_salary` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `allowance` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `deduction` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `net_salary` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `status` VARCHAR(50) NOT NULL DEFAULT 'Draft',
+  `notes` TEXT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_payroll_month` (`payroll_month`),
+  KEY `idx_payroll_staff` (`staff_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `profit_center_entries` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `center_name` VARCHAR(100) NOT NULL,
+  `entry_date` DATE NOT NULL,
+  `income_amount` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `expense_amount` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `notes` TEXT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_profit_center_name` (`center_name`),
+  KEY `idx_profit_center_date` (`entry_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `payment_gateway_settings` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `payment_mode` VARCHAR(50) NOT NULL,
+  `department` VARCHAR(50) NOT NULL DEFAULT 'Hotel',
+  `provider_name` VARCHAR(100) NULL,
+  `upi_id` VARCHAR(150) NULL,
+  `account_holder_name` VARCHAR(150) NULL,
+  `bank_name` VARCHAR(150) NULL,
+  `qr_image_url` VARCHAR(255) NULL,
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+  `notes` TEXT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_payment_gateway_mode` (`payment_mode`),
+  KEY `idx_payment_gateway_department` (`department`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `account_bank_ledgers` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `entry_date` DATE NOT NULL,
+  `bank_name` VARCHAR(255) NOT NULL,
+  `bank_account` VARCHAR(255) NULL,
+  `source_type` VARCHAR(50) NULL,
+  `source_id` INT NULL,
+  `payment_mode` VARCHAR(50) NULL,
+  `amount` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `direction` VARCHAR(10) NOT NULL DEFAULT 'in',
+  `reference_no` VARCHAR(120) NULL,
+  `description` VARCHAR(255) NOT NULL,
+  `debit` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `credit` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `reconciliation_status` VARCHAR(50) NOT NULL DEFAULT 'Pending',
+  `match_status` VARCHAR(30) NOT NULL DEFAULT 'unmatched',
+  `matched_amount` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `statement_ref` VARCHAR(120) NULL,
+  `statement_date` DATE NULL,
+  `reconciled_at` DATETIME NULL,
+  `notes` TEXT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_bank_ledger_date` (`entry_date`),
+  KEY `idx_bank_ledger_bank` (`bank_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `bank_reconciliation_matches` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `bank_ledger_id` INT NOT NULL,
+  `source_type` VARCHAR(50) NOT NULL,
+  `source_id` INT NOT NULL,
+  `source_amount` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `matched_amount` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `match_status` VARCHAR(30) NOT NULL DEFAULT 'matched',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_reco_match_source` (`source_type`, `source_id`),
+  KEY `idx_reco_match_bank` (`bank_ledger_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
