@@ -84,6 +84,21 @@ async function resolveEmployee(userIdOrEmployeeId) {
   return null;
 }
 
+// Payroll amounts must attach to a real employees row: employee_id is a
+// UNIQUE composite key with month, and writing a bare users.id creates a
+// payment for someone who is not in the roster.
+async function requireEmployeeRow(userIdOrEmployeeId) {
+  const [rows] = await db.query("SELECT id, user_id FROM employees WHERE id = ? LIMIT 1", [
+    userIdOrEmployeeId,
+  ]);
+  const byId = rows && rows[0];
+  if (byId) return byId.id;
+  const [byUser] = await db.query("SELECT id FROM employees WHERE user_id = ? LIMIT 1", [
+    userIdOrEmployeeId,
+  ]);
+  return byUser && byUser[0] ? byUser[0].id : null;
+}
+
 // GET /api/payroll/payments — admin only.
 exports.listPayments = async (req, res) => {
   try {
@@ -133,7 +148,12 @@ exports.createPayment = async (req, res) => {
   }
 
   try {
-    employeeId = (await resolveEmployee(employeeId)) || employeeId;
+    employeeId = await requireEmployeeRow(employeeId);
+    if (!employeeId) {
+      return res.status(404).json({
+        message: "Employee not found — pass an existing employee id, or create the employee first",
+      });
+    }
 
     if (body.basic_salary === undefined) {
       const [empRows] = await db.query(
@@ -419,3 +439,4 @@ exports.estimateSalary = async (req, res) => {
 };
 
 exports.resolveEmployee = resolveEmployee;
+exports.requireEmployeeRow = requireEmployeeRow;

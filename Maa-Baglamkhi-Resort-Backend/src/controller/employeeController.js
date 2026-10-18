@@ -108,6 +108,64 @@ async function nextEmployeeCode() {
   }
 }
 
+async function nextEmployeeCodeOn(connection) {
+  const [rows] = await connection.query(
+    "SELECT employee_code FROM employees WHERE employee_code IS NOT NULL ORDER BY id DESC LIMIT 1"
+  );
+  const last = rows && rows[0] && rows[0].employee_code;
+  const match = last && String(last).match(/(\d+)$/);
+  const next = match ? Number(match[1]) + 1 : 1;
+  return `EMP-${String(next).padStart(4, "0")}`;
+}
+
+// One users row plus one employees row, committed together. `user_id` is a
+// UNIQUE index in employees, so the row has to carry a real user id: passing
+// null is accepted by MySQL and silently produces an account the payroll and
+// attendance modules can never find. On failure the users row is rolled back
+// instead of being left half-created, and the raw error is reported so the
+// duplicate and FK failures stay distinguishable.
+async function createUserRecordTx(connection, { name, email, password, role, phone, department, designation, baseSalary }) {
+  const hashedPassword = await bcrypt.hash(password, 10);
+  const roleId = resolveRoleId(role);
+
+  const [userHeader] = await connection.query(
+    "INSERT INTO users (name, email, password_hash, role_id, phone, status) VALUES (?, ?, ?, ?, ?, 'active')",
+    [name, email, hashedPassword, roleId, phone || null]
+  );
+  const userId = userHeader && userHeader.insertId;
+  if (!userId) {
+    const err = new Error("Could not create the user record");
+    err.code = "ER_NO_USER_ROW";
+    throw err;
+  }
+
+  const employeeCode = await nextEmployeeCodeOn(connection);
+  const [employeeHeader] = await connection.query(
+    `INSERT INTO employees (user_id, employee_code, first_name, last_name, department_id, designation_id,
+                            phone, base_salary, is_active)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+    [
+      userId,
+      employeeCode,
+      name.split(/\s+/)[0] || "Staff",
+      null,
+      department ? Number(department) : null,
+      designation ? Number(designation) : null,
+      phone || null,
+      Number(baseSalary || 0),
+    ]
+  );
+  if (!employeeHeader || !employeeHeader.insertId) {
+    const err = new Error("Could not create the employee record");
+    err.code = "ER_NO_EMPLOYEE_ROW";
+    throw err;
+  }
+
+  return { userId };
+}
+
+// Self-heals a login account that has no employee row. Kept for the legacy
+// users id address forms in PUT/DELETE, which resolve through user_id.
 async function ensureEmployeeForUser(userId) {
   const [userRows] = await db.query("SELECT * FROM users WHERE id = ? LIMIT 1", [userId]);
   const user = userRows && userRows[0];
@@ -121,47 +179,20 @@ async function ensureEmployeeForUser(userId) {
   const lastName = parts.length > 1 ? parts.slice(1).join(" ") : null;
   const code = await nextEmployeeCode();
 
-  await db.query(
-    `INSERT INTO employees (user_id, employee_code, first_name, last_name, phone, base_salary, is_active)
-     VALUES (?, ?, ?, ?, ?, 0.00, 1)`,
-    [userId, code, firstName, lastName, user.phone || null]
-  );
+  try {
+    await db.query(
+      `INSERT INTO employees (user_id, employee_code, first_name, last_name, phone, base_salary, is_active)
+       VALUES (?, ?, ?, ?, ?, 0.00, 1)`,
+      [userId, code, firstName, lastName, user.phone || null]
+    );
+  } catch (err) {
+    // user_id is UNIQUE, so a second account for this user is a no-op, not
+    // a failure: the row already exists and the lookup below will find it.
+    if (err && err.code !== "ER_DUP_ENTRY") throw err;
+  }
 
   const [inserted] = await db.query("SELECT id FROM employees WHERE user_id = ? LIMIT 1", [userId]);
   return (inserted && inserted[0] && inserted[0].id) || null;
-}
-
-// One user record + one employee record. Users are the login accounts,
-// employees hold the payroll/attendance fields (base_salary, department,
-// designation, bank details). Creating both keeps the staff list, attendance
-// and salary modules in step instead of three half-populated tables.
-async function createUserRecord({ name, email, password, role, phone, department, designation, baseSalary }) {
-  const hashedPassword = await bcrypt.hash(password, 10);
-  const roleId = resolveRoleId(role);
-
-  const [result] = await db.query(
-    "INSERT INTO users (name, email, password_hash, role_id, phone, status) VALUES (?, ?, ?, ?, ?, 'active')",
-    [name, email, hashedPassword, roleId, phone || null]
-  );
-  const userId = result && result.insertId;
-
-  await db.query(
-    `INSERT INTO employees (user_id, employee_code, first_name, last_name, department_id, designation_id,
-                            phone, base_salary, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-    [
-      userId,
-      await nextEmployeeCode(),
-      name.split(/\s+/)[0] || "Staff",
-      null,
-      department ? Number(department) : null,
-      designation ? Number(designation) : null,
-      phone || null,
-      Number(baseSalary || 0),
-    ]
-  );
-
-  return { userId, password: password, plainPassword: DEFAULT_PASSWORD };
 }
 
 // CREATE /api/employees — admin only
@@ -186,8 +217,13 @@ exports.createEmployee = async (req, res) => {
 
   const password = body.password || DEFAULT_PASSWORD;
 
+  // The users row only means something together with its employees row, so
+  // both run on one connection inside one transaction. Anything wrong with
+  // either statement rolls both back; a 201 here always means both exist.
+  const connection = await db.getConnection();
   try {
-    const { userId } = await createUserRecord({
+    await connection.beginTransaction();
+    const { userId } = await createUserRecordTx(connection, {
       name,
       email,
       password,
@@ -197,19 +233,37 @@ exports.createEmployee = async (req, res) => {
       designation: body.designation_id ?? body.designation,
       baseSalary: body.base_salary ?? body.salary,
     });
+    await connection.commit();
 
     const [rows] = await db.query(
       LIST_QUERY + " WHERE u.id = ? ORDER BY u.id LIMIT 1",
       [userId]
     );
+    const employee = rows && rows[0];
+    if (!employee) {
+      const err = new Error(`read-back found no employee for user id ${userId}`);
+      err.code = "ER_NO_EMPLOYEE_ROW";
+      throw err;
+    }
     return res.status(201).json({
       message: "Employee created successfully",
       defaultPassword: DEFAULT_PASSWORD,
-      employee: rows && rows[0] ? rows[0] : { id: userId, name },
+      employee,
     });
   } catch (err) {
-    console.error("createEmployee error:", err.message || err);
-    return res.status(500).json({ message: "Failed to create employee", error: err.message });
+    try {
+      await connection.rollback();
+    } catch (rollbackErr) {
+      console.error("createEmployee rollback failed:", rollbackErr.message || rollbackErr);
+    }
+    console.error("createEmployee error:", err.code || "", err.message || err);
+    return res.status(500).json({
+      message: "Failed to create employee",
+      error: err.message,
+      code: err.code || "ER_FAILED",
+    });
+  } finally {
+    connection.release();
   }
 };
 
