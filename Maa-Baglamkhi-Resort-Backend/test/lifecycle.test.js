@@ -1268,7 +1268,7 @@ async function testBanquetLifecycle() {
     paymentStatus: "Partial",
   });
   check(
-    "POST /api/banquet/bookings accepted",
+    "POST /api/banquet accepted",
     [200, 201].includes(booking.status),
     `got ${booking.status} ${JSON.stringify(booking.body).slice(0, 160)}`
   );
@@ -1316,7 +1316,7 @@ async function testBanquetLifecycle() {
       advance: 10000,
     });
     check(
-      "PUT /api/banquet/bookings/:id accepted",
+      "PUT /api/banquet/:id accepted",
       [200, 201].includes(update.status),
       `got ${update.status} ${JSON.stringify(update.body).slice(0, 120)}`
     );
@@ -1342,7 +1342,7 @@ async function testBanquetLifecycle() {
       reason: "lifecycle test refund",
     });
     check(
-      "PUT /api/banquet/bookings/:id/refund accepted",
+      "PUT /api/banquet/:id/refund accepted",
       [200, 201].includes(refund.status),
       `got ${refund.status} (advance=${advancePaid}) ${JSON.stringify(refund.body).slice(0, 140)}`
     );
@@ -1361,7 +1361,7 @@ async function testBanquetLifecycle() {
     // --- Complete ---
     const complete = await api("PUT", `/api/banquet/${bookingId}/complete`, {});
     check(
-      "PUT /api/banquet/bookings/:id/complete accepted",
+      "PUT /api/banquet/:id/complete accepted",
       [200, 201].includes(complete.status),
       `got ${complete.status} ${JSON.stringify(complete.body).slice(0, 120)}`
     );
