@@ -59,6 +59,7 @@ const {
 } = require("../controller/accountsController");
 
 const db = require("../config/db");
+const { memoryStorage } = require("../utils/upload");
 
 // ── Schema reconciliation for the bank-ledger form ─────────────────────────
 // The UI lets an accountant pick an entry date, a bank name, a reconciliation
@@ -100,6 +101,16 @@ const ensureAccountsSchema = async () => {
 router.use(async (_req, _res, next) => {
   ensureAccountsSchema().then(next).catch(next);
 });
+
+// AccountsDashboard.jsx calls /accounts/dashboard for the same numbers it gets
+// from /summary; keep both names live instead of 404ing the page.
+router.get("/dashboard", getSummary);
+
+// The payment-settings form posts multipart/form-data (it can attach a QR
+// image), and the app only installs json + urlencoded. Without a multipart
+// parser req.body stays empty and every save dies with "paymentMode is
+// required".
+router.use(memoryStorage.none());
 
 router.get("/", getSummary);
 router.get("/transactions", getTransactions);

@@ -35,10 +35,20 @@ const fileFilter = (req, file, cb) => {
     }
 };
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
 const upload = multer({
     storage,
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    limits: { fileSize: MAX_FILE_SIZE },
     fileFilter,
 });
 
+// Multer parses multipart/form-data into req.body even when it stores nothing.
+// Routes that only need the text fields point multer at memory storage so the
+// form fields survive and the (unused) file never touches disk.
+const memoryStorage = multer({
+    limits: { fileSize: MAX_FILE_SIZE },
+});
+
 module.exports = upload;
+module.exports.memoryStorage = memoryStorage;

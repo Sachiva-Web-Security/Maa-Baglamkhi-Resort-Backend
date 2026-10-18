@@ -39,6 +39,8 @@ router.get("/communication", bookingController.getBookingHistory);
 router.get("/booking/:id", bookingController.getBookingById);
 router.get("/wizard/:id", bookingController.getBookingWizard);
 router.get("/rooms/setup", hotelRoomInventoryController.getRoomSetup);
+router.get("/rooms", hotelRoomInventoryController.getRoomSetup);
+router.get("/rooms-availability", hotelRoomInventoryController.getRoomSetup);
 
 // UPDATE
 router.put("/booking/:id", bookingController.updateBooking);
