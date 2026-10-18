@@ -1,12 +1,25 @@
 const db = require("../config/db");
 
 const tableExists = async (tableName) => {
-  const [rows] = await db.query("SHOW TABLES LIKE ?", [tableName]);
+  // information_schema, not SHOW: mysql2's query() returns SHOW output as two
+  // result sets, so `rows` here is an array of result sets and rows.length is
+  // the number of sets — 2 whether the table exists or not. Every tableExists
+  // call went permanently true for every table.
+  const [rows] = await db.query(
+    "SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ? LIMIT 1",
+    [tableName],
+  );
   return Array.isArray(rows) && rows.length > 0;
 };
 
 const columnExists = async (tableName, columnName) => {
-  const [rows] = await db.query(`SHOW COLUMNS FROM ${tableName} LIKE ?`, [columnName]);
+  // information_schema, not SHOW COLUMNS: SHOW returns two result sets too, so
+  // the tuple destructure handed us an array of sets and the length check was
+  // true even when the column was missing.
+  const [rows] = await db.query(
+    "SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ? LIMIT 1",
+    [tableName, columnName],
+  );
   return Array.isArray(rows) && rows.length > 0;
 };
 
@@ -21,12 +34,13 @@ const getTotal = async (sql, params = []) => {
 };
 
 const detectDateColumn = async (table, candidates) => {
+  const [rows] = await db.query(
+    "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ?",
+    [table],
+  );
+  const present = new Set((Array.isArray(rows) ? rows : []).map((row) => row.column_name));
   for (const col of candidates) {
-    const [rows] = await db.query(
-      `SHOW COLUMNS FROM ${table} WHERE Field = ?`,
-      [col]
-    );
-    if (Array.isArray(rows) && rows.length > 0) return col;
+    if (present.has(col)) return col;
   }
   return null;
 };
@@ -221,23 +235,22 @@ const getTodayRevenue = async () => {
     }
   }
 
-  // 4. Hotel bookings with check-in today (room revenue for today)
-  if (await tableExists("guests") && await tableExists("room_tariff")) {
-    const hasCheckIn = await columnExists("guests", "check_in");
-    const hasCheckInDate = await columnExists("guests", "check_in_date");
-
-    if (hasCheckIn) {
+  // 4. Hotel bookings with check-in today (room revenue for today). The
+  // booking row carries check_in; guest_profiles is an identity table with no
+  // booking dates, so a direct join is not an option.
+  if (await tableExists("bookings") && await tableExists("room_tariff")) {
+    if (await columnExists("bookings", "check_in")) {
       total += await getTotal(`
         SELECT COALESCE(SUM(rt.total), 0) AS total
-        FROM guests g
+        FROM bookings g
         INNER JOIN room_tariff rt ON rt.booking_id = g.id
         WHERE DATE(g.check_in) = CURDATE()
           AND rt.total IS NOT NULL AND rt.total > 0
       `);
-    } else if (hasCheckInDate) {
+    } else if (await columnExists("bookings", "check_in_date")) {
       total += await getTotal(`
         SELECT COALESCE(SUM(rt.total), 0) AS total
-        FROM guests g
+        FROM bookings g
         INNER JOIN room_tariff rt ON rt.booking_id = g.id
         WHERE DATE(g.check_in_date) = CURDATE()
           AND rt.total IS NOT NULL AND rt.total > 0
