@@ -183,6 +183,14 @@ const AllBooking = () => {
   const [cancelModal, setCancelModal] = useState({ open: false, booking: null, reason: "", submitting: false });
   const [feedbackModal, setFeedbackModal] = useState({ open: false, type: "success", title: "", message: "" });
   const [phoneEditModal, setPhoneEditModal] = useState({ open: false, booking: null, mobile: "", saving: false });
+  const [phoneError, setPhoneError] = useState("");
+  const [refundModal, setRefundModal] = useState({
+    open: false,
+    booking: null,
+    amount: "",
+    submitting: false,
+  });
+  const [listError, setListError] = useState("");
   const navigate = useNavigate();
 
   // Admin-only — employees can VIEW but not edit phone numbers.
@@ -206,9 +214,10 @@ const AllBooking = () => {
       ]);
       setBookings(Array.isArray(activeRes.data) ? activeRes.data : []);
       setHistoryBookings(Array.isArray(historyRes.data) ? historyRes.data : []);
+      setListError("");
     } catch (err) {
       console.error("Fetch Error:", err);
-      alert("Server connection error");
+      setListError(err.response?.data?.message || err.response?.data?.error || "Could not reach the server. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -241,22 +250,27 @@ const AllBooking = () => {
     const booking = cancelModal.booking;
     const reason = String(cancelModal.reason || "").trim();
     if (!booking?.bookingId) {
-      alert("Valid booking nahi mili.");
+      setCancelModal({ open: false, booking: null, reason: "", submitting: false, error: "" });
+      openFeedbackModal("error", "Booking Not Found", "This booking is not open in the cancel dialog any more.");
       return;
     }
     if (!reason) {
-      alert("Cancellation reason likhna zaroori hai.");
+      setCancelModal((current) => ({ ...current, error: "Cancellation reason likhna zaroori hai." }));
       return;
     }
     try {
-      setCancelModal((current) => ({ ...current, submitting: true }));
+      setCancelModal((current) => ({ ...current, submitting: true, error: "" }));
       await API.put(`/hotel/cancel/${booking.bookingId}`, { reason });
-      setCancelModal({ open: false, booking: null, reason: "", submitting: false });
+      setCancelModal({ open: false, booking: null, reason: "", submitting: false, error: "" });
       fetchBookings();
+      openFeedbackModal("success", "Booking Cancelled", `Booking #${booking.bookingId} has been cancelled.`);
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.message || "Booking could not be cancelled.");
-      setCancelModal((current) => ({ ...current, submitting: false }));
+      setCancelModal((current) => ({
+        ...current,
+        submitting: false,
+        error: err.response?.data?.message || err.response?.data?.error || "Booking could not be cancelled.",
+      }));
     }
   };
 
@@ -264,19 +278,50 @@ const AllBooking = () => {
     fetchBookings();
   }, []);
 
-  const handleRefund = async (id) => {
-    const amount = prompt("Enter refund amount");
-    if (!amount || Number.isNaN(Number(amount))) {
-      alert("Invalid amount");
+  const handleRefund = (booking) => {
+    setRefundModal({ open: true, booking, amount: "", submitting: false, error: "" });
+  };
+
+  const closeRefundModal = () => {
+    if (refundModal.submitting) return;
+    setRefundModal({ open: false, booking: null, amount: "", submitting: false, error: "" });
+  };
+
+  const submitRefund = async () => {
+    const booking = refundModal.booking;
+    if (!booking?.bookingId) return;
+
+    const amount = Number(refundModal.amount || 0);
+    const balance = Number(refundModal.booking?.remainingAmount || 0);
+    if (!amount || amount <= 0) {
+      setRefundModal((current) => ({ ...current, error: "Enter a refund amount greater than zero." }));
       return;
     }
+    if (amount > balance) {
+      setRefundModal((current) => ({
+        ...current,
+        error: `Refund amount (${formatCurrency(amount)}) exceeds the refundable balance (${formatCurrency(balance)}).`,
+      }));
+      return;
+    }
+
     try {
-      await API.post(`/hotel/refund/${id}`, { amount });
-      alert("Refund Done");
+      setRefundModal((current) => ({ ...current, submitting: true, error: "" }));
+      await API.post(`/hotel/refund/${booking.bookingId}`, { amount });
+      setRefundModal({ open: false, booking: null, amount: "", submitting: false, error: "" });
       fetchBookings();
+      openFeedbackModal(
+        "success",
+        "Refund Done",
+        `${formatCurrency(amount)} refunded for booking #${booking.bookingId}.`,
+      );
     } catch (err) {
       console.error("Refund failed:", err);
-      alert("Refund Failed");
+      setRefundModal((current) => ({
+        ...current,
+        submitting: false,
+        error: err.response?.data?.message || err.response?.data?.error || "Refund failed. Please try again.",
+      }));
     }
   };
 
@@ -287,9 +332,10 @@ const AllBooking = () => {
     if (!booking?.bookingId) return;
     const mobile = String(phoneEditModal.mobile || "").replace(/\D+/g, "");
     if (mobile.length < 10) {
-      alert("Please enter a valid phone number (at least 10 digits).");
+      setPhoneError("Please enter a valid phone number (at least 10 digits).");
       return;
     }
+    setPhoneError("");
     setPhoneEditModal((current) => ({ ...current, saving: true }));
     try {
       await API.put(`/hotel/guest/phone/${booking.bookingId}`, { mobile });
@@ -420,7 +466,7 @@ const AllBooking = () => {
           key: "refund",
           label: "Refund",
           className: `${actionButtonCls} bg-fuchsia-600 text-white hover:bg-fuchsia-700`,
-          onClick: () => handleRefund(booking.bookingId),
+          onClick: () => handleRefund(booking),
         },
       );
 
@@ -471,7 +517,10 @@ const AllBooking = () => {
         key: "editPhone",
         label: "Edit Phone",
         className: `${actionButtonCls} border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100`,
-        onClick: () => setPhoneEditModal({ open: true, booking, mobile: booking.mobile || "", saving: false }),
+        onClick: () => {
+          setPhoneError("");
+          setPhoneEditModal({ open: true, booking, mobile: booking.mobile || "", saving: false });
+        },
       });
     }
 
@@ -1079,7 +1128,19 @@ const AllBooking = () => {
             </div>
           </div>
 
-          {loading ? (
+          {listError ? (
+            <div className="mt-6 rounded-[28px] border border-rose-200 bg-rose-50 px-5 py-6 text-center">
+              <p className="text-base font-bold text-rose-700">{listError}</p>
+              <button
+                type="button"
+                onClick={fetchBookings}
+                className="mt-4 inline-flex items-center gap-2 rounded-full bg-rose-600 px-5 py-2.5 text-base font-bold text-white transition hover:bg-rose-700"
+              >
+                <FaRedoAlt className="text-xs" />
+                Try again
+              </button>
+            </div>
+          ) : loading ? (
             <div className="mt-6 rounded-[28px] border border-dashed border-slate-200 bg-slate-50 px-5 py-16 text-center text-base font-medium text-slate-500">
               Loading bookings...
             </div>
@@ -1131,10 +1192,15 @@ const AllBooking = () => {
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-base font-semibold text-slate-800 outline-none transition focus:border-rose-400 focus:bg-white focus:ring-4 focus:ring-rose-100"
                 />
               </label>
+              {cancelModal.error ? (
+                <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
+                  <p className="text-sm font-bold text-rose-700">{cancelModal.error}</p>
+                </div>
+              ) : null}
               <div className="mt-5 flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setCancelModal({ open: false, booking: null, reason: "", submitting: false })}
+                  onClick={() => setCancelModal({ open: false, booking: null, reason: "", submitting: false, error: "" })}
                   className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-base font-bold text-slate-700 transition hover:bg-slate-50"
                 >
                   Close
@@ -1154,6 +1220,75 @@ const AllBooking = () => {
           </div>
         ) : null}
       </div>
+
+      {refundModal.open ? (
+        <div
+          className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-950/50 px-4 backdrop-blur-sm"
+          onClick={closeRefundModal}
+        >
+          <div
+            className="w-full max-w-md rounded-[28px] border border-fuchsia-200 bg-white p-5 shadow-[0_24px_70px_rgba(15,23,42,0.22)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="inline-flex items-center gap-2 rounded-full bg-fuchsia-100 px-3 py-1 text-sm font-bold uppercase tracking-[0.18em] text-fuchsia-700">
+              <FaMoneyCheckAlt />
+              Refund
+            </div>
+            <h3 className="mt-4 text-2xl font-black text-slate-900">
+              Booking #{refundModal.booking?.bookingId}
+            </h3>
+            <p className="mt-2 text-base font-medium text-slate-600">
+              {refundModal.booking?.guest_name || "--"} | Balance{" "}
+              {formatCurrency(refundModal.booking?.remainingAmount || 0)}
+            </p>
+            <label className="mt-4 block">
+              <span className="mb-2 block text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
+                Refund Amount (₹)
+              </span>
+              <input
+                type="number"
+                min="1"
+                max={refundModal.booking?.remainingAmount || 0}
+                value={refundModal.amount}
+                onChange={(event) =>
+                  setRefundModal((current) => ({
+                    ...current,
+                    amount: event.target.value,
+                    error: "",
+                  }))
+                }
+                placeholder="Amount to refund"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-base font-semibold text-slate-800 outline-none transition focus:border-fuchsia-400 focus:bg-white focus:ring-4 focus:ring-fuchsia-100"
+              />
+            </label>
+            {refundModal.error ? (
+              <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
+                <p className="text-sm font-bold text-rose-700">{refundModal.error}</p>
+              </div>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={closeRefundModal}
+                disabled={refundModal.submitting}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-base font-bold text-slate-700 transition hover:bg-slate-50"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={submitRefund}
+                disabled={refundModal.submitting}
+                className={`inline-flex items-center gap-2 rounded-2xl bg-fuchsia-600 px-4 py-2.5 text-base font-bold text-white transition hover:bg-fuchsia-700 ${
+                  refundModal.submitting ? "cursor-not-allowed opacity-70" : ""
+                }`}
+              >
+                {refundModal.submitting ? "Processing..." : "Confirm Refund"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Admin-only: Edit Customer Phone Modal */}
       {phoneEditModal.open && (
@@ -1206,6 +1341,9 @@ const AllBooking = () => {
                 <p className="mt-2 text-xs text-slate-500">
                   Digits only — country code (91) is added automatically if missing.
                 </p>
+                {phoneError ? (
+                  <p className="mt-2 text-xs font-bold text-rose-600">{phoneError}</p>
+                ) : null}
               </div>
               <div className="mt-6 flex justify-end gap-3">
                 <button

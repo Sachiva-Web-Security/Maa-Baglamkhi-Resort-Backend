@@ -67,15 +67,17 @@ const BlockModal = ({ rooms, onClose, onSaved }) => {
     blocked_by: currentUser,
   });
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
   const handleSave = async () => {
+    setError("");
     if (!form.room_number) {
-      alert("Room number required");
+      setError("Room number required");
       return;
     }
     if (form.blocked_from > form.blocked_until) {
-      alert("End date cannot be before start date");
+      setError("End date cannot be before start date");
       return;
     }
     try {
@@ -85,7 +87,7 @@ const BlockModal = ({ rooms, onClose, onSaved }) => {
       onClose();
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.error || "Save failed");
+      setError(err.response?.data?.message || err.response?.data?.error || "Save failed");
     } finally {
       setSaving(false);
     }
@@ -203,6 +205,12 @@ const BlockModal = ({ rooms, onClose, onSaved }) => {
             />
           </div>
 
+          {error ? (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3">
+              <p className="text-base font-bold text-rose-700">{error}</p>
+            </div>
+          ) : null}
+
           <div className="flex gap-3 pt-1">
             <button
               onClick={handleSave}
@@ -238,6 +246,8 @@ const RoomMaintenance = () => {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [filterStatus, setFilterStatus] = useState("Active");
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -256,8 +266,10 @@ const RoomMaintenance = () => {
         }
       }
       setRooms(allRooms);
+      setLoadError("");
     } catch (err) {
       console.error(err);
+      setLoadError("Could not load room blocks. Check your connection and retry.");
     } finally {
       setLoading(false);
     }
@@ -268,6 +280,7 @@ const RoomMaintenance = () => {
   }, [loadData]);
 
   const handleStatusChange = async (blockId, newStatus) => {
+    setActionError("");
     try {
       await API.put(`/hotel/room-block/${blockId}`, { status: newStatus });
       setBlocks((prev) =>
@@ -277,7 +290,9 @@ const RoomMaintenance = () => {
       );
     } catch (err) {
       console.error(err);
-      alert("Update failed");
+      setActionError(
+        err.response?.data?.message || err.response?.data?.error || "Update failed",
+      );
     }
   };
 
@@ -390,10 +405,28 @@ const RoomMaintenance = () => {
           </div>
 
           {/* ── Blocks List ── */}
+          {actionError ? (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-5 py-4">
+              <p className="text-base font-bold text-rose-700">{actionError}</p>
+            </div>
+          ) : null}
+
           {loading ? (
             <div className="rounded-xl border border-slate-200 bg-white p-12 text-center">
               <div className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-slate-900" />
               <p className="mt-3 text-base text-slate-500">Loading…</p>
+            </div>
+          ) : loadError ? (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-12 text-center">
+              <div className="text-4xl">⚠️</div>
+              <p className="mt-3 text-base font-semibold text-rose-700">{loadError}</p>
+              <button
+                type="button"
+                onClick={loadData}
+                className="mt-4 rounded-lg bg-rose-600 px-5 py-2.5 text-base font-bold text-white transition hover:bg-rose-700"
+              >
+                Try again
+              </button>
             </div>
           ) : filteredBlocks.length === 0 ? (
             <div className="rounded-xl border-2 border-dashed border-slate-200 bg-white p-12 text-center">

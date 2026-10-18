@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import API from "../../api";
 
@@ -15,7 +15,40 @@ const CollectPayment = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const { bookingId, remainingAmount } = location.state || {};
+  const { bookingId } = location.state || {};
+
+  const [amount, setAmount] = useState("");
+  const [discount, setDiscount] = useState("");
+  const [paymentMode, setPaymentMode] = useState("Cash");
+  const [loading, setLoading] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  // location.state values go stale after the caller refreshes, so read the
+  // live balance + paid total from the booking wizard endpoint on mount.
+  const [live, setLive] = useState({ remainingAmount: 0, totalAmount: 0 });
+  const [loadError, setLoadError] = useState("");
+  const [lastSaved, setLastSaved] = useState("");
+
+  useEffect(() => {
+    if (!bookingId) return;
+    let cancelled = false;
+
+    API.get(`/hotel/wizard/${bookingId}`)
+      .then((res) => {
+        if (cancelled || !res.data?.advance) return;
+        setLive({
+          remainingAmount: Number(res.data.advance.remainingAmount || 0),
+          totalAmount: Number(res.data.advance.totalAmount || 0),
+        });
+      })
+      .catch((error) => {
+        console.error("Failed to load booking balance:", error);
+        if (!cancelled) setLoadError("Could not load this booking's balance.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bookingId]);
 
   if (!bookingId) {
     return (
@@ -39,51 +72,46 @@ const CollectPayment = () => {
     );
   }
 
-  const [amount, setAmount] = useState("");
-  const [discount, setDiscount] = useState("");
-  const [paymentMode, setPaymentMode] = useState("Cash");
-  const [loading, setLoading] = useState(false);
-
-  const safeRemaining = Number(remainingAmount || 0);
+  const safeRemaining = Number(live.remainingAmount || 0);
   const enteredAmount = Number(amount || 0);
   const enteredDiscount = Number(discount || 0);
   const safeDiscount = Math.min(Math.max(enteredDiscount, 0), safeRemaining);
   const newRemaining = Math.max(safeRemaining - enteredAmount - safeDiscount, 0);
 
   const handleApplyDiscount = () => {
-    if (enteredDiscount < 0) {
-      alert("Discount cannot be negative");
-      return;
-    }
-
-    setDiscount(String(Math.min(enteredDiscount || 0, safeRemaining)));
+    setSaveError("");
+    setDiscount(String(Math.max(Math.min(enteredDiscount || 0, safeRemaining), 0)));
   };
 
   const handleSubmit = async () => {
+    setSaveError("");
+
     if (enteredAmount <= 0 && safeDiscount <= 0) {
-      alert("Payment ya discount me se kuch valid enter karo");
+      setSaveError("Enter a payment amount or a discount to proceed.");
       return;
     }
 
     if (enteredAmount + safeDiscount > safeRemaining) {
-      alert("Payment + discount cannot exceed remaining balance");
+      setSaveError(
+        `Payment + discount (${formatCurrency(enteredAmount + safeDiscount)}) exceeds the remaining balance (${formatCurrency(safeRemaining)}).`,
+      );
       return;
     }
 
     try {
       setLoading(true);
 
-      await API.post(`/hotel/advance/${bookingId}`, {
+      const res = await API.post(`/hotel/advance/${bookingId}`, {
         amount: enteredAmount,
         discount: safeDiscount,
         paymentMode,
       });
 
-      alert("Payment/discount saved successfully");
+      setLastSaved(res.data?.message || "Payment/discount saved successfully");
       navigate("/hotel/all-bookings");
     } catch (err) {
       console.error(err);
-      alert(
+      setSaveError(
         err.response?.data?.error ||
           err.response?.data?.message ||
           "Payment failed",
@@ -118,9 +146,24 @@ const CollectPayment = () => {
                 </div>
                 <div className="mt-2 text-3xl font-black">#{bookingId}</div>
                 <div className="mt-2 text-sm text-slate-100/80">
-                  Ready to receive payment
+                  Booking total {formatCurrency(live.totalAmount)}
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div className="border-b border-slate-200/70 bg-white/60 px-6 py-3 sm:px-8">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-slate-600">
+                Live balance from booking #{bookingId}
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate("/hotel/all-bookings")}
+                className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-100"
+              >
+                Back to bookings
+              </button>
             </div>
           </div>
 
@@ -260,10 +303,21 @@ const CollectPayment = () => {
                 </div>
 
                 <div className="mt-6 flex flex-col gap-3">
+                  {saveError || loadError ? (
+                    <div className="rounded-[20px] border border-rose-200 bg-rose-50 px-4 py-3">
+                      <p className="text-sm font-bold text-rose-700">
+                        {saveError || loadError}
+                      </p>
+                    </div>
+                  ) : lastSaved ? (
+                    <div className="rounded-[20px] border border-emerald-200 bg-emerald-50 px-4 py-3">
+                      <p className="text-sm font-bold text-emerald-700">{lastSaved}</p>
+                    </div>
+                  ) : null}
                   <button
                     onClick={handleSubmit}
                     disabled={loading}
-                    className="rounded-full bg-gradient-to-r from-emerald-600 to-teal-500 px-5 py-3.5 text-sm font-bold text-white shadow-[0_14px_35px_rgba(16,185,129,0.24)] transition hover:-translate-y-0.5 hover:from-emerald-700 hover:to-teal-600 disabled:cursor-not-allowed disabled:opacity-70"
+                    className="rounded-full bg-gradient-to-r from-emerald-600 to-teal-500 px-5 py-3.5 text-sm font-bold text-white shadow-[0_14px_35px rgba(16,185,129,0.24)] transition hover:-translate-y-0.5 hover:from-emerald-700 hover:to-teal-600 disabled:cursor-not-allowed disabled:opacity-70"
                   >
                     {loading ? "Processing..." : "Receive Payment"}
                   </button>

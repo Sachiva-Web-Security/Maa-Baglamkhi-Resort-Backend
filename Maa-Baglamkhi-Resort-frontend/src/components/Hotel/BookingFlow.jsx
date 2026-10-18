@@ -840,16 +840,23 @@ const documentTypeOptions = [
 const PaymentHistoryModal = ({ booking, onClose }) => {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
   const loadPaymentHistory = async () => {
     if (!booking?.bookingId) return;
     setLoading(true);
+    setLoadError("");
     try {
       const res = await API.get(`/hotel/payment-history/${booking.bookingId}`);
       setHistory(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error("Failed to load payment history:", err);
-      alert("Could not load payment history. Please try again.");
+      setHistory([]);
+      setLoadError(
+        err.response?.data?.message ||
+          err.response?.data?.error ||
+          "Could not load payment history. Please try again.",
+      );
     } finally {
       setLoading(false);
     }
@@ -901,6 +908,16 @@ const PaymentHistoryModal = ({ booking, onClose }) => {
         {loading ? (
           <div className="py-12 text-center text-slate-400">
             Loading payment history...
+          </div>
+        ) : loadError ? (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-5 py-10 text-center">
+            <p className="text-base font-bold text-rose-700">{loadError}</p>
+            <button
+              onClick={loadPaymentHistory}
+              className="mt-4 inline-flex items-center gap-2 rounded-full bg-rose-600 px-5 py-2.5 text-base font-bold text-white transition hover:bg-rose-700"
+            >
+              <FaSync /> Try again
+            </button>
           </div>
         ) : history.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-200 py-12 text-center text-slate-400">
@@ -1010,6 +1027,7 @@ const DocumentUploadModal = ({ booking, onClose }) => {
     termsAccepted: true,
   });
   const [file, setFile] = useState(null);
+  const [uploadError, setUploadError] = useState("");
 
   const loadDocuments = async () => {
     if (!bookingId) return;
@@ -1039,6 +1057,7 @@ const DocumentUploadModal = ({ booking, onClose }) => {
     data.append("uploadedBy", localStorage.getItem("name") || "Front Desk");
 
     setUploading(true);
+    setUploadError("");
     try {
       await API.post(`/hotel/guest-documents/${bookingId}`, data, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -1048,7 +1067,10 @@ const DocumentUploadModal = ({ booking, onClose }) => {
       await loadDocuments();
       window.dispatchEvent(new Event("documentsUpdated"));
     } catch (err) {
-      alert(err.response?.data?.message || "Document upload failed");
+      console.error("Document upload failed:", err);
+      setUploadError(
+        err.response?.data?.message || err.response?.data?.error || "Document upload failed",
+      );
     } finally {
       setUploading(false);
     }
@@ -1134,6 +1156,11 @@ const DocumentUploadModal = ({ booking, onClose }) => {
               <FaFileUpload className="text-xs" />{" "}
               {uploading ? "Uploading..." : "Upload Document"}
             </button>
+            {uploadError ? (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+                <p className="text-base font-bold text-rose-700">{uploadError}</p>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -1206,6 +1233,7 @@ const InvoiceModal = ({
 }) => {
   const bookingId = booking?.bookingId;
   const [invoice, setInvoice] = useState(null);
+  const [invoiceError, setInvoiceError] = useState("");
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendStatus, setSendStatus] = useState(null);
@@ -1215,17 +1243,26 @@ const InvoiceModal = ({
   const loadInvoice = async () => {
     if (!bookingId) return;
     setLoading(true);
+    setInvoiceError("");
     try {
       const existing = await API.get(`/invoice/by-booking/${bookingId}`);
       if (existing.data?.id) {
         setInvoice(existing.data);
+        return;
+      }
+      const generated = await API.get(`/invoice/${bookingId}`);
+      if (generated.data?.id) {
+        setInvoice(generated.data);
       } else {
-        const generated = await API.get(`/invoice/${bookingId}`);
-        setInvoice(generated.data || null);
+        setInvoice(null);
+        setInvoiceError(
+          `No invoice exists for booking #${bookingId} yet. Record an advance or folio entry, then regenerate.`,
+        );
       }
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.error || "Invoice load failed");
+      setInvoice(null);
+      setInvoiceError(err.response?.data?.error || "Invoice load failed");
     } finally {
       setLoading(false);
     }
@@ -2491,6 +2528,17 @@ const InvoiceModal = ({
       {loading ? (
         <div className="py-16 text-center text-slate-400">
           Preparing invoice...
+        </div>
+      ) : invoiceError ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-6 py-14 text-center">
+          <p className="text-base font-bold text-rose-700">{invoiceError}</p>
+          <button
+            type="button"
+            onClick={loadInvoice}
+            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-rose-600 px-5 h-11 text-[17px] font-bold text-white transition hover:bg-rose-700"
+          >
+            <FaSync className="text-sm" /> Try again
+          </button>
         </div>
       ) : (
         <div className="space-y-0">

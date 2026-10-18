@@ -14,17 +14,20 @@ const RoomTariff = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const bookingId = location.state?.bookingId || getStoredBookingId();
-  const bookingCode = location.state?.bookingCode || getStoredBookingCode();
-  const bookingRef = bookingCode || bookingId;
-  const rooms = useMemo(
+  const [bookingId, setBookingId] = useState(
+    () => location.state?.bookingId || getStoredBookingId() || "",
+  );
+  const [bookingCode, setBookingCode] = useState(
+    () => location.state?.bookingCode || getStoredBookingCode() || "",
+  );
+  const [rooms, setRooms] = useState(
     () => location.state?.rooms || getBookingDraft("pax")?.rooms || [],
-    [location.state?.rooms],
   );
-  const paxData = useMemo(
+  const [paxData, setPaxData] = useState(
     () => location.state?.paxData || getBookingDraft("pax")?.paxData || {},
-    [location.state?.paxData],
   );
+  const [saveError, setSaveError] = useState("");
+  const bookingRef = bookingCode || bookingId;
   const roomDraft = getBookingDraft("room") || {};
   const [categorySetup, setCategorySetup] = useState([]);
   const [rows, setRows] = useState(getBookingDraft("roomTariff")?.rows || []);
@@ -47,6 +50,53 @@ const RoomTariff = () => {
 
     loadSetup();
   }, []);
+
+  // Deep links and "edit booking" open this step with a bookingId and no
+  // wizard draft in session storage, so fetch the saved booking instead of
+  // rendering the empty state.
+  useEffect(() => {
+    if (bookingId && !rooms.length && !rows.length) {
+      let cancelled = false;
+      API.get(`/hotel/wizard/${bookingId}`)
+        .then((res) => {
+          if (cancelled || !res.data) return;
+          setBookingId(String(res.data.bookingId || bookingId));
+          setBookingCode(res.data.bookingCode || bookingCode);
+          setRooms(Array.isArray(res.data.pax?.rooms) ? res.data.pax.rooms : []);
+          setPaxData(res.data.pax?.paxData || {});
+          const draft = res.data.roomTariff?.rows || [];
+          if (draft.length) setRows(draft);
+          setBookingDraft("pax", { rooms: res.data.pax?.rooms || [], paxData: res.data.pax?.paxData || {} });
+          if (draft.length) setBookingDraft("roomTariff", { rows: draft, totalAmount: res.data.roomTariff?.totalAmount || 0 });
+        })
+        .catch((error) => {
+          console.error("Failed to load saved booking:", error);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingId]);
+
+  // The wizard payload's roomTariff rows always carry quantity 1 (the backend
+  // hard-codes it), while this screen prices quantity = adults + children.
+  // So the quantity comes from the pax draft, which mirrors booking_rooms.
+  useEffect(() => {
+    if (!rows.length || !paxData) return;
+
+    setRows((prev) =>
+      prev.map((row) => {
+        const key = String(row.roomNo || "").trim();
+        const counts = paxData[key];
+        const quantity = Math.max(
+          (Number(counts?.adults || 0) + Number(counts?.children || 0)) || 1,
+          1,
+        );
+        return quantity === Number(row.quantity || 1) ? row : { ...row, quantity };
+      }),
+    );
+  }, [paxData, rows.length]);
 
   const categoryMap = useMemo(() => {
     const map = {};
@@ -116,31 +166,65 @@ const RoomTariff = () => {
 
   const grandTotal = rows.reduce((sum, row) => sum + calculateTotal(row), 0);
 const handleProceed = async () => {
-  if (!bookingId) {
-    alert("Booking ID is missing.");
+  setSaveError("");
+
+  if (!rows.length) {
+    setSaveError("Room tariff data is missing. Go back and add rooms first.");
     return;
   }
 
-  if (!rows.length) {
-    alert("Room tariff data is missing.");
+  if (!bookingId) {
+    setSaveError(
+      "This booking is not saved yet. Complete the Guest details step first.",
+    );
     return;
   }
 
   try {
+    let failed = false;
+
     for (const row of rows) {
-      const payload = {
-        roomNumber: row.roomNo,
-        date: new Date().toISOString().slice(0, 19).replace("T", " "), // ✅ FIX
-        quantity: row.quantity,
-        tariff: row.price,
-        gstPercent: row.gst,
-        total: calculateTotal(row),
-      };
+      try {
+        await API.post(`/hotel/pax/${bookingId}`, {
+          roomNumber: row.roomNo,
+          room_number: row.roomNo,
+          adults: paxData[String(row.roomNo)]?.adults ?? 1,
+          children: paxData[String(row.roomNo)]?.children ?? 0,
+          guestCapacity: Math.max(
+            Number(paxData[String(row.roomNo)]?.adults || 0) +
+              Number(paxData[String(row.roomNo)]?.children || 0),
+            1,
+          ),
+        });
+      } catch (error) {
+        console.error("Pax save failed for room", row.roomNo, error);
+        failed = true;
+      }
 
-      console.log("🚀 SENDING:", payload); // debug
-
-      await API.post(`/hotel/room-tariff/${bookingId}`, payload);
+      try {
+        await API.post(`/hotel/room-tariff/${bookingId}`, {
+          roomNumber: row.roomNo,
+          room_number: row.roomNo,
+          date: new Date().toISOString().slice(0, 19).replace("T", " "),
+          quantity: row.quantity,
+          tariff: row.price,
+          gstPercent: row.gst,
+          total: calculateTotal(row),
+        });
+      } catch (error) {
+        console.error("Tariff save failed for room", row.roomNo, error);
+        setSaveError(
+          error.response?.data?.message ||
+            `Could not save tariff for room ${row.roomNo}.`,
+        );
+        failed = true;
+      }
     }
+
+    if (failed) return;
+
+    setBookingDraft("roomTariff", { rows, totalAmount: grandTotal });
+    setStoredBookingId(bookingId);
 
     navigate("/hotel/advance", {
       state: {
@@ -151,8 +235,8 @@ const handleProceed = async () => {
       },
     });
   } catch (error) {
-    console.error("❌ ERROR:", error.response?.data || error);
-    alert(error.response?.data?.message || "Unable to save room tariff.");
+    console.error("Unable to save room tariff:", error);
+    setSaveError(error.response?.data?.message || "Unable to save room tariff.");
   }
 };
 
@@ -246,6 +330,11 @@ const handleProceed = async () => {
                 <div className="mt-2 text-[42px] font-black leading-none text-slate-950">
                   Rs. {grandTotal.toFixed(2)}
                 </div>
+                {saveError ? (
+                  <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-base font-bold text-rose-700">
+                    {saveError}
+                  </p>
+                ) : null}
               </div>
 
               <div className="flex gap-3">

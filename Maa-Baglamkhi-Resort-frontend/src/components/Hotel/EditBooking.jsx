@@ -68,6 +68,9 @@ const EditBooking = ({
   const today = todayISO();
 
   const [rooms, setRooms] = useState([]);
+  const [formError, setFormError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     if (!bookingId) return;
@@ -91,8 +94,16 @@ const EditBooking = ({
         });
         const nextRooms = dedupeRooms(res.data.rooms, focusRoomNo).map(normalizeRoomView);
         setRooms(nextRooms);
+        if (!nextRooms.length) {
+          setLoadError("This booking has no room lines saved yet.");
+        } else {
+          setLoadError("");
+        }
       })
-      .catch((err) => console.log(err));
+      .catch((err) => {
+        console.error(err);
+        setLoadError("Could not load this booking. It may have been deleted.");
+      });
   }, [bookingId, focusRoomNo]);
 
   const handleRoomChange = (index, field, value) => {
@@ -110,23 +121,26 @@ const EditBooking = ({
   };
 
   const handleUpdate = async () => {
+    setFormError("");
+
+    const minCheckIn = [today, originalDates.checkIn].filter(Boolean).sort().slice(-1)[0] || today;
+    const minCheckOut = [today, data.checkIn || minCheckIn, originalDates.checkOut]
+      .filter(Boolean)
+      .sort()
+      .slice(-1)[0] || minCheckIn;
+
+    if (!data.checkIn || data.checkIn < minCheckIn) {
+      setFormError("Check-in date cannot be before the existing booking date or today.");
+      return;
+    }
+
+    if (!data.checkOut || data.checkOut < minCheckOut) {
+      setFormError("Check-out date cannot be before the existing booking date or selected check-in.");
+      return;
+    }
+
+    setSaving(true);
     try {
-      const minCheckIn = [today, originalDates.checkIn].filter(Boolean).sort().slice(-1)[0] || today;
-      const minCheckOut = [today, data.checkIn || minCheckIn, originalDates.checkOut]
-        .filter(Boolean)
-        .sort()
-        .slice(-1)[0] || minCheckIn;
-
-      if (!data.checkIn || data.checkIn < minCheckIn) {
-        alert("Check-in date cannot be before existing booking date or today.");
-        return;
-      }
-
-      if (!data.checkOut || data.checkOut < minCheckOut) {
-        alert("Check-out date cannot be before existing booking date or selected check-in.");
-        return;
-      }
-
       const updatedRooms = rooms.map((room) => ({
         ...room,
         total: calculateTotal(room),
@@ -146,7 +160,6 @@ const EditBooking = ({
         });
       }
 
-      alert("Updated Successfully");
       if (embedded) {
         if (typeof onClose === "function") onClose();
       } else {
@@ -154,7 +167,11 @@ const EditBooking = ({
       }
     } catch (err) {
       console.error(err);
-      alert("Update Failed");
+      setFormError(
+        err.response?.data?.message || err.response?.data?.error || "Update failed. Please try again.",
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -346,12 +363,20 @@ const EditBooking = ({
         </div>
 
         {/* ACTION BUTTON */}
-        <div className="flex justify-end">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {formError || loadError ? (
+            <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
+              {formError || loadError}
+            </p>
+          ) : (
+            <span />
+          )}
           <button
             onClick={handleUpdate}
-            className="px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-500 text-white font-bold shadow hover:scale-105 transition"
+            disabled={saving || !bookingId}
+            className="px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-500 text-white font-bold shadow hover:scale-105 transition disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
           >
-            Save Changes
+            {saving ? "Saving..." : "Save Changes"}
           </button>
         </div>
       </div>
