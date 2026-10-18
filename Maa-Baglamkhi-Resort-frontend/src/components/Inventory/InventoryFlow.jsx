@@ -535,7 +535,7 @@ const TableHeader = ({ columns }) => (
 
 /* ─────────────────────────── PurchasePage ─────────────────────────── */
 
-const PurchasePage = ({ onOpenNewPurchase, onOpenVendorDrawer }) => {
+const PurchasePage = ({ onOpenNewPurchase }) => {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [purchases, setPurchases] = useState([]);
@@ -577,9 +577,6 @@ const PurchasePage = ({ onOpenNewPurchase, onOpenVendorDrawer }) => {
           </p>
         </div>
         <div className="flex gap-2">
-          <button type="button" onClick={onOpenVendorDrawer} className={ghostBtn}>
-            Manage vendors
-          </button>
           <button type="button" onClick={onOpenNewPurchase} className={primaryBtn}>
             <FaPlus className="text-sm" /> New purchase
           </button>
@@ -1364,8 +1361,6 @@ const InventoryFlow = () => {
   const [showNewPurchase, setShowNewPurchase] = useState(false);
   const [showAddStock, setShowAddStock] = useState(false);
   const [showActionModal, setShowActionModal] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState("categories");
   const [toast, setToast] = useState({ open: false, type: "success", title: "", message: "" });
 
   // Master data (categories, vendors, units, stores, groups) — loaded from /setup
@@ -1431,9 +1426,20 @@ const InventoryFlow = () => {
     setView(step);
   };
 
+  const poNumber = (label, fallback) =>
+    `${(label || "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "") || fallback}`.slice(0, 40);
+
   const handleSavePurchase = async (data) => {
     try {
-      await API.post("/inventory/purchases", data);
+      await API.post("/inventory/purchase-orders", {
+        poNumber: poNumber(data.poNumber, `PUR-${Date.now().toString().slice(-6)}`),
+        vendor: data.vendor,
+        itemName: data.itemName,
+        quantity: data.quantity,
+        unit: data.unit,
+        rate: data.rate,
+        status: data.status || "Draft",
+      });
       showToast("success", "Purchase saved", "Your purchase has been recorded.");
     } catch (err) {
       console.error(err);
@@ -1443,7 +1449,17 @@ const InventoryFlow = () => {
 
   const handleSaveStock = async (data) => {
     try {
-      await API.post("/inventory/stock", data);
+      await API.post("/inventory/vendor-inwards", {
+        itemName: data.itemName,
+        quantityReceived: data.receivedQty,
+        unit: data.unit,
+        rate: 0,
+        invoiceNo: data.invoiceNo,
+        batchNo: data.batchNo,
+        expiryDate: data.expiryDate,
+        receivedDate: new Date().toISOString().slice(0, 10),
+        store: data.store,
+      });
       showToast("success", "Stock updated", "Stock has been updated successfully.");
     } catch (err) {
       console.error(err);
@@ -1453,18 +1469,44 @@ const InventoryFlow = () => {
 
   const handleSaveAction = async (data) => {
     try {
-      await API.post("/inventory/stock-action", data);
-      const actionLabel = data.actionType === "transfer" ? "Transfer" : data.actionType === "audit" ? "Audit" : "Waste recorded";
-      showToast("success", `${actionLabel} saved`, "The stock action has been recorded.");
+      const qty = data.quantity;
+      let label;
+      if (data.actionType === "transfer") {
+        await API.post("/inventory/transfers", {
+          itemName: data.itemName || data.item,
+          quantity: qty,
+          fromStore: data.fromStore,
+          toStore: data.toStore,
+          notes: data.notes,
+        });
+        label = "Transfer";
+      } else if (data.actionType === "audit") {
+        await API.post("/inventory/audit", {
+          entries: [
+            {
+              itemName: data.itemName || data.item,
+              systemStock: qty,
+              physicalStock: qty,
+              variance: 0,
+              remarks: data.notes,
+            },
+          ],
+        });
+        label = "Audit";
+      } else {
+        await API.post("/inventory/waste", {
+          itemName: data.itemName || data.item,
+          quantity: qty,
+          store: data.fromStore,
+          reason: data.notes,
+        });
+        label = "Waste recorded";
+      }
+      showToast("success", `${label} saved`, "The stock action has been recorded.");
     } catch (err) {
       console.error(err);
       showToast("error", "Save failed", err.response?.data?.message || "Could not save stock action.");
     }
-  };
-
-  const handleSaveMaster = (tab, data) => {
-    console.log(`[Setup] Saving ${tab}:`, data);
-    showToast("success", `${tab.charAt(0).toUpperCase() + tab.slice(1)} saved`, `${data.name || "Entry"} has been added to ${tab}.`);
   };
 
   /* ── render ─────────────────────────── */
@@ -1519,9 +1561,6 @@ const InventoryFlow = () => {
               style={{ background: c.rose }}
             />
           </div>
-          <button type="button" onClick={() => { setDrawerTab("categories"); setDrawerOpen(true); }} className={ghostBtn}>
-            ⚙ Setup
-          </button>
         </div>
       </div>
 
@@ -1535,7 +1574,6 @@ const InventoryFlow = () => {
       <div style={{ display: view === "purchase" ? "block" : "none" }}>
         <PurchasePage
           onOpenNewPurchase={() => setShowNewPurchase(true)}
-          onOpenVendorDrawer={() => { setDrawerTab("vendors"); setDrawerOpen(true); }}
         />
       </div>
 
@@ -1573,15 +1611,6 @@ const InventoryFlow = () => {
         categories={categories}
         stores={stores}
         onSave={handleSaveAction}
-      />
-
-      {/* ─── setup drawer ──────────────── */}
-      <SetupDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        activeTab={drawerTab}
-        onTabChange={setDrawerTab}
-        onSave={handleSaveMaster}
       />
 
       {/* ─── toast ─────────────────────── */}
