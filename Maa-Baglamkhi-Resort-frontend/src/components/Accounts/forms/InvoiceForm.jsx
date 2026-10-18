@@ -1,6 +1,6 @@
 import React from "react";
 import { useState, useEffect } from "react";
-import { localDate } from "../../utils/localDate";
+import { localDate } from "../../../utils/localDate";
 import API from "../../../api";
 
 const todayISO = () => localDate();

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { localDate } from "../utils/localDate";
+import { localDate } from "../../utils/localDate";
 import {
   FaArrowLeft,
   FaArrowRight,

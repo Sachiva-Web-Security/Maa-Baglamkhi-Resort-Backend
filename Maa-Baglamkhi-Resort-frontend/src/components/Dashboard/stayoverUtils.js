@@ -1,4 +1,4 @@
-import { localDate } from "../utils/localDate";
+import { localDate } from "../../utils/localDate";
 export const DAY_COUNT = 7;
 
 export const STATUS_META = {

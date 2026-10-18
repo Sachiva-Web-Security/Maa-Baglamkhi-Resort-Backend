@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { localDate } from "./utils/localDate";
+import { localDate } from "../utils/localDate";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   FaArrowLeft,
@@ -621,6 +621,8 @@ const Accounts = () => {
   const toastTimerRef = useRef(null);
   const isAccountsModulesPage = new URLSearchParams(location.search).get("view") === "modules";
 
+  const failMessage = (err, fallback) => err.response?.data?.message || fallback;
+
   const showToast = (message, tone = "success") => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ message, tone });
@@ -865,10 +867,11 @@ const Accounts = () => {
     try {
       await API.post(endpoint, payload);
       await refreshAccountsData();
+      showToast("Entry saved");
       return true;
     } catch (error) {
       console.error(`Error saving ${endpoint}`, error);
-      window.alert("Entry could not be saved.");
+      showToast(failMessage(error, "Entry could not be saved."), "error");
       return false;
     }
   };
@@ -877,10 +880,11 @@ const Accounts = () => {
     try {
       await API.put(`${endpoint}/${id}`, payload);
       await refreshAccountsData();
+      showToast("Entry updated");
       return true;
     } catch (error) {
       console.error(`Error updating ${endpoint}`, error);
-      window.alert("Entry update failed.");
+      showToast(failMessage(error, "Entry update failed."), "error");
       return false;
     }
   };
@@ -889,10 +893,11 @@ const Accounts = () => {
     try {
       await API.delete(`${endpoint}/${id}`);
       await refreshAccountsData();
+      showToast("Entry deleted");
       return true;
     } catch (error) {
       console.error(`Error deleting ${endpoint}`, error);
-      window.alert("Entry delete failed.");
+      showToast(failMessage(error, "Entry delete failed."), "error");
       return false;
     }
   };
@@ -902,8 +907,9 @@ const Accounts = () => {
       await API.post("/accounts/income", data);
       await Promise.all([refreshAccountsData(), refreshSummary()]);
       setShowIncome(false);
-    } catch {
-      window.alert("Error adding income");
+      showToast("Income added");
+    } catch (err) {
+      showToast(failMessage(err, "Error adding income"), "error");
     }
   };
 
@@ -912,8 +918,9 @@ const Accounts = () => {
       await API.post("/accounts/expense", data);
       await Promise.all([refreshAccountsData(), refreshSummary()]);
       setShowExpense(false);
-    } catch {
-      window.alert("Error adding expense");
+      showToast("Expense added");
+    } catch (err) {
+      showToast(failMessage(err, "Error adding expense"), "error");
     }
   };
 
@@ -1523,8 +1530,9 @@ const Accounts = () => {
       await API.post("/invoices/create", invoice);
       await refreshAccountsData();
       setShowInvoice(false);
-    } catch {
-      window.alert("Error generating invoice");
+      showToast("Invoice generated");
+    } catch (err) {
+      showToast(failMessage(err, "Error generating invoice"), "error");
     }
   };
 
@@ -1589,7 +1597,7 @@ const Accounts = () => {
       return true;
     } catch (error) {
       console.error("Error saving payment setting", error);
-      window.alert("Payment setting save failed.");
+      showToast(failMessage(error, "Payment setting save failed."), "error");
       return false;
     }
   };
@@ -1605,7 +1613,7 @@ const Accounts = () => {
       return true;
     } catch (error) {
       console.error("Error deleting payment setting", error);
-      window.alert("Payment setting delete failed.");
+      showToast(failMessage(error, "Payment setting delete failed."), "error");
       return false;
     }
   };
@@ -1617,7 +1625,7 @@ const Accounts = () => {
       return true;
     } catch (error) {
       console.error("Error linking bank ledger", error);
-      window.alert("Bank ledger link failed.");
+      showToast(failMessage(error, "Bank ledger link failed."), "error");
       return false;
     }
   };
@@ -1629,7 +1637,7 @@ const Accounts = () => {
       return true;
     } catch (error) {
       console.error("Error unlinking bank ledger", error);
-      window.alert("Bank ledger unlink failed.");
+      showToast(failMessage(error, "Bank ledger unlink failed."), "error");
       return false;
     }
   };

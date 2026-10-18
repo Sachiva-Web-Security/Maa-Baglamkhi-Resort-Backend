@@ -275,7 +275,7 @@ function AppRoutes({ isAuthenticated, setIsAuthenticated, protect }) {
           <Route path="/chef-dashboard" element={protect(<ChefDashboard />, ["chef"])} />
           <Route
             path="/restaurant-dashboard"
-            element={protect(<RestaurantDashboard />, ["waiter"])}
+            element={protect(<RestaurantDashboard />, ROLES.RESTAURANT)}
           />
           <Route path="/staff-dashboard" element={protect(<StaffDashboard />, ["staff"])} />
           <Route path="/stayover" element={protect(<Stayover />, ["admin", "manager"])} />

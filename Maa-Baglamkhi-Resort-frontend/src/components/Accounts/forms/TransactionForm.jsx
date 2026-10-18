@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { FaTimes, FaArrowDown, FaArrowUp, FaEdit } from "react-icons/fa";
-import { localDate } from "../../utils/localDate";
+import { localDate } from "../../../utils/localDate";
 import "./TransactionForm.css";
 
 const todayISO = () => localDate();
