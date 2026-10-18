@@ -210,7 +210,7 @@ const Sidebar = ({ isMobile, sidebarOpen, setSidebarOpen, setIsAuthenticated }) 
       { id: 506, name: "Audit Logs", icon: FaHistory, path: "/reports/audit", section: "records" },
     ],
     kitchen: [
-
+      { id: 601, name: "Kitchen Dashboard", icon: FaFire, path: "/kitchen-dashboard", section: "operations" },
       { id: 602, name: "Restaurant POS", icon: FaUtensils, path: "/restaurant", section: "operations" },
       { id: "602k", name: "Raw Material", icon: FaExchangeAlt, path: "/chef/inventory", section: "operations" },
       { id: 603, name: "Inventory", icon: FaBoxes, path: "/inventory", section: "records",
@@ -244,6 +244,7 @@ const Sidebar = ({ isMobile, sidebarOpen, setSidebarOpen, setIsAuthenticated }) 
       },
     ],
     waiter: [
+      { id: 700, name: "Restaurant Dashboard", icon: FaUtensils, path: "/restaurant-dashboard", section: "operations" },
       { id: 701, name: "Restaurant POS", icon: FaUtensils, path: "/restaurant", section: "operations" },
       { id: 702, name: "Live Board", icon: FaClipboardList, path: "/restaurant/live-board", section: "operations" },
     ],
@@ -254,12 +255,17 @@ const Sidebar = ({ isMobile, sidebarOpen, setSidebarOpen, setIsAuthenticated }) 
     ],
   };
 
+  const roleMenuItems = (roleMenuMap[role] || []).map((item) => ({
+    ...item,
+    badgeCount: role === "waiter" && item.path === "/restaurant" ? readyOrdersCount : 0,
+  }));
+
+  // A role whose home route no menu item already covers keeps the top
+  // "Dashboard" entry, which links straight to its own home dashboard.
+  const roleMenusOwnHome = roleMenuItems.some((item) => item.path === dashboardPath);
   const menuItems = [
-    { id: 1, name: "Dashboard", icon: FaHome, path: dashboardPath },
-    ...(roleMenuMap[role] || []).map((item) => ({
-      ...item,
-      badgeCount: role === "waiter" && item.path === "/restaurant" ? readyOrdersCount : 0,
-    })),
+    ...(roleMenusOwnHome ? [] : [{ id: 1, name: "Dashboard", icon: FaHome, path: dashboardPath }]),
+    ...roleMenuItems,
     { id: 99, name: "My Profile", icon: FaUser, path: "/profile" },
   ];
 
@@ -277,7 +283,7 @@ const Sidebar = ({ isMobile, sidebarOpen, setSidebarOpen, setIsAuthenticated }) 
 
     return { headItems: head, groupedSections: sections, profileItem: profile };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role, dashboardPath, readyOrdersCount]);
+  }, [roleMenuItems, dashboardPath]);
 
   // Flat list of every navigable (non-parent) item, used to work out which
   // single button is "active" for the current route.
