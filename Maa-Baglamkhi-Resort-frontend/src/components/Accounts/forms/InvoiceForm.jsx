@@ -65,6 +65,8 @@ const InvoiceForm = ({
   });
 
   const [loading, setLoading] = useState(false);
+  const [validationError, setValidationError] = useState("");
+  const [saveError, setSaveError] = useState("");
 
   useEffect(() => {
     setForm((prev) => ({
@@ -116,12 +118,17 @@ const InvoiceForm = ({
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    setValidationError("");
+    setSaveError("");
+
     if (!form.customerName.trim()) {
-      return alert("Customer name required");
+      setValidationError("Customer name is required.");
+      return;
     }
 
     if (calculated.finalTotal <= 0) {
-      return alert("Invalid total amount - please enter Price Per Day and dates");
+      setValidationError("Invalid total amount - please enter Price Per Day and dates.");
+      return;
     }
 
     setLoading(true);
@@ -149,7 +156,7 @@ const InvoiceForm = ({
       }
     } catch (err) {
       console.error(err);
-      alert("Failed to save invoice");
+      setSaveError(err.response?.data?.message || "Failed to save invoice.");
     } finally {
       setLoading(false);
     }
@@ -455,6 +462,18 @@ const InvoiceForm = ({
             </div>
           </div>
         </div>
+
+        {validationError && (
+          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[14px] font-semibold text-rose-700 sm:text-[15px]">
+            {validationError}
+          </div>
+        )}
+
+        {saveError && (
+          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[14px] font-semibold text-rose-700 sm:text-[15px]">
+            {saveError}
+          </div>
+        )}
 
         {/* Action Buttons */}
         <div className="mt-4 flex flex-col-reverse gap-2.5 border-t border-blue-100 pt-4 sm:mt-5 sm:flex-row sm:justify-end sm:gap-3 sm:border-t md:mt-6 md:pt-5">

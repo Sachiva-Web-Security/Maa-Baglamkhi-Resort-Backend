@@ -64,6 +64,8 @@ const CustomerInvoicePage = () => {
   const [paymentReferenceNo, setPaymentReferenceNo] = useState("");
   const [paymentNotes, setPaymentNotes] = useState("");
   const [settlingPayment, setSettlingPayment] = useState(false);
+  const [settleMessage, setSettleMessage] = useState("");
+  const [settleStatus, setSettleStatus] = useState("idle");
   const [printTimestamp] = useState(() => new Date());
 
   useEffect(() => {
@@ -348,14 +350,20 @@ const CustomerInvoicePage = () => {
   const handleSettleInvoice = async () => {
     if (!invoice?.id) return;
     if (selectedPaymentMode !== "Cash" && !selectedPaymentSetting?.id) {
-      return window.alert("Please select an active payment setup for this mode.");
+      setSettleStatus("error");
+      setSettleMessage("Please select an active payment setup for this mode.");
+      return;
     }
     if (selectedPaymentMode !== "Cash" && !paymentReferenceNo.trim()) {
-      return window.alert("Please enter the payment reference number.");
+      setSettleStatus("error");
+      setSettleMessage("Please enter the payment reference number.");
+      return;
     }
     try {
+      setSettleStatus("idle");
+      setSettleMessage("");
       setSettlingPayment(true);
-      await API.post("/accounts/settle-pending-bill", {
+      const res = await API.post("/accounts/settle-pending-bill", {
         sourceType: "invoice",
         sourceId: invoice.id,
         paymentMode: selectedPaymentMode,
@@ -363,11 +371,19 @@ const CustomerInvoicePage = () => {
         referenceNo: paymentReferenceNo.trim(),
         notes: paymentNotes.trim(),
       });
+      const settled = res.data || {};
       await reloadInvoice();
       setPaymentReferenceNo("");
       setPaymentNotes("");
+      setSettleStatus("success");
+      setSettleMessage(
+        settled.balance === 0
+          ? "Payment saved. Invoice balance is now settled."
+          : `Payment saved. Outstanding balance ${formatCurrency(settled.balance ?? balanceDue)}.`,
+      );
     } catch (err) {
-      window.alert(err.response?.data?.message || "Payment could not be saved.");
+      setSettleStatus("error");
+      setSettleMessage(err.response?.data?.message || "Payment could not be saved.");
     } finally {
       setSettlingPayment(false);
     }
@@ -753,6 +769,18 @@ const CustomerInvoicePage = () => {
                 >
                   {settlingPayment ? "Saving payment..." : `Confirm ${selectedPaymentMode} Payment`}
                 </button>
+
+                {settleMessage && (
+                  <div
+                    className={`rounded-xl border px-4 py-3 text-lg font-semibold ${
+                      settleStatus === "error"
+                        ? "border-rose-200 bg-rose-50 text-rose-700"
+                        : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    }`}
+                  >
+                    {settleMessage}
+                  </div>
+                )}
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white p-4">

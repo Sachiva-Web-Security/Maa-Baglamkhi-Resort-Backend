@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FaArrowLeft, FaChartLine, FaTable } from "react-icons/fa";
+import { FaArrowLeft, FaCheckCircle, FaExclamationCircle, FaChartLine, FaTable } from "react-icons/fa";
 
 import ReconciliationOverview from "../components/Accounts/ReconciliationOverview";
 import API from "../api";
@@ -17,6 +17,14 @@ const BankReconciliation = () => {
   const refreshTimerRef = useRef(null);
   const refreshInFlightRef = useRef(false);
   const pendingRefreshRef = useRef(false);
+  const toastTimerRef = useRef(null);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, tone = "success") => {
+    setToast({ message, tone });
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 4000);
+  };
 
   const [selectedPaymentMode, setSelectedPaymentMode] = useState("all");
   const [selectedReconciliationSource, setSelectedReconciliationSource] = useState("all");
@@ -204,6 +212,9 @@ const BankReconciliation = () => {
       if (refreshTimerRef.current) {
         window.clearInterval(refreshTimerRef.current);
       }
+      if (toastTimerRef.current) {
+        window.clearTimeout(toastTimerRef.current);
+      }
       window.removeEventListener("accountsUpdated", handleAccountsUpdated);
       window.removeEventListener("focus", handleAccountsUpdated);
     };
@@ -214,10 +225,11 @@ const BankReconciliation = () => {
       await API.post("/accounts/reconciliation/match", payload);
       await refreshData();
       window.dispatchEvent(new Event("accountsUpdated"));
+      showToast("Bank ledger item matched");
       return true;
     } catch (error) {
       console.error("Error linking bank ledger", error);
-      window.alert("Bank ledger link failed.");
+      showToast(error.response?.data?.message || "Bank ledger link failed.", "error");
       return false;
     }
   };
@@ -227,10 +239,11 @@ const BankReconciliation = () => {
       await API.post("/accounts/reconciliation/unmatch", payload);
       await refreshData();
       window.dispatchEvent(new Event("accountsUpdated"));
+      showToast("Bank ledger item unmatched");
       return true;
     } catch (error) {
       console.error("Error unlinking bank ledger", error);
-      window.alert("Bank ledger unlink failed.");
+      showToast(error.response?.data?.message || "Bank ledger unlink failed.", "error");
       return false;
     }
   };
@@ -321,6 +334,15 @@ const BankReconciliation = () => {
         <div className="absolute left-[-8%] top-[-6%] h-56 w-56 rounded-full bg-cyan-200/45 blur-3xl sm:h-72 sm:w-72 md:h-96 md:w-96" />
         <div className="absolute right-[-10%] top-[8%] h-56 w-56 rounded-full bg-amber-200/45 blur-3xl sm:h-72 sm:w-72 md:h-[28rem] md:w-[28rem]" />
       </div>
+
+      {toast && (
+        <div className={`fixed left-1/2 top-4 z-[60] -translate-x-1/2 rounded-2xl px-5 py-3 text-sm font-bold shadow-2xl transition-all duration-300 ${toast.tone === "error" ? "bg-rose-600 text-white" : "bg-emerald-600 text-white"}`}>
+          <span className="inline-flex items-center gap-2">
+            {toast.tone === "error" ? <FaExclamationCircle /> : <FaCheckCircle />}
+            {toast.message}
+          </span>
+        </div>
+      )}
 
       <div className="space-y-5 sm:space-y-6 xl:space-y-7">
         {/* HERO SECTION */}

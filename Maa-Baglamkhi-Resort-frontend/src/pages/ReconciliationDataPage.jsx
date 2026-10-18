@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FaArrowLeft } from "react-icons/fa";
+import { FaArrowLeft, FaCheckCircle, FaExclamationCircle } from "react-icons/fa";
 
 import API from "../api";
 
@@ -360,7 +360,15 @@ const ReconciliationDataPage = () => {
   const refreshTimerRef = useRef(null);
   const refreshInFlightRef = useRef(false);
   const pendingRefreshRef = useRef(false);
+  const toastTimerRef = useRef(null);
   const [bankLedger, setBankLedger] = useState([]);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, tone = "success") => {
+    setToast({ message, tone });
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 4000);
+  };
 
   const isAbortedRequest = (error) =>
     error?.code === "ERR_CANCELED" ||
@@ -484,6 +492,9 @@ const ReconciliationDataPage = () => {
       if (refreshTimerRef.current) {
         window.clearInterval(refreshTimerRef.current);
       }
+      if (toastTimerRef.current) {
+        window.clearTimeout(toastTimerRef.current);
+      }
       window.removeEventListener("accountsUpdated", handleAccountsUpdated);
       window.removeEventListener("focus", handleAccountsUpdated);
     };
@@ -494,10 +505,11 @@ const ReconciliationDataPage = () => {
       await API.post("/accounts/bank-ledger", form);
       await refreshData();
       window.dispatchEvent(new Event("accountsUpdated"));
+      showToast("Bank entry saved");
       return true;
     } catch (error) {
       console.error("Error saving bank ledger", error);
-      window.alert("Bank entry could not be saved.");
+      showToast(error.response?.data?.message || "Bank entry could not be saved.", "error");
       return false;
     }
   };
@@ -507,10 +519,11 @@ const ReconciliationDataPage = () => {
       await API.put(`/accounts/bank-ledger/${id}`, form);
       await refreshData();
       window.dispatchEvent(new Event("accountsUpdated"));
+      showToast("Bank entry updated");
       return true;
     } catch (error) {
       console.error("Error updating bank ledger", error);
-      window.alert("Bank entry update failed.");
+      showToast(error.response?.data?.message || "Bank entry update failed.", "error");
       return false;
     }
   };
@@ -520,10 +533,11 @@ const ReconciliationDataPage = () => {
       await API.delete(`/accounts/bank-ledger/${id}`);
       await refreshData();
       window.dispatchEvent(new Event("accountsUpdated"));
+      showToast("Bank entry deleted");
       return true;
     } catch (error) {
       console.error("Error deleting bank ledger", error);
-      window.alert("Bank entry delete failed.");
+      showToast(error.response?.data?.message || "Bank entry delete failed.", "error");
       return false;
     }
   };
@@ -534,6 +548,15 @@ const ReconciliationDataPage = () => {
         <div className="absolute left-[-8%] top-[-6%] h-72 w-72 rounded-full bg-cyan-200/45 blur-3xl sm:h-96 sm:w-96" />
         <div className="absolute right-[-10%] top-[8%] h-72 w-72 rounded-full bg-amber-200/45 blur-3xl sm:h-[28rem] sm:w-[28rem]" />
       </div>
+
+      {toast && (
+        <div className={`fixed left-1/2 top-4 z-[60] -translate-x-1/2 rounded-2xl px-5 py-3 text-sm font-bold shadow-2xl transition-all duration-300 ${toast.tone === "error" ? "bg-rose-600 text-white" : "bg-emerald-600 text-white"}`}>
+          <span className="inline-flex items-center gap-2">
+            {toast.tone === "error" ? <FaExclamationCircle /> : <FaCheckCircle />}
+            {toast.message}
+          </span>
+        </div>
+      )}
 
       <div className="space-y-7">
         <section className="overflow-hidden rounded-[28px] border border-slate-900/10 bg-[linear-gradient(120deg,#071b34_0%,#0d4a53_52%,#162d45_100%)] px-5 py-6 text-white shadow-[0_22px_55px_rgba(15,23,42,0.12)] sm:px-7 sm:py-8">
