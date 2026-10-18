@@ -14,6 +14,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FaExclamationTriangle, FaTimes } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import API from "../../api";
+import { localDate } from "../../utils/localDate";
 import {
   clearBookingSession,
   setStoredBookingCode,
@@ -27,7 +28,7 @@ const formatCurrency = (v) =>
     maximumFractionDigits: 0,
   }).format(Number(v) || 0);
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localDate();
 const formatStayDate = (value) => {
   if (!value) return "";
   const parsed = new Date(value);

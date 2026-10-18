@@ -16,6 +16,7 @@ import {
   Undo2,
 } from "lucide-react";
 import API from "../../api";
+import { localDate } from "../../utils/localDate";
 import { getStoredBookingCode, getStoredBookingId } from "./bookingSession";
 
 const formatCurrency = (value) =>
@@ -112,7 +113,7 @@ const CATEGORIES = [
 
 // ─── Add Entry Modal ───────────────────────────────────────────────────────────
 const AddEntryModal = ({ bookingId, onClose, onSaved }) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDate();
   const [form, setForm] = useState({
     entry_date: today,
     entry_type: "Extra Charge",
@@ -352,7 +353,7 @@ const FolioView = ({
     const map = {};
     for (const entry of filteredEntries) {
       const d = entry.entry_date
-        ? new Date(entry.entry_date).toISOString().slice(0, 10)
+        ? localDate(entry.entry_date)
         : "Unknown";
       if (!map[d]) map[d] = [];
       map[d].push(entry);

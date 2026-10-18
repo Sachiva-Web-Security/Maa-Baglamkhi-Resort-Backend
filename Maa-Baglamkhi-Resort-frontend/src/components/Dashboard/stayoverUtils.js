@@ -1,3 +1,4 @@
+import { localDate } from "../utils/localDate";
 export const DAY_COUNT = 7;
 
 export const STATUS_META = {
@@ -92,7 +93,7 @@ export const BOARD_BUCKET_META = {
 
 export const formatDateKey = (value) => {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
+  return Number.isNaN(date.getTime()) ? "" : localDate(date);
 };
 
 export const localDateISO = (value = new Date()) => {
@@ -100,7 +101,7 @@ export const localDateISO = (value = new Date()) => {
   if (Number.isNaN(date.getTime())) return "";
 
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 10);
+  return localDate(local);
 };
 
 export const todayISO = () => localDateISO();

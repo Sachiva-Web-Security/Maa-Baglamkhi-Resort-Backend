@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { localDate } from "./utils/localDate";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   FaArrowLeft,
@@ -1537,7 +1538,7 @@ const Accounts = () => {
     createModuleEntry("/accounts/gst-returns", {
       ...form,
       netPayable: Number(form.gstCollected || 0) - Number(form.gstPaid || 0),
-      filedOn: form.status === "Filed" ? form.filedOn || new Date().toISOString().slice(0, 10) : null,
+      filedOn: form.status === "Filed" ? form.filedOn || localDate() : null,
     });
 
   const handleCreateVendorPayment = (form) =>
@@ -1704,7 +1705,7 @@ const Accounts = () => {
         updateModuleEntry("/accounts/gst-returns", id, {
           ...form,
           netPayable: Number(form.gstCollected || 0) - Number(form.gstPaid || 0),
-          filedOn: form.status === "Filed" ? form.filedOn || new Date().toISOString().slice(0, 10) : null,
+          filedOn: form.status === "Filed" ? form.filedOn || localDate() : null,
         }),
       onDelete: (id) => deleteModuleEntry("/accounts/gst-returns", id),
       rows: gstReturns,

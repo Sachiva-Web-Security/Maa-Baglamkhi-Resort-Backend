@@ -9,6 +9,7 @@ import {
 } from "react-icons/fa";
 import SummaryCard from "../components/Attendance/SummaryCard";
 import API from "../api";
+import { localDate, localMonth } from "../utils/localDate";
 
 const STATUS_LABEL = {
   present: "Present",
@@ -37,8 +38,8 @@ const labelOf = (value) => {
 };
 
 const MyAttendance = () => {
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [date, setDate] = useState(localDate());
+  const [month, setMonth] = useState(localMonth());
   const [records, setRecords] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);

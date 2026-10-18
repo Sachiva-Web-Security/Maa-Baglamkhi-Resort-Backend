@@ -1,3 +1,4 @@
+import { localDate } from "../utils/localDate";
 import { useState } from "react";
 
 /* Premium input styles
@@ -84,7 +85,7 @@ const AttendanceForm = ({ onSubmit, onCancel, initialData = {}, employees = [] }
   const [formData, setFormData] = useState({
     employeeId: initialData.employeeId || "",
     employeeName: initialData.employeeName || "",
-    date: initialData.date || new Date().toISOString().split("T")[0],
+    date: initialData.date || localDate(),
     checkIn: initialData.checkIn || "",
     checkOut: initialData.checkOut || "",
     status: initialData.status || "present",

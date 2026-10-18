@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../../api";
+import { localDate } from "../../utils/localDate";
 
 /* ─── Helpers ──────────────────────────────────────────────────────────────── */
 
@@ -13,7 +14,7 @@ const formatDate = (d) => {
   });
 };
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localDate();
 
 const BLOCK_TYPES = [
   "Maintenance", "Deep Clean", "Renovation",

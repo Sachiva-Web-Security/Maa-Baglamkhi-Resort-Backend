@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { FaCalendarAlt } from "react-icons/fa";
 import { useLocation, useNavigate } from "react-router-dom";
 import API from "../../api";
+import { localDate } from "../../utils/localDate";
 import { getStoredBookingCode, getStoredBookingId, setStoredBookingId } from "./bookingSession";
 
 const inputCls =
@@ -11,10 +12,10 @@ const normalizeDateInput = (value) => {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
-  return date.toISOString().slice(0, 10);
+  return localDate(date);
 };
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => localDate();
 
 const getRoomKey = (room) => String(room?.room_number || room?.roomNumber || room?.roomNo || room?.id || "").trim();
 

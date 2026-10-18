@@ -1,8 +1,9 @@
 import React from "react";
 import { useState, useEffect } from "react";
+import { localDate } from "../../utils/localDate";
 import API from "../../../api";
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => localDate();
 const EMPTY_INITIAL_DATA = Object.freeze({});
 const padNumber = (value, length = 2) => String(value).padStart(length, "0");
 

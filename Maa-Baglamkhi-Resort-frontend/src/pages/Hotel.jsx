@@ -30,6 +30,7 @@ import GuestProfile from "../components/Hotel/GuestProfile";
 import OccupancyForecast from "../components/Hotel/OccupancyForecast";
 import Room from "../components/Hotel/Room";
 import RoomMaintenance from "../components/Hotel/RoomMaintenance";
+import { localDate } from "../utils/localDate";
 
 // ── All of these paths now render the SAME single-page BookingFlow component.
 // Nothing here navigates between them internally anymore — BookingFlow handles
@@ -96,7 +97,7 @@ const formatDate = (value) => {
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 };
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => localDate();
 
 // Premium gradient pill badges — Blue + White enterprise theme with
 // Emerald / Amber / Rose accents for state (matches Occupancy Overview).
