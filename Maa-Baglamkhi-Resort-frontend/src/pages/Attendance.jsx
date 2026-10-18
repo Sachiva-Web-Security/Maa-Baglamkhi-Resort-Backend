@@ -33,6 +33,7 @@ const Attendance = () => {
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [employees, setEmployees] = useState([]);
   const [staff, setStaff] = useState([]);
+  const [loadError, setLoadError] = useState("");
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -59,8 +60,11 @@ const Attendance = () => {
       const res = await API.get("/attendance", { params: { date } });
       const data = Array.isArray(res.data) ? res.data : [];
       setEmployees(data);
+      setLoadError("");
     } catch (err) {
       console.error("Error loading attendance", err);
+      setEmployees([]);
+      setLoadError(err.response?.data?.message || "Attendance could not be loaded for this date.");
     }
   };
 
@@ -280,6 +284,12 @@ const Attendance = () => {
         departments={departmentOptions}
         roles={roleOptions}
       />
+
+      {loadError && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+          {loadError}
+        </div>
+      )}
 
       {/* Summary cards */}
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">

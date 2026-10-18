@@ -572,16 +572,22 @@ const Reports = () => {
   );
 
   useEffect(() => {
+    let active = true;
+
     const fetchSummary = async () => {
       try {
         const res = await API.get("/reports/summary");
-        setSummary(res.data);
+        if (active) setSummary(res.data);
       } catch (err) {
         console.error("Error loading report summary", err);
+        if (active) setSummary(null);
       }
     };
 
     fetchSummary();
+    return () => {
+      active = false;
+    };
   }, []);
 
   const filtered = useMemo(() => {

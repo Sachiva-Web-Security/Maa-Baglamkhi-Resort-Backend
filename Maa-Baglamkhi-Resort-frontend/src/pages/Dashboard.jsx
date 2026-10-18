@@ -109,6 +109,18 @@ const groupRoomsByType = (items = []) => {
   ].filter((group) => AVAILABLE_ROOM_TYPE_ORDER.includes(group.label) || group.items.length > 0);
 };
 
+// /housekeeping/assignee/:id is keyed by the numeric housekeeping row id, while the board
+// is keyed by room number, so a non-numeric room number ("ANG500") would fail the update
+// with a DECIMAL cast error. This resolves the room number back to its row id.
+const resolveHousekeepingId = (roomId, rooms) => {
+  const key = String(roomId || "").trim();
+  if (/^\d+(\.\d+)?$/.test(key)) return key;
+  const match = (Array.isArray(rooms) ? rooms : []).find(
+    (row) => String(row?.roomNo || row?.roomNumber || "").trim() === key
+  );
+  return match?.id ?? roomId;
+};
+
 const getRoomTaskKey = (room) =>
   String(room?.roomData?.id || room?.roomId || room?.roomNumber || "").trim();
 
@@ -1151,6 +1163,7 @@ const Dashboard = () => {
       toast.error("Room record missing hai.");
       return;
     }
+    const assigneeRoomId = resolveHousekeepingId(roomId, rooms);
 
     if (!selectedAssignee) {
       toast.error("Please housekeeper select karein.");
@@ -1174,7 +1187,7 @@ const Dashboard = () => {
       //   3. /housekeeping/message         -> new row in hk_messages (task with
       //      due_at, assigned_to, task_label) so the cleaning queue + the
       //      /housekeepernotification page pick it up.
-      await API.put(`/housekeeping/assignee/${roomId}`, { assignee: selectedAssignee });
+      await API.put(`/housekeeping/assignee/${assigneeRoomId}`, { assignee: selectedAssignee });
       await API.put(`/housekeeping/status/${roomId}`, { status: "Vacant Dirty" });
 
       const receptionist =

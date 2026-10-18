@@ -333,6 +333,7 @@ const HotelDashboardHome = () => {
       setLastUpdated(new Date());
     } catch (err) {
       console.error("Failed to load dashboard data:", err);
+      setLastUpdated(null);
     } finally {
       setLoading(false);
     }

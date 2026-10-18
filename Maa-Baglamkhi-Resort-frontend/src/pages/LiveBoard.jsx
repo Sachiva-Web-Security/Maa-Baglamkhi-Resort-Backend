@@ -66,6 +66,7 @@ const LiveBoard = () => {
   const actor = getCurrentActor();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [boardError, setBoardError] = useState("");
   const [filter, setFilter] = useState("all"); // all, mine, tables, rooms
   const [actionLoading, setActionLoading] = useState(null);
 
@@ -74,9 +75,10 @@ const LiveBoard = () => {
     try {
       const response = await API.get("/waiter/live-board");
       setOrders(Array.isArray(response.data) ? response.data : []);
+      setBoardError("");
     } catch (error) {
       console.error("Failed to fetch live board:", error);
-      setOrders([]);
+      setBoardError(error.response?.data?.message || "Live board could not be loaded.");
     } finally {
       if (!silent) setLoading(false);
     }
@@ -211,6 +213,12 @@ const LiveBoard = () => {
           ))}
         </div>
 
+        {boardError && !loading && filteredOrders.length === 0 && (
+          <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+            {boardError}
+          </div>
+        )}
+
         {/* Orders Grid */}
         {loading ? (
           <div className="flex items-center justify-center rounded-2xl bg-white py-20 shadow-sm">
@@ -221,7 +229,9 @@ const LiveBoard = () => {
             <div className="text-center">
               <FaUtensils className="mx-auto text-4xl text-slate-300" />
               <p className="mt-3 text-lg font-bold text-slate-500">No active orders</p>
-              <p className="mt-1 text-sm text-slate-400">All tables and rooms are available</p>
+              <p className="mt-1 text-sm text-slate-400">
+                {boardError ? boardError : "All tables and rooms are available"}
+              </p>
             </div>
           </div>
         ) : (

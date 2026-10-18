@@ -176,7 +176,7 @@ const AuditLogs = () => {
             ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={7} className="px-4 py-12 text-center text-sm font-medium text-slate-400">
-                  No audit logs found.
+                  {error ? error : "No audit logs found."}
                 </td>
               </tr>
             ) : (
@@ -262,7 +262,7 @@ const AuditLogs = () => {
           </div>
         ) : rows.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-8 text-center text-sm text-slate-400">
-            No audit logs found.
+            {error ? error : "No audit logs found."}
           </div>
         ) : (
           rows.map((log) => {

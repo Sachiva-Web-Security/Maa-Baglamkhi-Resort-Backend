@@ -1452,6 +1452,7 @@ const InventoryFlow = () => {
       await API.post("/inventory/vendor-inwards", {
         itemName: data.itemName,
         quantityReceived: data.receivedQty,
+        poNumber: poNumber(data.poNumber, `GRN-${Date.now().toString().slice(-6)}`),
         unit: data.unit,
         rate: 0,
         invoiceNo: data.invoiceNo,
@@ -1498,7 +1499,7 @@ const InventoryFlow = () => {
           itemName: data.itemName || data.item,
           quantity: qty,
           store: data.fromStore,
-          reason: data.notes,
+          reason: data.notes || "Waste recorded",
         });
         label = "Waste recorded";
       }
