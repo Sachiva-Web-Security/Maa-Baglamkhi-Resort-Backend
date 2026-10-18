@@ -124,6 +124,7 @@ app.use("/api/settings", require("./routes/settingsRoutes"));
 app.use("/api/housekeeping", require("./routes/housekeepingRoutes"));
 app.use("/api/salary", require("./routes/salaryRoutes"));
 app.use("/api/employees", require("./routes/employeeRoutes"));
+app.use("/api/employee", require("./routes/employeeRoutes"));  // alias
 app.use("/api/roles", require("./routes/roleRoutes"));
 app.use("/api/payroll", require("./routes/payrollRoutes"));
 app.use("/api/print", require("./routes/printRoutes"));
