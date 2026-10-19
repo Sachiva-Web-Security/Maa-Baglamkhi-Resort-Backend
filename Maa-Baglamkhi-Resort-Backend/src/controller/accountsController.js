@@ -2046,7 +2046,9 @@ const getPaymentGatewaySettingById = async (req, res) => {
 const readPaymentSettingBody = (body = {}) => {
   const providerName = String(body.providerName || "").trim();
   const name = String(body.paymentMode || providerName || "").trim();
-  const flag = body.isActive === undefined ? null : String(body.isActive) === "1" || body.isActive === true || body.isActive === 1 ? 1 : 0;
+  // Multer multipart fields arrive as strings; a bare false becomes "false" and
+// would otherwise silently activate the row.
+const flag = body.isActive === undefined ? null : (body.isActive === true || String(body.isActive) === "1" || body.isActive === "true") ? 1 : 0;
   return {
     name,
     provider_name: providerName || null,
@@ -2090,15 +2092,29 @@ const updatePaymentGatewaySetting = async (req, res) => {
     const existing = await queryOne("SELECT id FROM payment_methods WHERE id = ?", [req.params.id]);
     if (!existing) return res.status(404).json({ message: "Payment setting not found" });
     const { name, provider_name, department, upi_id, account_holder_name, bank_name, qr_image_url, notes, is_active } = readPaymentSettingBody(req.body);
-    await query(
-      `UPDATE payment_methods SET
-         name = COALESCE(?, name),
-         is_active = COALESCE(?, is_active),
-         department = ?, provider_name = ?, upi_id = ?, account_holder_name = ?,
-         bank_name = ?, qr_image_url = ?, notes = ?
-       WHERE id = ?`,
-      [name || null, is_active, department, provider_name, upi_id, account_holder_name, bank_name, qr_image_url, notes, req.params.id],
-    );
+    // name is unique in the table, so an unchanged edit would re-set it onto
+    // its own row and trip the unique key. Skip the name column when the form
+    // kept the existing name.
+    if (name && name === existing.name) {
+      await query(
+        `UPDATE payment_methods SET
+           is_active = COALESCE(?, is_active),
+           department = ?, provider_name = ?, upi_id = ?, account_holder_name = ?,
+           bank_name = ?, qr_image_url = ?, notes = ?
+         WHERE id = ?`,
+        [is_active, department, provider_name, upi_id, account_holder_name, bank_name, qr_image_url, notes, req.params.id],
+      );
+    } else {
+      await query(
+        `UPDATE payment_methods SET
+           name = COALESCE(?, name),
+           is_active = COALESCE(?, is_active),
+           department = ?, provider_name = ?, upi_id = ?, account_holder_name = ?,
+           bank_name = ?, qr_image_url = ?, notes = ?
+         WHERE id = ?`,
+        [name || null, is_active, department, provider_name, upi_id, account_holder_name, bank_name, qr_image_url, notes, req.params.id],
+      );
+    }
     res.json({ message: "Payment setting updated", ...paymentSettingToRow(await queryOne("SELECT * FROM payment_methods WHERE id = ?", [req.params.id])) });
   } catch (error) {
     res.status(500).json({ message: "Failed to update payment setting", error: error.message });

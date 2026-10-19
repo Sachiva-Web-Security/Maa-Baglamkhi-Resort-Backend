@@ -8,7 +8,7 @@ import {
   FaUsers,
 } from "react-icons/fa";
 import SummaryCard from "../components/Attendance/SummaryCard";
-import API from "../api";
+import API, { getErrorMessage } from "../api";
 import { localDate, localMonth } from "../utils/localDate";
 
 const STATUS_LABEL = {
@@ -47,14 +47,20 @@ const MyAttendance = () => {
   const [markStatus, setMarkStatus] = useState("present");
   const [markIn, setMarkIn] = useState("");
   const [markOut, setMarkOut] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [summaryError, setSummaryError] = useState("");
+  const [summaryEmpty, setSummaryEmpty] = useState(false);
 
   const fetchToday = async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const res = await API.get("/attendance/me", { params: { date } });
       setRecords(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error("Error loading attendance:", err);
+      setRecords([]);
+      setLoadError(getErrorMessage(err, "Could not load attendance for this date."));
     } finally {
       setLoading(false);
     }
@@ -65,14 +71,16 @@ const MyAttendance = () => {
   }, [date]);
 
   const fetchMonthly = async () => {
-    setLoading(true);
+    setSummaryError("");
+    setSummaryEmpty(false);
     try {
       const res = await API.get("/attendance/me/salary", { params: { month } });
       setSummary(res.data || null);
+      setSummaryEmpty(!res.data);
     } catch (err) {
       console.error("Error loading monthly summary:", err);
-    } finally {
-      setLoading(false);
+      setSummary(null);
+      setSummaryError(getErrorMessage(err, "Could not load your monthly salary summary."));
     }
   };
 
@@ -231,7 +239,9 @@ const MyAttendance = () => {
           </h3>
         </div>
 
-        {records.length > 0 ? (
+        {loadError ? (
+          <div className="p-8 text-center text-rose-600">{loadError}</div>
+        ) : records.length > 0 ? (
           <table className="w-full text-sm">
             <thead className="bg-gray-100">
               <tr>
@@ -287,7 +297,15 @@ const MyAttendance = () => {
       </div>
 
       {/* Monthly summary */}
-      {summary && (
+      {summaryError ? (
+        <div className="rounded-xl border border-rose-100 bg-rose-50 p-4 text-center text-[14px] font-semibold text-rose-600">
+          {summaryError}
+        </div>
+      ) : summaryEmpty ? (
+        <div className="rounded-xl border border-slate-100 bg-white p-6 text-center text-[14px] text-slate-500 shadow-sm">
+          No salary summary for {month}.
+        </div>
+      ) : summary && (
         <div className="space-y-4">
           <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-emerald-50 to-green-50 p-6 shadow">
             <h3 className="mb-2 text-xl font-extrabold text-slate-900">

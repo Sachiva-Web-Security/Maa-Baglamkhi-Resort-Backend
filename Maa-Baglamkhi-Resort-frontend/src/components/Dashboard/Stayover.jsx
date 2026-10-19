@@ -49,6 +49,19 @@ import {
 // `hk_messages` table). See /housekeeping/notifications, /housekeeping/message,
 // /housekeeping/assignee/:id and /housekeeping/status/:id endpoints.
 
+// /housekeeping/assignee/:id and /housekeeping/status/:id are keyed by the
+// numeric housekeeping row id, while the board falls back to the room number,
+// so a non-numeric room number ("ANG500") would fail with a DECIMAL cast
+// error. Resolve the room back to its row id from the loaded room list.
+const resolveHousekeepingId = (roomId, rooms) => {
+  const key = String(roomId || "").trim();
+  if (/^\d+(\.\d+)?$/.test(key)) return key;
+  const match = (Array.isArray(rooms) ? rooms : []).find(
+    (row) => String(row?.roomNo || row?.roomNumber || "").trim() === key
+  );
+  return match?.id ?? roomId;
+};
+
 const getHousekeepingUsers = (users) =>
   (Array.isArray(users) ? users : [])
     .filter((user) => String(user.role || "").toLowerCase().includes("housekeeping"))
@@ -261,7 +274,8 @@ const Stayover = () => {
         if (!taskRoom) continue;
 
         try {
-          await API.put(`/housekeeping/status/${taskRoom}`, {
+          const hkTaskRoom = resolveHousekeepingId(taskRoom, rooms);
+          await API.put(`/housekeeping/status/${hkTaskRoom}`, {
             status: "Vacant Clean",
           });
         } catch (error) {
@@ -531,8 +545,8 @@ const Stayover = () => {
     try {
       await API.put(`/hotel/${action}/${booking.bookingId}`);
       if (action === "check-out") {
-        const roomId = room.id || room.roomId || room.roomNumber;
-        await API.put(`/housekeeping/status/${roomId}`, { status: "Vacant Dirty" });
+        const hkRoomId = resolveHousekeepingId(room.id || room.roomId || room.roomNumber, rooms);
+        await API.put(`/housekeeping/status/${hkRoomId}`, { status: "Vacant Dirty" });
       }
       await loadData(true);
       showActionPopup("success", action === "check-in" ? "Guest checked in." : "Guest checked out. Room cleaning me chala gaya.");
@@ -703,8 +717,9 @@ const Stayover = () => {
 
     try {
       setAssigningCleaning(true);
-      await API.put(`/housekeeping/assignee/${roomId}`, { assignee: selectedAssignee });
-      await API.put(`/housekeeping/status/${roomId}`, { status: "Vacant Dirty" });
+      const hkRoomId = resolveHousekeepingId(roomId, rooms);
+      await API.put(`/housekeeping/assignee/${hkRoomId}`, { assignee: selectedAssignee });
+      await API.put(`/housekeeping/status/${hkRoomId}`, { status: "Vacant Dirty" });
 
       const receptionist =
         localStorage.getItem("name") ||
@@ -767,7 +782,8 @@ const Stayover = () => {
 
     try {
       setAssigningCleaning(true);
-      await API.put(`/housekeeping/status/${roomId}`, { status: "Vacant Clean" });
+      const hkRoomId = resolveHousekeepingId(roomId, rooms);
+      await API.put(`/housekeeping/status/${hkRoomId}`, { status: "Vacant Clean" });
 
       // Also flip any matching hk_messages row to Completed so it leaves the
       // /housekeepernotification feed as well.
@@ -861,9 +877,11 @@ const Stayover = () => {
     try {
       await API.put(`/hotel/${action}/${selectedRoom.booking.bookingId}`);
       if (action === "check-out" && selectedRoom.roomNumber) {
-        await API.put(`/housekeeping/status/${selectedRoom.roomData?.id || selectedRoom.roomNumber}`, {
-          status: "Vacant Dirty",
-        });
+        const hkRoomId = resolveHousekeepingId(
+          selectedRoom.roomData?.id || selectedRoom.roomNumber,
+          rooms,
+        );
+        await API.put(`/housekeeping/status/${hkRoomId}`, { status: "Vacant Dirty" });
       }
       await loadData(true);
       setSelectedRoom(null);

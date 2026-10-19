@@ -51,6 +51,7 @@ const {
   updateProfitCenter,
   deleteProfitCenter,
   listPaymentGatewaySettings,
+  getPaymentGatewaySettingById,
   addPaymentGatewaySetting,
   updatePaymentGatewaySetting,
   deletePaymentGatewaySetting,
@@ -125,6 +126,13 @@ router.post("/income", addIncome);
 router.post("/expense", addExpense);
 
 router.get("/extended-summary", getExtendedSummary);
+
+// The payment-settings form posts multipart/form-data (it can attach a QR
+// image), and the app only installs json + urlencoded. Without a multipart
+// parser req.body stays empty and every save dies with "paymentMode is
+// required".
+router.use(memoryStorage.none());
+
 router.get("/reconciliation/summary", getReconciliationSummary);
 router.get("/reconciliation/items", listReconciliationItems);
 router.post("/reconciliation/match", matchBankLedger);
@@ -159,6 +167,7 @@ router.post("/profit-centers", addProfitCenter);
 router.put("/profit-centers/:id", updateProfitCenter);
 router.delete("/profit-centers/:id", deleteProfitCenter);
 router.get("/payment-settings", listPaymentGatewaySettings);
+router.get("/payment-settings/:id", getPaymentGatewaySettingById);
 router.post("/payment-settings", addPaymentGatewaySetting);
 router.put("/payment-settings/:id", updatePaymentGatewaySetting);
 router.delete("/payment-settings/:id", deletePaymentGatewaySetting);

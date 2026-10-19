@@ -1,7 +1,9 @@
 const jwt = require("jsonwebtoken");
 const { getJwtSecret } = require("../config/security");
 
-const JWT_SECRET = getJwtSecret();
+// The secret is read on every request instead of once at module load, so a
+// .env change or a different startup environment cannot leave login and
+// verification signing with two different keys.
 
 function authMiddleware(req, res, next) {
   // 1. Try Authorization header first (Bearer token)
@@ -10,7 +12,7 @@ function authMiddleware(req, res, next) {
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const token = authHeader.split(" ")[1];
     try {
-      const decoded = jwt.verify(token, JWT_SECRET);
+      const decoded = jwt.verify(token, getJwtSecret());
       req.user = decoded;
       return next();
     } catch (err) {
@@ -22,7 +24,7 @@ function authMiddleware(req, res, next) {
   const cookieToken = req.cookies?.token;
   if (cookieToken) {
     try {
-      const decoded = jwt.verify(cookieToken, JWT_SECRET);
+      const decoded = jwt.verify(cookieToken, getJwtSecret());
       req.user = decoded;
       return next();
     } catch (err) {
