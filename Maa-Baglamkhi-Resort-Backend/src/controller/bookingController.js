@@ -1780,9 +1780,30 @@ exports.deleteBooking = async (req, res) => {
 
 exports.refundBooking = async (req, res) => {
   const id = req.params.id;
-  const { amount } = req.body;
+  const amount = Number(req.body.amount || 0);
 
   try {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ message: "Refund amount must be a positive number" });
+    }
+
+    const bookingRows = await query(
+      "SELECT total_amount, advance_amount, balance_amount FROM bookings WHERE id = ? FOR UPDATE",
+      [id],
+    );
+    const booking = bookingRows[0];
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    const total = Number(booking.total_amount || 0);
+    const advance = Number(booking.advance_amount || 0);
+    if (amount > total) {
+      return res.status(400).json({
+        message: `Refund amount exceeds booking total of ${total}`,
+      });
+    }
+
     const methodRows = await query("SELECT id FROM payment_methods ORDER BY id ASC LIMIT 1");
     const methodId = methodRows[0]?.id || null;
     if (!methodId) {
@@ -1793,7 +1814,17 @@ exports.refundBooking = async (req, res) => {
       `INSERT INTO payments
          (booking_id, amount, payment_method_id, payment_type, status)
        VALUES (?, ?, ?, 'refund', 'completed')`,
-      [id, Number(amount || 0), methodId],
+      [id, amount, methodId],
+    );
+
+    // Mirror updateAdvance's rollup in reverse so the booking's own totals move.
+    const refund = Math.min(amount, advance);
+    await query(
+      `UPDATE bookings
+       SET advance_amount = GREATEST(advance_amount - ?, 0),
+           balance_amount = GREATEST(total_amount - (advance_amount - ?), 0)
+       WHERE id = ?`,
+      [refund, refund, id],
     );
 
     res.json({ message: "Refund Done" });
