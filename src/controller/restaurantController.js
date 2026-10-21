@@ -1,3 +1,4 @@
+const folioModel = require("../models/folioModel");
 const db = require("../config/db");
 const { getRequestActor, isWaiterActor, namesMatch } = require("../utils/requestActor");
 
@@ -1130,14 +1131,16 @@ const chargeBillToRoom = async (data) => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
   }
-  log("folio schema ready");
+  log("folio schema ready");  
+const conn = await db.getConnection();
+const paymentsTableName = process.env.PAYMENTS_TABLE_NAME || "payments";
 
-  const conn = await db.getConnection();
-  log("connection acquired");
+log("connection acquired");
 
-  try {
-    await conn.beginTransaction();
-    log("transaction started");
+try {
+  await conn.beginTransaction();
+  log("transaction started");
+
 
     let billId = Number(data.billId || 0) || null;
     let billRow = null;
@@ -1187,39 +1190,78 @@ const chargeBillToRoom = async (data) => {
     }
 
     const roomNumber = String(data.roomNumber || data.room || "").trim();
-    const targetBookingId = Number(data.bookingId || billRow.room_booking_id || 0) || null;
+const targetBookingId =
+  Number(data.bookingId || billRow.room_booking_id || 0) || null;
 
-    let bookingRow = null;
-    if (targetBookingId) {
-      const [guestRows] = await conn.query(
-        "SELECT id, booking_code, guest_name, booking_status FROM guests WHERE id = ? LIMIT 1",
-        [targetBookingId],
-      );
-      bookingRow = guestRows?.[0] || null;
-    }
+let bookingRow = null;
 
-    if (!bookingRow && roomNumber) {
-      const [tariffRows] = await conn.query(
-        `
-          SELECT g.id AS bookingId, g.booking_code, g.guest_name, g.booking_status
-          FROM guests g
-          INNER JOIN room_tariff rt ON rt.booking_id = g.id
-          WHERE CAST(rt.room_number AS CHAR) = CAST(? AS CHAR)
-            AND LOWER(COALESCE(g.booking_status, 'confirmed')) NOT IN ('checked out', 'cancelled')
-          ORDER BY
-            CASE
-              WHEN LOWER(COALESCE(g.booking_status, '')) LIKE '%checked in%' THEN 0
-              WHEN LOWER(COALESCE(g.booking_status, '')) LIKE '%occupied%' THEN 1
-              WHEN LOWER(COALESCE(g.booking_status, '')) LIKE '%in house%' THEN 2
-              ELSE 3
-            END,
-            g.id DESC
-          LIMIT 1
-        `,
-        [roomNumber],
-      );
-      bookingRow = tariffRows?.[0] || null;
-    }
+const findRoomBooking = async (matchBookingId) => {
+  
+const conditions = [
+  "b.status IN ('checked_in', 'confirmed')",
+];
+
+  const params = [];
+
+  if (matchBookingId && targetBookingId) {
+    conditions.push("b.id = ?");
+    params.push(targetBookingId);
+  }
+
+  if (roomNumber) {
+    conditions.push(
+      "CAST(r.room_number AS CHAR) = CAST(? AS CHAR)"
+    );
+    params.push(roomNumber);
+  }
+
+  const [rows] = await conn.query(
+    `
+      SELECT
+        b.id AS bookingId,
+        b.booking_code,
+        b.status AS booking_status,
+        r.room_number AS roomNumber,
+        COALESCE(
+          NULLIF(TRIM(CONCAT_WS(' ', gp.first_name, gp.last_name)), ''),
+          NULLIF(TRIM(CONCAT_WS(' ', bg.first_name, bg.last_name)), ''),
+          NULLIF(br.guest_name, ''),
+          'Guest'
+        ) AS guest_name,
+        gp.phone AS mobile
+      FROM bookings b
+      INNER JOIN booking_rooms br
+        ON br.booking_id = b.id
+      INNER JOIN rooms r
+        ON r.id = br.room_id
+      LEFT JOIN booking_guests bg
+        ON bg.booking_id = b.id
+       AND bg.is_primary = 1
+      LEFT JOIN guest_profiles gp
+        ON gp.id = bg.guest_profile_id
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY
+        CASE WHEN r.current_booking_id = b.id THEN 0 ELSE 1 END,
+        b.id DESC
+      LIMIT 1
+    `,
+    params
+  );
+
+  return rows?.[0] || null;
+};
+
+// First try the supplied booking ID.
+if (targetBookingId) {
+  bookingRow = await findRoomBooking(true);
+}
+
+// If that ID does not match, retry using the selected room number.
+if (!bookingRow && roomNumber) {
+  bookingRow = await findRoomBooking(false);
+}
+
+
 
     if (!bookingRow) {
       const error = new Error("No active booking found for this room");
@@ -1231,19 +1273,30 @@ const chargeBillToRoom = async (data) => {
     const bookingCode = bookingRow.booking_code || "";
     const guestName = bookingRow.guest_name || "";
 
-    const folioEntryId = await folioModel.createFolioEntry({
-      bookingId: resolvedBookingId,
-      bookingCode,
-      guestName,
-      roomNumber,
-      description: `Restaurant - ${billRow.tableNumber || "Table"} (Bill #${billId})`,
-      debit: Number(billRow.total || data.total || 0),
-      credit: 0,
-      transactionType: "charge",
-      sourceModule: "restaurant",
-      sourceRefId: billId,
-      sourceRefType: "restaurant_bill",
-    });
+    
+const finalAmount = Number(billRow.total || data.total || 0);
+
+if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+  const error = new Error("A valid restaurant bill total is required.");
+  error.statusCode = 400;
+  throw error;
+}
+
+const [folioResult] = await conn.query(
+  `
+    INSERT INTO hotel_folio_entries
+      (booking_id, entry_date, entry_type, category, description, amount, created_by)
+    VALUES (?, CURDATE(), 'Extra Charge', 'Restaurant', 'Food', ?, ?)
+  `,
+  [
+    resolvedBookingId,
+    finalAmount,
+    "Restaurant POS",
+  ],
+);
+
+const folioEntryId = folioResult.insertId;
+
 
     const [paymentResult] = await conn.query(
       `

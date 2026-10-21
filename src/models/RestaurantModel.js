@@ -1280,54 +1280,57 @@ const processBillPayment = async (data) => {
   }
 };
 
-const getRoomChargeableBooking = async (conn, roomNumber, bookingId = null) => {
-  const trimmedRoomNumber = String(roomNumber || "").trim();
-  if (!trimmedRoomNumber) return null;
 
-  const params = [trimmedRoomNumber];
-  let sql = `
-    SELECT
-      g.id AS bookingId,
-      g.booking_code AS bookingCode,
-      g.guest_name AS guestName,
-      g.mobile,
-      g.booking_status AS bookingStatus,
-      CAST(rt.room_number AS CHAR) AS roomNumber
-    FROM guests g
-    INNER JOIN room_tariff rt ON rt.booking_id = g.id
-    WHERE CAST(rt.room_number AS CHAR) = CAST(? AS CHAR)
-      AND LOWER(COALESCE(g.booking_status, 'confirmed')) NOT IN ('checked out', 'cancelled')
-  `;
+const getRoomChargeableBooking = async (conn, roomNumber, bookingId = null) => {
+  const room = String(roomNumber || "").trim();
+  if (!room) return null;
+
+  const params = [room];
+  let bookingFilter = "";
 
   if (bookingId) {
-    sql += " AND g.id = ?";
+    bookingFilter = " AND b.id = ?";
     params.push(Number(bookingId));
   }
 
-  sql += `
-    ORDER BY
-      CASE
-        WHEN LOWER(COALESCE(g.booking_status, '')) LIKE '%checked in%' THEN 0
-        WHEN LOWER(COALESCE(g.booking_status, '')) LIKE '%occupied%' THEN 1
-        WHEN LOWER(COALESCE(g.booking_status, '')) LIKE '%in house%' THEN 2
-        ELSE 3
-      END,
-      g.id DESC
-    LIMIT 1
-  `;
+  const [rows] = await conn.query(
+    `
+      SELECT
+        b.id AS bookingId,
+        b.booking_code AS bookingCode,
+        b.status AS bookingStatus,
+        r.room_number AS roomNumber,
+        COALESCE(
+          NULLIF(TRIM(CONCAT_WS(' ', gp.first_name, gp.last_name)), ''),
+          NULLIF(TRIM(CONCAT_WS(' ', bg.first_name, bg.last_name)), ''),
+          NULLIF(br.guest_name, ''),
+          'Guest'
+        ) AS guestName,
+        gp.phone AS mobile
+      FROM bookings b
+      INNER JOIN booking_rooms br
+        ON br.booking_id = b.id
+      INNER JOIN rooms r
+        ON r.id = br.room_id
+      LEFT JOIN booking_guests bg
+        ON bg.booking_id = b.id
+       AND bg.is_primary = 1
+      LEFT JOIN guest_profiles gp
+        ON gp.id = bg.guest_profile_id
+      WHERE CAST(r.room_number AS CHAR) = CAST(? AS CHAR)
+        AND b.status = 'checked_in'
+        ${bookingFilter}
+      ORDER BY
+        CASE WHEN r.current_booking_id = b.id THEN 0 ELSE 1 END,
+        b.id DESC
+      LIMIT 1
+    `,
+    params
+  );
 
-  const [rows] = await conn.query(sql, params);
-  const booking = rows?.[0] || null;
-  if (!booking) return null;
-
-  const normalizedStatus = normalizeMatchValue(booking.bookingStatus);
-  const isActiveStay =
-    normalizedStatus.includes("checked in") ||
-    normalizedStatus.includes("occupied") ||
-    normalizedStatus.includes("in house");
-
-  return isActiveStay ? booking : null;
+  return rows?.[0] || null;
 };
+
 
 const chargeBillToRoom = async (data) => {
   const traceId = `cbr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

@@ -16,7 +16,7 @@ const ensureSchema = async () => {
   await runQuery(`
     CREATE TABLE IF NOT EXISTS hotel_folio_entries (
       id          INT AUTO_INCREMENT PRIMARY KEY,
-      booking_id  INT NOT NULL,
+      booking_id BIGINT UNSIGNED NOT NULL,
       entry_date  DATE NOT NULL,
       entry_type  ENUM(
                     'Room Charge','Extra Charge',
@@ -27,7 +27,7 @@ const ensureSchema = async () => {
       amount      DECIMAL(10,2) NOT NULL DEFAULT 0,
       created_by  VARCHAR(100) DEFAULT 'Front Desk',
       created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (booking_id) REFERENCES guests(id) ON DELETE CASCADE
+      FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE
     )
   `);
 };
