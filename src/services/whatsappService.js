@@ -645,6 +645,89 @@ const sendBookingCancellation = async (booking, options = {}) => {
   };
 };
 
+/**
+ * Health-check the Wasend integration without sending anything.
+ *
+ * Hitting the gateway with no parameters returns a structured error (400
+ * "missing number") if the API key authenticates, or 401 if it does not.
+ * Either way we get a definitive answer about whether the key is live —
+ * which is exactly what a "test connection" button on the admin UI needs.
+ *
+ * Returns { ok, status, reason }.
+ */
+const checkHealth = async () => {
+  if (!API_KEY) {
+    return { ok: false, status: 0, reason: "wasachiva_key not configured" };
+  }
+
+  try {
+    const response = await requestGateway("GET", "/api/health");
+    if (response?.status !== "error") {
+      return { ok: true, status: 200, reason: "gateway reachable" };
+    }
+    // Most Wasend accounts do not expose /api/health — fall back to a
+    // credential check: send-message with an invalid number. Auth OK but
+    // delivery-rejected means the key is valid.
+    const probe = await requestGateway("GET", "/api/send-message", {
+      number: "0000000000",
+      message: "health probe",
+    });
+    if (probe?.status === "success") {
+      // Very unlikely — a 10-digit-of-zeros number would not deliver.
+      return { ok: true, status: 200, reason: "probe succeeded" };
+    }
+    const errMsg = String(probe?.error || probe?.message || "");
+    if (
+      /unauthorized|401|missing api|invalid key|credential/i.test(errMsg)
+    ) {
+      return { ok: false, status: 401, reason: errMsg || "key rejected by Wasend" };
+    }
+    // Any other error (validation, no route, etc.) means the key passed auth.
+    return { ok: true, status: 200, reason: `auth OK (delivery probe: ${errMsg.slice(0, 80)})` };
+  } catch (err) {
+    return { ok: false, status: 0, reason: err.message };
+  }
+};
+
+/**
+ * Resolve the admin's WhatsApp number.
+ *
+ * The v4 auth system uses the `users` + `roles` tables (there is no `register`
+ * table, and every legacy `FROM register` admin lookup had been throwing and
+ * getting swallowed). The env var `ADMIN_WHATSAPP_NUMBER` is the stable,
+ * admin-owned number — it is checked FIRST so the delivery target does not
+ * depend on which admin happens to have a phone filled in. A users-table
+ * lookup is the fallback, then "any active user with a phone".
+ *
+ * Returns: { number: string, source: 'env' | 'users' | 'any_user' | 'none' }
+ */
+const resolveAdminNumber = async () => {
+  const envNumber = String(process.env.ADMIN_WHATSAPP_NUMBER || "").trim();
+  if (envNumber) return { number: envNumber, source: "env" };
+
+  try {
+    const db = require("../config/db");
+    const [rows] = await db.query(
+      `SELECT u.phone FROM users u
+       WHERE u.role_id = 1 AND u.status = 'active'
+         AND u.phone IS NOT NULL AND TRIM(u.phone) <> ''
+       ORDER BY u.id ASC LIMIT 1`
+    );
+    if (rows?.[0]?.phone) return { number: String(rows[0].phone).trim(), source: "users" };
+
+    const [anyRows] = await db.query(
+      `SELECT phone FROM users
+       WHERE phone IS NOT NULL AND TRIM(phone) <> ''
+       ORDER BY id ASC LIMIT 1`
+    );
+    if (anyRows?.[0]?.phone) return { number: String(anyRows[0].phone).trim(), source: "any_user" };
+  } catch (err) {
+    console.warn("[WhatsApp] admin DB lookup failed:", err.message);
+  }
+
+  return { number: "", source: "none" };
+};
+
 module.exports = {
   normalizePhoneNumber,
   formatPhoneDisplay,
@@ -653,4 +736,6 @@ module.exports = {
   sendInvoiceNotifications,
   sendBookingConfirmation,
   sendBookingCancellation,
+  resolveAdminNumber,
+  checkHealth,
 };

@@ -47,16 +47,11 @@ const fireWhatsAppInvoice = async (bookingId) => {
         fileName: pdf.fileName,
       });
     }
-    // Resolve admin phone from register table (not from env/ADMIN_WHATSAPP_NUMBER)
-    let adminNumber = "";
-    try {
-      const [adminRows] = await db.query(
-        "SELECT id, name, email, phone FROM register WHERE LOWER(role) = 'admin' AND phone IS NOT NULL AND TRIM(phone) <> '' ORDER BY id ASC LIMIT 1"
-      );
-      adminNumber = adminRows?.[0]?.phone || "";
-    } catch (e) {
-      // ignore — admin will be skipped
-    }
+    // Resolve admin phone via the shared helper — the old `register` table
+    // query always threw (that table does not exist in v4), so admin
+    // deliveries were silently skipped.
+    const adminRes = await WhatsAppService.resolveAdminNumber();
+    let adminNumber = adminRes.number;
     if (adminNumber) {
       const adminMsg = `Invoice sent to ${guestName} for booking ${invoice.invoiceNo || bookingId}. Total: ₹${invoice.totalAmount?.toFixed(2) || "0.00"}`;
       await WhatsAppService.sendWhatsAppMessage({
@@ -817,16 +812,11 @@ exports.createGuest = async (req, res) => {
             `Balance: ${formattedBalance}`;
 
           const customerNumber = invoice.phone || invoice.mobileNumber || "";
-          let adminNumber = "";
-          try {
-            const adminRows = await new Promise((resolve, reject) => {
-              db.query(
-                "SELECT id, name, email, phone FROM register WHERE LOWER(role) = 'admin' AND phone IS NOT NULL AND TRIM(phone) <> '' ORDER BY id ASC LIMIT 1",
-                (err, rows) => (err ? reject(err) : resolve(rows)),
-              );
-            });
-            adminNumber = adminRows?.[0]?.phone || "";
-          } catch { /* ignore */ }
+          // The old query hit a `register` table that no longer exists; this
+          // helper resolves from the v4 `users` table (admin, then any user,
+          // then the env var).
+          const admin = await WhatsAppService.resolveAdminNumber();
+          let adminNumber = admin.number;
 
           if (customerNumber) {
             await WhatsAppService.sendWhatsAppMessage({ number: customerNumber, message: customerMessage });
@@ -2014,16 +2004,9 @@ exports.cancelBooking = async (req, res) => {
       setImmediate(async () => {
         try {
           const customerNumber = booking.mobile || booking.guest_phone || "";
-          let adminNumber = "";
-          try {
-            const adminRows = await new Promise((resolve, reject) => {
-              db.query(
-                "SELECT id, name, email, phone FROM register WHERE LOWER(role) = 'admin' AND phone IS NOT NULL AND TRIM(phone) <> '' ORDER BY id ASC LIMIT 1",
-                (err, rows) => (err ? reject(err) : resolve(rows)),
-              );
-            });
-            adminNumber = adminRows?.[0]?.phone || "";
-          } catch { /* ignore */ }
+          // register table no longer exists; use the shared resolver (v4 users).
+          const admin = await WhatsAppService.resolveAdminNumber();
+          let adminNumber = admin.number;
 
           const result = await WhatsAppService.sendBookingCancellation(
             {

@@ -114,36 +114,13 @@ exports.sendRestaurantInvoiceWhatsApp = async (req, res) => {
     const publicBase = getPublicBaseUrl();
     const fileUrl = `${publicBase}/uploads/invoices/${pdfResult.fileName}`;
 
-    // 7. Resolve admin number via raw SQL (replacing UserModel.findAdminWithPhone)
+    // 7. Resolve admin number via the shared resolver (v4 users table + env)
+    //
+    // The old `register` table lookup silently failed (that table no longer
+    // exists); every admin delivery in this module was being skipped.
     let adminNumber = req.body?.adminNumber || "";
     if (!adminNumber) {
-      try {
-        const adminRow = await new Promise((resolve, reject) => {
-          db.query(
-            `SELECT id, name, email, phone FROM register
-             WHERE LOWER(role) = 'admin' AND phone IS NOT NULL AND TRIM(phone) <> ''
-             ORDER BY id ASC LIMIT 1`,
-            (err, rows) => (err ? reject(err) : resolve(rows?.[0] || null)),
-          );
-        });
-        // Fallback: if no admin has a phone, pick the first admin
-        if (!adminRow) {
-          const fallback = await new Promise((resolve, reject) => {
-            db.query(
-              `SELECT id, name, email, phone FROM register WHERE LOWER(role) = 'admin' ORDER BY id ASC LIMIT 1`,
-              (err, rows) => (err ? reject(err) : resolve(rows?.[0] || null)),
-            );
-          });
-          adminNumber = fallback?.phone || "";
-        } else {
-          adminNumber = adminRow?.phone || "";
-        }
-      } catch {
-        // continue without admin
-      }
-    }
-    if (!adminNumber && process.env.ADMIN_WHATSAPP_NUMBER) {
-      adminNumber = process.env.ADMIN_WHATSAPP_NUMBER;
+      adminNumber = (await WhatsAppService.resolveAdminNumber()).number;
     }
 
     // 8. Build messages

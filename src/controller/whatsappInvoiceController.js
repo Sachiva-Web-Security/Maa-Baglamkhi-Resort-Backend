@@ -216,18 +216,13 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
         `Balance: ${formattedBalance}\n` +
         `Mode: ${booking.paymentMode || "—"}`;
 
-      // Resolve admin number
+      // Resolve admin number. The old code called UserModel.findAdminWithPhone
+      // (an async/await model) with a callback, so the promise was created and
+      // then dropped — adminNumber stayed empty and admin got nothing. The
+      // shared resolver fixes this and centralises the fallback.
       let adminNumber = req.body?.adminNumber || "";
       if (!adminNumber) {
-        try {
-          const adminRow = await new Promise((resolve, reject) => {
-            UserModel.findAdminWithPhone((err, row) => (err ? reject(err) : resolve(row)));
-          });
-          adminNumber = adminRow?.phone || "";
-        } catch { /* ignore */ }
-      }
-      if (!adminNumber && process.env.ADMIN_WHATSAPP_NUMBER) {
-        adminNumber = process.env.ADMIN_WHATSAPP_NUMBER;
+        adminNumber = (await WhatsAppService.resolveAdminNumber()).number;
       }
 
       const result = await WhatsAppService.sendBookingConfirmation(
@@ -392,28 +387,18 @@ exports.sendInvoiceWhatsApp = async (req, res) => {
     // 3. Build the public file URL
     const publicBase = getPublicBaseUrl();
     const fileUrl = `${publicBase}/uploads/invoices/${pdfResult.fileName}`;
-    // 3a. Resolve admin number: request body → DB lookup (prefer admin WITH phone) → env fallback → empty
+    // 3a. Resolve admin number: request body → shared resolver (v4 users table,
+    // then env). The old UserModel.findAdminWithPhone call passed a callback
+    // to an async/await model, so the lookup promise was created and dropped
+    // and adminNumber was always empty.
     let adminNumber = req.body?.adminNumber || "";
     console.log("[send-whatsapp] adminNumber from request body:", adminNumber || "(empty)");
     if (!adminNumber) {
-      try {
-        const adminRow = await new Promise((resolve, reject) => {
-          UserModel.findAdminWithPhone((err, row) => (err ? reject(err) : resolve(row)));
-        });
-        adminNumber = adminRow?.phone || "";
-        console.log("[send-whatsapp] adminNumber from DB:", adminNumber || "(empty — no admin has phone set)", "adminId:", adminRow?.id || "null");
-      } catch (err) {
-        console.error("[send-whatsapp] DB lookup for admin phone failed:", err.message);
-      }
+      const adminResolved = await WhatsAppService.resolveAdminNumber();
+      adminNumber = adminResolved.number;
+      console.log("[send-whatsapp] adminNumber from resolver:", adminNumber || "(empty)", "source:", adminResolved.source);
     } else {
       console.log("[send-whatsapp] Using admin number from request body:", adminNumber);
-    }
-
-    // Last-resort fallback: env-defined ADMIN_WHATSAPP_NUMBER so the admin
-    // still receives the invoice even if no one has filled Profile yet.
-    if (!adminNumber && process.env.ADMIN_WHATSAPP_NUMBER) {
-      adminNumber = process.env.ADMIN_WHATSAPP_NUMBER;
-      console.log("[send-whatsapp] using ADMIN_WHATSAPP_NUMBER from env:", adminNumber);
     }
     console.log("[send-whatsapp] Final adminNumber passed to service:", adminNumber || "(empty)");
 

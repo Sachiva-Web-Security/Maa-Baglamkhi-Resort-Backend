@@ -196,20 +196,13 @@ exports.sendBanquetInvoiceWhatsApp = async (req, res) => {
     const publicBase = getPublicBaseUrl();
     const fileUrl = `${publicBase}/uploads/invoices/${pdfResult.fileName}`;
 
-    // 5. Resolve admin number: request body -> DB lookup -> env fallback
+    // 5. Resolve admin number: request body -> shared resolver (users table + env)
+    //
+    // The old `register` table query silently failed (the table does not exist
+    // in the v4 schema) — resolveAdminNumber() centralises the lookup.
     let adminNumber = req.body?.adminNumber || "";
     if (!adminNumber) {
-      try {
-        const [adminRow] = await db.query(
-          "SELECT id, name, email, phone FROM register WHERE LOWER(role) = 'admin' AND phone IS NOT NULL AND TRIM(phone) <> '' ORDER BY id ASC LIMIT 1"
-        );
-        adminNumber = adminRow?.[0]?.phone || "";
-      } catch {
-        // continue without admin
-      }
-    }
-    if (!adminNumber && process.env.ADMIN_WHATSAPP_NUMBER) {
-      adminNumber = process.env.ADMIN_WHATSAPP_NUMBER;
+      adminNumber = (await WhatsAppService.resolveAdminNumber()).number;
     }
 
     // 6. Build messages
