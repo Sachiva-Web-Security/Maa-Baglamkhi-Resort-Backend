@@ -251,7 +251,168 @@ const ensureSchema = async () => {
   await backfillDepartmentClassification();
 };
 
+// ---------------------------------------------------------------------------
+// Option A — union payments / invoices / bills into the Account Ledger flat
+// array so the table reflects real money, not just the manual ledger rows.
+// Column/alias names follow the controllers that already read these tables
+// correctly (accountsController.getHotelBillingRecords /
+// getRestaurantBillingRecords / getPaymentHistory).
+// ---------------------------------------------------------------------------
+
+const BILL_PAYMENT_METHOD_LABEL = {
+  cash: "Cash",
+  card: "Card",
+  upi: "UPI",
+  wallet: "Wallet",
+  net_banking: "Bank Transfer",
+  credit: "Credit",
+  other: "Other",
+};
+
+const isCompletedPayment = (status) =>
+  ["completed", "paid", "settled"].includes(String(status || "").toLowerCase());
+
+const isRefundPayment = (row) =>
+  ["refund", "refunded"].includes(String(row.payment_type || "").toLowerCase());
+
+const isRefundBillStatus = (status) =>
+  ["refunded", "cancelled", "canceled"].includes(String(status || "").toLowerCase());
+
+const formatLedgerDate = (value) => {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(value);
+  if (!d || Number.isNaN(d.getTime())) return String(value);
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()];
+  return `${day} ${month} ${d.getFullYear()}`;
+};
+
+// Payments: operational receipts from the v4 `payments` table.
+const getPaymentsRecords = async () => {
+  if (!(await tableExists("payments"))) return [];
+  const [rows] = await db.query(
+    `SELECT
+       p.id,
+       p.amount,
+       p.payment_type,
+       p.status,
+       p.reference_no,
+       p.created_at,
+       p.entry_date,
+       pm.name AS payment_method_name,
+       (
+         SELECT GROUP_CONCAT(COALESCE(bg.first_name, '') SEPARATOR ', ')
+         FROM booking_guests bg WHERE bg.booking_id = p.booking_id
+       ) AS guest_name
+     FROM payments p
+     LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id`,
+  );
+  const safe = Array.isArray(rows) ? rows : [];
+  return safe
+    .filter((p) => isCompletedPayment(p.status))
+    .map((p) => ({
+      id: `payment-${p.id}`,
+      date: formatLedgerDate(p.entry_date || p.created_at),
+      type: isRefundPayment(p) ? "Expense" : "Income",
+      department: "Room",
+      sourceModule: "payments",
+      description: p.reference_no || `Payment #${p.id}`,
+      narration: null,
+      customerName: p.guest_name || null,
+      customerMobile: null,
+      amount: Number(p.amount || 0),
+      paymentMode: p.payment_method_name || "Cash",
+    }));
+};
+
+// Invoices: issued invoices with a total, linked to the booking's guest.
+const getInvoicesRecords = async () => {
+  if (!(await tableExists("invoices"))) return [];
+  const [rows] = await db.query(
+    `SELECT
+       i.id,
+       i.invoice_no,
+       i.payment_status,
+       i.status AS invoice_status,
+       i.total_amount,
+       i.total,
+       i.created_at,
+       i.customer_name,
+       i.phone,
+       (
+         SELECT GROUP_CONCAT(COALESCE(bg.first_name, '') SEPARATOR ', ')
+         FROM booking_guests bg WHERE bg.booking_id = i.booking_id
+       ) AS guest_name
+     FROM invoices i`,
+  );
+  const safe = Array.isArray(rows) ? rows : [];
+  return safe
+    .filter((i) => Number(i.total_amount || i.total || 0) > 0)
+    .map((i) => ({
+      id: `invoice-${i.id}`,
+      date: formatLedgerDate(i.created_at),
+      type: "Income",
+      department: "Room",
+      sourceModule: "invoices",
+      description: i.invoice_no || `Invoice #${i.id}`,
+      narration: null,
+      customerName: i.customer_name || i.guest_name || null,
+      customerMobile: i.phone || null,
+      amount: Number(i.total_amount || i.total || 0),
+      paymentMode: i.payment_mode || "Cash",
+    }));
+};
+
+// Bills: restaurant/banquet bills with a total, own customer_name/phone cols.
+const getBillsRecords = async () => {
+  if (!(await tableExists("bills"))) return [];
+  const [rows] = await db.query(
+    `SELECT
+       b.id,
+       b.table_number,
+       b.customer_name,
+       b.phone,
+       b.total,
+       b.payment_method,
+       b.payment_status,
+       b.created_at
+     FROM bills b`,
+  );
+  const safe = Array.isArray(rows) ? rows : [];
+  return safe
+    .filter((b) => Number(b.total || 0) > 0)
+    .map((b) => ({
+      id: `bill-${b.id}`,
+      date: formatLedgerDate(b.created_at),
+      type: isRefundBillStatus(b.payment_status) ? "Expense" : "Income",
+      department: "Restaurant",
+      sourceModule: "bills",
+      description: b.table_number
+        ? `Bill - Table ${b.table_number}`
+        : `Bill #${b.id}`,
+      narration: null,
+      customerName: b.customer_name || null,
+      customerMobile: b.phone || null,
+      amount: Number(b.total || 0),
+      paymentMode: BILL_PAYMENT_METHOD_LABEL[String(b.payment_method || "").toLowerCase()] || "Cash",
+    }));
+};
+
+// Option A: union the money tables into the ledger flat array so the Account
+// Ledger table shows real transactions, not just manual income/expense rows.
+// Failures of one source never blank the whole table.
+const getUnionedLedger = async () => {
+  const [payments, invoices, bills] = await Promise.all([
+    getPaymentsRecords().catch(() => []),
+    getInvoicesRecords().catch(() => []),
+    getBillsRecords().catch(() => []),
+  ]);
+  return [...payments, ...invoices, ...bills];
+};
+
 const getTransactions = async (callback) => {
+  let collected;
+  const cb = typeof callback === "function" ? callback : (err, rows) => { if (err) throw err; collected = rows; };
   try {
     const hasPaymentHistory = await tableExists("payment_history");
     const hasInvoices = await tableExists("invoices");
@@ -311,7 +472,7 @@ const getTransactions = async (callback) => {
           at.narration AS narration,
           at.customer_name AS customerName,
           at.customer_mobile AS customerMobile,
-          at.amount AS amount,
+          CASE WHEN COALESCE(at.amount, 0) > 0 THEN at.amount ELSE 0 END AS amount,
           at.payment_mode AS paymentMode,
           at.date AS sortDate,
           at.id AS sortId
@@ -324,11 +485,17 @@ const getTransactions = async (callback) => {
 
     const rows = await runQuery(sql);
 
+    // Option A: append real money rows from payments / invoices / bills so the
+    // Account Ledger table reflects actual transactions, not just the manual
+    // income/expense postings. Each source's prefix keeps ids unique.
+    const unioned = await getUnionedLedger();
+    const merged = [...unioned, ...rows];
+
     // Deduplicate: prefer payment_history entries over accounts_transactions
     // entries that were auto-created from the same payment
     const seen = new Map();
     const deduped = [];
-    for (const row of rows) {
+    for (const row of merged) {
       const dedupKey = `${row.description || ''}|${row.amount || 0}|${row.date || ''}`;
       if (seen.has(dedupKey)) {
         // Skip if we already have this entry (from payment_history, which comes first in UNION)
@@ -338,9 +505,10 @@ const getTransactions = async (callback) => {
       deduped.push(row);
     }
 
-    callback(null, deduped);
+    cb(null, deduped);
+    if (typeof callback !== "function") return deduped;
   } catch (error) {
-    callback(error);
+    cb(error);
   }
 };
 
@@ -348,22 +516,23 @@ const createTransaction = (data, callback) => {
   const sql =
     "INSERT INTO accounts_transactions (date, type, department, source_module, description, narration, customer_name, customer_mobile, amount, payment_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
   const department = inferDepartment(data.description, data.department);
-  db.query(
-    sql,
-    [
-      data.date,
-      data.type,
-      department,
-      data.sourceModule || null,
-      data.description,
-      data.narration || null,
-      data.customerName || null,
-      data.customerMobile || null,
-      data.amount,
-      data.paymentMode,
-    ],
-    callback,
-  );
+  const promise = runQuery(sql, [
+    data.date,
+    data.type,
+    department,
+    data.sourceModule || null,
+    data.description,
+    data.narration || null,
+    data.customerName || null,
+    data.customerMobile || null,
+    data.amount,
+    data.paymentMode,
+  ]);
+  if (typeof callback === "function") {
+    promise.then((result) => callback(null, result), (err) => callback(err));
+    return;
+  }
+  return promise;
 };
 
 const getTransactionById = async (id) => {

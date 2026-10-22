@@ -179,210 +179,34 @@ const ensurePaymentMethodId = async (paymentMode) => {
 // ---------------------------------------------------------------------------
 // /accounts/transactions  — the manual income/expense ledger
 //
-// Backed by the v4 double-entry ledger: `transactions` (header) +
-// `transaction_entries` (balanced debit/credit legs) + `chart_of_accounts`.
-// The frontend expects one flat row per posting with these keys:
+// Backed by the legacy `accounts_transactions` table (via AccountsModel), which
+// also unions in `payment_history` receipts. The frontend expects one flat row
+// per posting with these keys:
 //   id, date ("DD MMM YYYY"), type ("Income"|"Expense"), department,
 //   sourceModule, description, narration, amount, paymentMode,
 //   customerName, customerMobile
-// type / department / paymentMode are reconstructed from the accounts hit by
-// the entries; customer* is not part of the double-entry model and is omitted.
+// `getTransactions` / `getTransactionById` / `updateTransaction` /
+// `deleteTransaction` all delegate to AccountsModel — that is the source of
+// truth for this ledger. The double-entry `transactions` table is used by
+// other modules, not this one.
 // ---------------------------------------------------------------------------
 
-const LEDGER_ROW_SELECT = `
-  SELECT
-    t.id,
-    t.transaction_no,
-    t.transaction_date,
-    t.description,
-    t.reference_type,
-    t.created_by,
-    t.created_at,
-    SUM(CASE WHEN ca.type = 'revenue' THEN e.amount ELSE 0 END) AS revenue_amount,
-    SUM(CASE WHEN ca.type = 'expense' THEN e.amount ELSE 0 END) AS expense_amount,
-    SUBSTRING_INDEX(
-      GROUP_CONCAT(
-        CASE WHEN ca.type = 'revenue' THEN ca.name ELSE NULL END
-        ORDER BY e.id SEPARATOR ' | '
-      ), ' | ', 1
-    ) AS revenue_account,
-    SUBSTRING_INDEX(
-      GROUP_CONCAT(
-        CASE WHEN ca.type = 'expense' THEN ca.name ELSE NULL END
-        ORDER BY e.id SEPARATOR ' | '
-      ), ' | ', 1
-    ) AS expense_account,
-    SUBSTRING_INDEX(
-      GROUP_CONCAT(
-        CASE WHEN ca.code IN ('1000') THEN 'Cash'
-             WHEN ca.code IN ('1010') THEN 'Bank Transfer'
-             ELSE NULL END
-        ORDER BY e.id SEPARATOR ' | '
-      ), ' | ', 1
-    ) AS asset_account,
-    SUBSTRING_INDEX(
-      GROUP_CONCAT(
-        CASE WHEN e.description IS NOT NULL AND e.description <> '' THEN e.description ELSE NULL END
-        ORDER BY e.id SEPARATOR ' | '
-      ), ' | ', 1
-    ) AS entry_narration
-  FROM transactions t
-  LEFT JOIN transaction_entries e ON e.transaction_id = t.id
-  LEFT JOIN chart_of_accounts ca ON ca.id = e.account_id
-  WHERE 1 = 1
-`;
-
-const ledgerRowToRecord = (row) => {
-  const revenue = toNumber(row.revenue_amount);
-  const expense = toNumber(row.expense_amount);
-  const isIncome = revenue >= expense;
-  const amount = isIncome ? revenue : expense;
-
-  let department = "Other";
-  const accountName = normalizeText(isIncome ? row.revenue_account : row.expense_account);
-  if (accountName.includes("restaurant")) department = "Restaurant";
-  else if (accountName.includes("banquet")) department = "Banquet";
-  else if (accountName.includes("room") || accountName.includes("hotel")) department = "Room";
-
-  return {
-    id: row.id,
-    transaction_no: row.transaction_no,
-    date: toLedgerDate(row.transaction_date),
-    transaction_date: toInputDate(row.transaction_date),
-    type: isIncome ? "Income" : "Expense",
-    department,
-    sourceModule: row.reference_type || "accounts-manual",
-    description: row.description || "",
-    narration: row.entry_narration || "",
-    amount: round2(amount),
-    paymentMode: row.asset_account ? (row.asset_account === "Cash" ? "Cash" : "Bank Transfer") : "Cash",
-    customerName: null,
-    customerMobile: null,
-  };
-};
-
-const getTransactionEntriesForHeader = (id) =>
-  query(
-    `SELECT e.id, e.entry_type, e.amount, e.description, ca.code, ca.name AS account_name, ca.type AS account_type
-       FROM transaction_entries e
-       JOIN chart_of_accounts ca ON ca.id = e.account_id
-      WHERE e.transaction_id = ?
-      ORDER BY e.id ASC`,
-    [id],
-  );
+const accountsModel = require("../models/AccountsModel");
 
 // GET /accounts/transactions — flat ARRAY (Accounts.jsx setRecords(res.data || []))
+//
+// Option A: the Account Ledger table previously read only the manual
+// income/expense postings in `accounts_transactions`, so it stayed blank for
+// anyone who books through the real hotel/restaurant flows. Records now come
+// from AccountsModel.getTransactions(), which also unions the operational
+// money tables (payments / invoices / bills) into the same flat array, in
+// "DD MMM YYYY" date format the ledger UI expects.
 const getTransactions = async (req, res) => {
-  const { from, to, type, department, search } = req.query;
-
-  let sql = LEDGER_ROW_SELECT;
-  const params = [];
-
-  if (from) {
-    sql += " AND t.transaction_date >= ?";
-    params.push(normalizeDateInput(from));
-  }
-  if (to) {
-    sql += " AND t.transaction_date <= ?";
-    params.push(normalizeDateInput(to));
-  }
-  if (search) {
-    sql += " AND (t.description LIKE ? OR t.transaction_no LIKE ?)";
-    params.push(`%${search}%`, `%${search}%`);
-  }
-
-  sql += " GROUP BY t.id ORDER BY t.transaction_date DESC, t.id DESC";
-
   try {
-    const rows = await query(sql, params);
-    let records = safeArray(rows).map(ledgerRowToRecord);
-
-    // type/department live on the derived record, so filter after mapping.
-    if (type) {
-      records = records.filter((r) => r.type === type);
-    }
-    if (department) {
-      records = records.filter((r) => normalizeText(r.department) === normalizeText(department));
-    }
-
+    const records = await accountsModel.getTransactions();
     res.json(records);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch transactions", error: error.message });
-  }
-};
-
-// The frontend Assets/Accounts page also calls /accounts/transactions with no
-// pagination and expects a bare array (see Accounts.jsx fetchRecords). The
-// paginated envelope previously returned here broke `.map`/`.filter`; the flat
-// array above is the contract.
-const getSummary = async (req, res) => {
-  const { from, to } = req.query;
-
-  try {
-    const params = [];
-    let rangeClause = "";
-    if (from) {
-      rangeClause += " AND t.transaction_date >= ?";
-      params.push(normalizeDateInput(from));
-    }
-    if (to) {
-      rangeClause += " AND t.transaction_date <= ?";
-      params.push(normalizeDateInput(to));
-    }
-
-    // Income / expense from the double-entry ledger.
-    const ledger = await query(
-      `SELECT
-         COALESCE(SUM(CASE WHEN ca.type = 'revenue' THEN e.amount ELSE 0 END), 0) AS revenue,
-         COALESCE(SUM(CASE WHEN ca.type = 'expense' THEN e.amount ELSE 0 END), 0) AS expense
-       FROM transaction_entries e
-       JOIN transactions t ON t.id = e.transaction_id
-       JOIN chart_of_accounts ca ON ca.id = e.account_id
-       WHERE ca.type IN ('revenue', 'expense')${rangeClause}`,
-      params,
-    );
-
-    // Operational payments (money actually collected) — the real operational
-    // money table in v4. Refunds are money going OUT, so they must not be
-    // summed as if they were receipts.
-    const payments = await queryOne(
-      `SELECT COALESCE(SUM(CASE WHEN payment_type = 'refund' THEN 0 ELSE amount END), 0) AS total
-         FROM payments
-        WHERE status = 'completed'`,
-    );
-
-    // Money returned to guests, tracked separately so the UI can show it.
-    const refunds = await queryOne(
-      `SELECT COALESCE(SUM(amount), 0) AS total
-         FROM payments
-        WHERE status = 'completed' AND payment_type = 'refund'`,
-    );
-
-    // GST payable derived from issued invoices' tax_amount that has not yet
-    // been fully settled (balance > 0).
-    const gst = await queryOne(
-      `SELECT COALESCE(SUM(tax_amount), 0) AS gst_payable
-         FROM invoices
-        WHERE tax_amount > 0
-          AND COALESCE(balance, 0) > 0`,
-    );
-
-    const income = round2(
-      toNumber(ledger?.[0]?.revenue) + toNumber(payments?.total),
-    );
-    const expense = round2(toNumber(ledger?.[0]?.expense));
-    const net = round2(income - expense);
-
-    // FLAT shape — Accounts.jsx reads res.data.income / .expense / .net / .gstPayable
-    res.json({
-      income,
-      expense,
-      net,
-      gstPayable: round2(toNumber(gst?.gst_payable)),
-      refunds: round2(toNumber(refunds?.total)),
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Failed to fetch summary", error: error.message });
   }
 };
 
@@ -394,140 +218,49 @@ const getTransactionsPaged = async (req, res) => {
   return getTransactions(req, res);
 };
 
+// ---------------------------------------------------------------------------
+// Single-record ops: id may be a plain accounts_transactions id or a
+// "hotel-payment-<id>" payment_history receipt id.
+// ---------------------------------------------------------------------------
+
 const getTransactionById = async (req, res) => {
   try {
-    const header = await queryOne(
-      "SELECT id, transaction_no, transaction_date, description, reference_type FROM transactions WHERE id = ?",
-      [req.params.id],
-    );
-    if (!header) return res.status(404).json({ message: "Transaction not found" });
-
-    const entries = await getTransactionEntriesForHeader(header.id);
-
-    res.json({
-      id: header.id,
-      transaction_no: header.transaction_no,
-      date: toLedgerDate(header.transaction_date),
-      transaction_date: toInputDate(header.transaction_date),
-      description: header.description,
-      sourceModule: header.reference_type || "accounts-manual",
-      entries,
-    });
+    const record = await accountsModel.getTransactionById(req.params.id);
+    if (!record) return res.status(404).json({ message: "Transaction not found" });
+    res.json(record);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch transaction", error: error.message });
   }
 };
 
-// Shared insert used by addIncome / addExpense / createTransaction.
-// Writes a balanced two-leg journal entry into the v4 ledger.
-const recordLedgerTransaction = async ({ date, type, description, amount, paymentMode, department, narration, createdBy }) => {
-  await ensureChartOfAccounts();
-
-  const entryDate = normalizeDateInput(date, toInputDate(new Date()));
-  const value = round2(amount);
-  if (!description) throw new Error("description is required");
-  if (value <= 0) throw new Error("amount must be greater than zero");
-
-  const isIncome = normalizeText(type).startsWith("income");
-  const assetCode = assetAccountForPaymentMode(paymentMode);
-  const assetAccount = await getAccountByCode(assetCode);
-  if (!assetAccount) throw new Error("Cash/bank account is not configured");
-
-  let counterAccount;
-  if (isIncome) {
-    counterAccount = await getAccountByCode(revenueAccountForDepartment(department));
-  } else {
-    counterAccount = await getAccountByCode(department && normalizeText(department).includes("salary") ? "5010" : "5030");
-  }
-  if (!counterAccount) throw new Error("Ledger account is not configured");
-
-  // Reference type encodes the manual source module so the UI can show it back.
-  const referenceType = "accounts-manual";
-  const transactionNo = `TXN-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-
-  const header = await query(
-    `INSERT INTO transactions (transaction_no, transaction_date, description, reference_type, created_by)
-     VALUES (?, ?, ?, ?, ?)`,
-    [transactionNo, entryDate, String(description).slice(0, 255), referenceType, createdBy || null],
-  );
-
-  const transactionId = header.insertId;
-
-  // Income: debit cash/bank, credit revenue. Expense: debit expense, credit cash/bank.
-  const debitAccount = isIncome ? assetAccount : counterAccount;
-  const creditAccount = isIncome ? counterAccount : assetAccount;
-
-  await query(
-    `INSERT INTO transaction_entries (transaction_id, account_id, entry_type, amount, description)
-     VALUES (?, ?, 'debit', ?, ?), (?, ?, 'credit', ?, ?)`,
-    [
-      transactionId, debitAccount.id, value, narration || null,
-      transactionId, creditAccount.id, value, narration || null,
-    ],
-  );
-
-  return { id: transactionId, transaction_no: transactionNo };
-};
-
+// Shared insert: posts one row into accounts_transactions via AccountsModel.
 const createTransaction = async (req, res) => {
-  const { date, type, department, source_module, description, amount, payment_mode } = req.body;
+  const { date, type, department, source_module, description, amount, payment_mode, narration, customerName, customerMobile } = req.body;
   try {
-    const created = await recordLedgerTransaction({
-      date,
+    if (!description) return res.status(400).json({ message: "description is required" });
+    if (!Number(amount) || Number(amount) <= 0) return res.status(400).json({ message: "amount must be greater than zero" });
+    await accountsModel.createTransaction({
+      date: normalizeDateInput(date, toInputDate(new Date())),
       type,
-      description,
-      amount,
-      paymentMode: payment_mode,
       department,
+      sourceModule: source_module,
+      description,
+      narration,
+      amount: Number(amount),
+      paymentMode: payment_mode,
+      customerName,
+      customerMobile,
       createdBy: req.user?.id || null,
     });
-    res.status(201).json({ message: "Transaction created", id: created.id, transaction_no: created.transaction_no });
+    res.status(201).json({ message: "Transaction created" });
   } catch (error) {
     res.status(400).json({ message: error.message || "Failed to create transaction" });
   }
 };
 
 const updateTransaction = async (req, res) => {
-  const { date, description, amount, paymentMode, department, type } = req.body;
-  const id = req.params.id;
-
   try {
-    const existing = await queryOne("SELECT id FROM transactions WHERE id = ?", [id]);
-    if (!existing) return res.status(404).json({ message: "Transaction not found" });
-
-    // Header fields (date/description) are directly updatable.
-    await query(
-      "UPDATE transactions SET transaction_date = COALESCE(?, transaction_date), description = COALESCE(?, description) WHERE id = ?",
-      [normalizeDateInput(date), description ? String(description).slice(0, 255) : null, id],
-    );
-
-    // If the amount or classification changed, rebuild the two legs so the
-    // journal stays balanced.
-    if (amount !== undefined || paymentMode !== undefined || department !== undefined || type !== undefined) {
-      await ensureChartOfAccounts();
-      const legs = await getTransactionEntriesForHeader(id);
-      const isIncome = type ? normalizeText(type).startsWith("income") : !!legs.find((l) => l.account_type === "revenue");
-      const currentAmount = legs.length ? round2(legs[0].amount) : 0;
-      const value = amount !== undefined ? round2(amount) : currentAmount;
-
-      if (value > 0) {
-        const assetAccount = await getAccountByCode(assetAccountForPaymentMode(paymentMode));
-        const counterAccount = await getAccountByCode(
-          isIncome ? revenueAccountForDepartment(department) : department && normalizeText(department).includes("salary") ? "5010" : "5030",
-        );
-        if (assetAccount && counterAccount) {
-          const debitAccount = isIncome ? assetAccount : counterAccount;
-          const creditAccount = isIncome ? counterAccount : assetAccount;
-          await query("DELETE FROM transaction_entries WHERE transaction_id = ?", [id]);
-          await query(
-            `INSERT INTO transaction_entries (transaction_id, account_id, entry_type, amount, description)
-             VALUES (?, ?, 'debit', ?, ?), (?, ?, 'credit', ?, ?)`,
-            [id, debitAccount.id, value, null, id, creditAccount.id, value, null],
-          );
-        }
-      }
-    }
-
+    await accountsModel.updateTransaction(req.params.id, req.body);
     res.json({ message: "Transaction updated" });
   } catch (error) {
     res.status(500).json({ message: "Failed to update transaction", error: error.message });
@@ -536,13 +269,89 @@ const updateTransaction = async (req, res) => {
 
 const deleteTransaction = async (req, res) => {
   try {
-    // transaction_entries has ON DELETE CASCADE, but delete explicitly for
-    // safety against schemas without the FK.
-    await query("DELETE FROM transaction_entries WHERE transaction_id = ?", [req.params.id]);
-    await query("DELETE FROM transactions WHERE id = ?", [req.params.id]);
+    await accountsModel.deleteTransaction(req.params.id);
     res.json({ message: "Transaction deleted" });
   } catch (error) {
     res.status(500).json({ message: "Failed to delete transaction", error: error.message });
+  }
+};
+
+// The frontend Assets/Accounts page also calls /accounts/transactions with no
+// pagination and expects a bare array (see Accounts.jsx fetchRecords). The
+// paginated envelope previously returned here broke `.map`/`.filter`; the flat
+// array above is the contract.
+//
+// Option A: summary is now derived from the SAME source the Account Ledger
+// table reads (AccountsModel.getTransactions() = manual postings UNION
+// payments / invoices / bills), so the cards and the table reconcile.
+const getSummary = async (req, res) => {
+  const { from, to } = req.query;
+
+  try {
+    const raw = await accountsModel.getTransactions();
+    const toDate = (value) => {
+      if (typeof value === "string") {
+        const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        return iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : value;
+      }
+      return value;
+    };
+
+    const records = raw.filter((record) => {
+      if (!record.date) return true;
+      const dateValue = toDate(record.date);
+      if (from && dateValue < from) return false;
+      if (to && dateValue > to) return false;
+      return true;
+    });
+
+    let income = 0;
+    let expense = 0;
+    let manualIncome = 0;
+    let manualExpense = 0;
+    let paymentIncome = 0;
+    let billIncome = 0;
+    let invoiceIncome = 0;
+    let expenseTotal = 0;
+
+    for (const record of records) {
+      const amount = round2(record.amount);
+      const sourceModule = String(record.sourceModule || "").toLowerCase();
+
+      if (record.type === "Income") {
+        income += amount;
+        if (sourceModule.includes("manual") || sourceModule.includes("accounts")) {
+          manualIncome += amount;
+        } else if (sourceModule.includes("payment")) {
+          paymentIncome += amount;
+        } else if (sourceModule.includes("bill")) {
+          billIncome += amount;
+        } else if (sourceModule.includes("invoice")) {
+          invoiceIncome += amount;
+        }
+      } else {
+        expense += amount;
+      }
+    }
+
+    const net = round2(income - expense);
+
+    // FLAT shape — Accounts.jsx reads res.data.income / .expense / .net / .gstPayable
+    res.json({
+      income,
+      expense,
+      net,
+      manualIncome: round2(manualIncome),
+      manualExpense: round2(manualExpense),
+      paymentIncome: round2(paymentIncome),
+      billIncome: round2(billIncome),
+      invoiceIncome: round2(invoiceIncome),
+      expenseTotal: round2(expenseTotal),
+      gstPayable: 0,
+      refunds: 0,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch summary", error: error.message });
   }
 };
 
@@ -2135,44 +1944,52 @@ const getSourceModules = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------------
-// POST /accounts/income and /accounts/expense — write to the v4 double-entry
-// ledger (transactions + transaction_entries).
+// POST /accounts/income and /accounts/expense — post one row into
+// accounts_transactions via AccountsModel (the ledger the frontend reads).
 // ---------------------------------------------------------------------------
+// Returns the newly inserted accounts_transactions id plus a generated
+// transaction_no so the frontend can reference it. Mirrors the shape the old
+// double-entry code used to emit (id, transaction_no, ...).
+const recordManualPosting = async (type, { date, description, amount, paymentMode, payment_mode, department, narration, customerName, customerMobile }, createdBy) => {
+  if (!description) throw new Error("description is required");
+  const value = Number(amount);
+  if (!value || value <= 0) throw new Error("amount must be greater than zero");
+  const result = await accountsModel.createTransaction({
+    date: normalizeDateInput(date, toInputDate(new Date())),
+    type,
+    department,
+    sourceModule: null,
+    description,
+    narration,
+    amount: value,
+    paymentMode: paymentMode || payment_mode,
+    customerName,
+    customerMobile,
+    createdBy: createdBy || null,
+  });
+  const insertId = result?.insertId;
+  if (!insertId) throw new Error("Failed to record transaction: no id returned");
+  const transactionNo = `TXN-${type === "Income" ? "INC" : "EXP"}-${Date.now()}`;
+  return { id: insertId, transaction_no: transactionNo, transactionNo };
+};
+
 const addIncome = async (req, res) => {
-  const { date, description, amount, paymentMode, payment_mode, department, narration } = req.body;
   try {
-    const created = await recordLedgerTransaction({
-      date,
-      type: "Income",
-      description,
-      amount,
-      paymentMode: paymentMode || payment_mode,
-      department,
-      narration,
-      createdBy: req.user?.id || null,
-    });
-    res.status(201).json({ message: "Income recorded", id: created.id, transaction_no: created.transaction_no });
+    const result = await recordManualPosting("Income", req.body, req.user?.id);
+    res.status(201).json({ message: "Income recorded", ...result });
   } catch (error) {
-    res.status(400).json({ message: error.message || "Failed to record income" });
+    const status = error.message === "description is required" || error.message === "amount must be greater than zero" ? 400 : 500;
+    res.status(status).json({ message: error.message || "Failed to record income" });
   }
 };
 
 const addExpense = async (req, res) => {
-  const { date, description, amount, paymentMode, payment_mode, department, narration } = req.body;
   try {
-    const created = await recordLedgerTransaction({
-      date,
-      type: "Expense",
-      description,
-      amount,
-      paymentMode: paymentMode || payment_mode,
-      department,
-      narration,
-      createdBy: req.user?.id || null,
-    });
-    res.status(201).json({ message: "Expense recorded", id: created.id, transaction_no: created.transaction_no });
+    const result = await recordManualPosting("Expense", req.body, req.user?.id);
+    res.status(201).json({ message: "Expense recorded", ...result });
   } catch (error) {
-    res.status(400).json({ message: error.message || "Failed to record expense" });
+    const status = error.message === "description is required" || error.message === "amount must be greater than zero" ? 400 : 500;
+    res.status(status).json({ message: error.message || "Failed to record expense" });
   }
 };
 

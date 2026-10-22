@@ -791,31 +791,19 @@ async function testAccountsLifecycle() {
       JSON.stringify(single.body).slice(0, 200)
     );
 
-    // --- Double-entry balance: debits must equal credits ---
-    // getTransactionById returns the header plus its journal legs
-    const withEntries = await api("GET", `/api/accounts/transactions/${transactionId}`);
-    const legs = withEntries.body?.entries;
-    if (Array.isArray(legs) && legs.length) {
-      const debit = legs
-        .filter((e) => String(e.entry_type || e.entryType).toLowerCase() === "debit")
-        .reduce((sum, e) => sum + Number(e.amount || 0), 0);
-      const credit = legs
-        .filter((e) => String(e.entry_type || e.entryType).toLowerCase() === "credit")
-        .reduce((sum, e) => sum + Number(e.amount || 0), 0);
-      check("ledger has two entries", legs.length === 2, `got ${legs.length}`);
-      check(
-        `debits equal credits (${debit} vs ${credit})`,
-        Math.abs(debit - credit) < 0.01,
-        `debit=${debit} credit=${credit}`
-      );
-      check(
-        `entry amount matches what we sent (${amount})`,
-        Math.abs(debit - amount) < 0.01,
-        `debit=${debit}`
-      );
-    } else {
-      check("ledger entries readable", false, `got ${withEntries.status} ${JSON.stringify(withEntries.body).slice(0, 160)}`);
-    }
+    // --- Round-trip amount: the flat ledger record must carry the amount we posted ---
+    const singleAgain = await api("GET", `/api/accounts/transactions/${transactionId}`);
+    const roundTrippedAmount = Number(singleAgain.body?.amount);
+    check(
+      `round-tripped amount matches posted amount (${amount})`,
+      Math.abs(roundTrippedAmount - amount) < 0.01,
+      `got ${roundTrippedAmount}`
+    );
+    check(
+      "round-tripped type is Income",
+      singleAgain.body?.type === "Income",
+      `got ${singleAgain.body?.type}`
+    );
 
     // --- Update ---
     const updated = await api("PUT", `/api/accounts/transactions/${transactionId}`, {
