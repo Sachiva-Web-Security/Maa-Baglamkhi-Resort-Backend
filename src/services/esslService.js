@@ -464,29 +464,78 @@ const restart = async () => {
 /**
  * List the serial ports currently visible on this machine, so an admin can
  * pick the eSSL port in the Settings UI instead of guessing from Device Manager.
+ *
+ * Prefers the `serialport` package; if it's not installed (or its native
+ * bindings are broken), falls back to platform tools (`mode` on Windows,
+ * `ls /dev` on Linux) so port detection still works on every machine.
  */
-const listSerialPorts = async () => {
-  if (!SerialPortModule) {
-    return {
-      ok: false,
-      ports: [],
-      error:
-        "serialport is not installed on this PC — run `npm install serialport` in the backend folder, then restart the backend.",
-    };
+const { exec } = require("child_process");
+const { promisify } = require("util");
+const execAsync = promisify(exec);
+
+const listSerialPortsWindowsFallback = async () => {
+  const { stdout } = await execAsync("mode", { encoding: "utf8" });
+  const ports = [];
+  // `mode` output looks like:
+  //   COM1:
+  //   COM2:
+  // ... or "Port COM3 is not a serial port." (skip those)
+  const lines = stdout.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].trim().match(/^(COM\d+):\s*$/i);
+    if (m) {
+      ports.push({ path: m[1], manufacturer: "", productName: "", vendorId: "" });
+    }
   }
+  return ports;
+};
+
+const listSerialPortsLinuxFallback = async () => {
+  const { readdir } = require("fs/promises");
+  const entries = await readdir("/dev", { encoding: "utf8" }).catch(() => []);
+  const ports = entries
+    .filter((e) => e.startsWith("ttyUSB") || e.startsWith("ttyS"))
+    .map((e) => ({ path: `/dev/${e}`, manufacturer: "", productName: "", vendorId: "" }));
+  return ports;
+};
+
+const listSerialPorts = async () => {
+  // 1) Try serialport (preferred — gives vendor/product names).
+  if (SerialPortModule) {
+    try {
+      const ports = await SerialPortModule.SerialPort.list();
+      return {
+        ok: true,
+        ports: ports.map((p) => ({
+          path: p.path,
+          manufacturer: p.manufacturer || "",
+          productName: p.productName || "",
+          vendorId: p.vendorId ? `0x${p.vendorId.toString(16).toUpperCase()}` : "",
+        })),
+      };
+    } catch {
+      // fall through to platform fallback
+    }
+  }
+
+  // 2) Fallback per OS.
   try {
-    const ports = await SerialPortModule.SerialPort.list();
+    if (process.platform === "win32") {
+      const ports = await listSerialPortsWindowsFallback();
+      return { ok: true, ports, via: "mode (fallback)" };
+    }
+    if (process.platform === "linux") {
+      const ports = await listSerialPortsLinuxFallback();
+      return { ok: true, ports, via: "/dev scan (fallback)" };
+    }
     return {
       ok: true,
-      ports: ports.map((p) => ({
-        path: p.path,
-        manufacturer: p.manufacturer || "",
-        productName: p.productName || "",
-        vendorId: p.vendorId ? `0x${p.vendorId.toString(16).toUpperCase()}` : "",
-      })),
+      ports: [],
+      via: "no fallback on this platform",
+      note: "Install `serialport` for port detection: npm install serialport",
     };
   } catch (err) {
-    return { ok: false, ports: [], error: err.message };
+    return { ok: false, ports: [], error: `Port scan failed: ${err.message}` };
   }
 };
 
