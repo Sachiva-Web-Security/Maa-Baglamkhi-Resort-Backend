@@ -317,8 +317,22 @@ async function probeRestaurant() {
     const pay = await api("POST", `/api/restaurant/bill/${billId}/pay`, {
       amount: 200,
       paymentMode: "Cash",
+      paymentMethod: "Cash",
     });
     check("POST /api/restaurant/bill/:id/pay accepted", [200, 201].includes(pay.status), `got ${pay.status} ${JSON.stringify(pay.body).slice(0, 140)}`);
+
+    const payAgain = await api("POST", `/api/restaurant/bill/${billId}/pay`, {
+      amount: 200,
+      paymentMode: "Cash",
+      paymentMethod: "Cash",
+    });
+    check("second pay on the same bill is rejected with 409 (no dup payment)", payAgain.status === 409, `got ${payAgain.status} ${JSON.stringify(payAgain.body).slice(0, 140)}`);
+
+    const payUpi = await api("POST", `/api/restaurant/bill/${billId}/pay`, {
+      amount: 1,
+      paymentMethod: "UPI",
+    });
+    check("pay with capitalized UPI is rejected cleanly with 409, not a 500", payUpi.status === 409, `got ${payUpi.status} ${JSON.stringify(payUpi.body).slice(0, 140)}`);
   }
 }
 
