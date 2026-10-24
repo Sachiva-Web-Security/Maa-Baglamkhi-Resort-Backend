@@ -1,20 +1,14 @@
 const db = require("../config/db");
+const folioModel = require("../models/folioModel");
 const { getRequestActor, isWaiterActor, namesMatch } = require("../utils/requestActor");
 
-// Resolve a payment-mode label to a payment_methods.id. Normalises through the
-// bills enum first so unknown labels land on "other" instead of minting junk
-// rows; only real enum values may seed the table.
+// Resolve a payment-mode label to a payment_methods.id. Creates the row if needed.
 const resolvePaymentMethodId = async (paymentMode) => {
-  const label = normalizePaymentMethod(paymentMode) || String(paymentMode || "").trim();
+  const label = String(paymentMode || "").trim();
   if (!label) return null;
   try {
     const [rows] = await db.query("SELECT id FROM payment_methods WHERE LOWER(name) = LOWER(?) LIMIT 1", [label]);
     if (rows && rows[0]) return rows[0].id;
-    const [check] = await db.query("SELECT COUNT(*) AS c FROM payment_methods");
-    if (check?.[0]?.c > 0) {
-      const [retry] = await db.query("SELECT id FROM payment_methods ORDER BY id ASC LIMIT 1");
-      return retry?.[0]?.id || null;
-    }
     const code = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 30) || "other";
     const [result] = await db.query("INSERT INTO payment_methods (name, code, is_active) VALUES (?, ?, 1)", [label, code]);
     if (result?.insertId) return result.insertId;
@@ -246,7 +240,7 @@ exports.deleteTable = async (req, res) => {
     }
 
     const [pendingBills] = await db.query(
-      "SELECT id FROM bills WHERE table_number = ? AND COALESCE(payment_status, 'Unpaid') <> 'Paid' LIMIT 1",
+      "SELECT id FROM bills WHERE table_number = ? AND COALESCE(payment_status, 'unpaid') <> 'paid' LIMIT 1",
       [tableNumber],
     );
     if (pendingBills?.length) {
@@ -298,9 +292,25 @@ exports.addMenuItem = async (req, res) => {
       imageUrl = req.body.imageUrl;
     }
 
+    const [menuCatTables] = await db.query("SHOW TABLES LIKE 'menu_categories'");
+    if (!Array.isArray(menuCatTables) || !menuCatTables.length) {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS menu_categories (
+          id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(120) NOT NULL,
+          description TEXT DEFAULT NULL,
+          sort_order INT DEFAULT 0,
+          is_active TINYINT(1) DEFAULT 1
+        )
+      `);
+      await db.query(
+        "INSERT IGNORE INTO menu_categories (id, name, sort_order) VALUES (1, 'Others', 0)"
+      );
+    }
+
     const [result] = await db.query(
       "INSERT INTO menu_items (name, price, category_id, image_url, description, food_type, availability_status, tax) VALUES (?,?,?,?,?,?,?,?)",
-      [name, price, category, imageUrl, description, foodType, status, tax]
+      [name, price, 1, imageUrl, description, foodType, status, tax]
     );
     res.json({ id: result.insertId, name, price, category, imageUrl, message: "Menu item added" });
   } catch (err) {
@@ -328,8 +338,6 @@ exports.updateMenuItem = async (req, res) => {
   const {
     name,
     price,
-    category_id,
-    tableNumber,
     tax,
     happyHourPrice,
     happyHourStart,
@@ -349,13 +357,11 @@ exports.updateMenuItem = async (req, res) => {
   try {
     await db.query(
       `UPDATE menu_items
-       SET name=?, price=?, category_id=?, table_number=?, image_url=?, description=?, food_type=?, availability_status=?, tax=?, happy_hour_price=?, happy_hour_start=?, happy_hour_end=?
+       SET name=?, price=?, image_url=?, description=?, food_type=?, availability_status=?, tax=?, happy_hour_price=?, happy_hour_start=?, happy_hour_end=?
        WHERE id=?`,
       [
         name,
         price,
-        category_id,
-        tableNumber || null,
         imageUrl || null,
         description || null,
         foodType || "Veg",
@@ -614,18 +620,6 @@ const normalizePaymentMethod = (value) => {
   return allowed.has(s) ? s : "other";
 };
 
-// bills.payment_status is an enum; fall back to the column default instead of
-// rejecting values the live schema does not hold.
-const normalizePaymentStatusForBills = (value) => {
-  const s = String(value || "unpaid").toLowerCase().trim();
-  const allowed = new Set(["unpaid", "partial", "paid", "refunded", "cancelled"]);
-  return allowed.has(s) ? s : "unpaid";
-};
-
-// Legacy camelCase payload field -> bills column
-const snakeField = { gst: "tax_amount", serviceCharge: "service_charge", discountAmount: "discount_amount", customerName: "customer_name", tableNumber: "table_number", paymentMethod: "payment_method" };
-const rowValue = (row, field, snake) => (row ? row[snakeField[field] || snake] : undefined);
-
 const createRestaurantBill = async (data) => {
   const conn = await db.getConnection();
   try {
@@ -725,7 +719,9 @@ const buildResolvedWaiterName = (data) =>
   (String(data.entityType || "Table").toLowerCase() === "room" ? "Room Service" : "Waiter");
 
 const findReusableOpenBill = async (conn, data) => {
-  if (normalizePaymentStatusForBills(data.invoiceStatus || data.paymentStatus) === "paid") return null;
+  const normalizedStatus = String(data.invoiceStatus || "Saved").toLowerCase();
+  const canReuseOpenBill = normalizedStatus !== "paid";
+  if (!canReuseOpenBill) return null;
 
   if (data.tokenId) {
     const [rows] = await conn.query(
@@ -1075,34 +1071,66 @@ const chargeBillToRoom = async (data) => {
 
     let bookingRow = null;
     if (targetBookingId) {
-      const [guestRows] = await conn.query(
-        "SELECT id, booking_code, guest_name, booking_status FROM guests WHERE id = ? LIMIT 1",
-        [targetBookingId],
-      );
-      bookingRow = guestRows?.[0] || null;
+      try {
+        const [guestRows] = await conn.query(
+          "SELECT id, booking_code, guest_name, booking_status FROM guests WHERE id = ? LIMIT 1",
+          [targetBookingId],
+        );
+        bookingRow = guestRows?.[0] || null;
+      } catch {
+        bookingRow = null;
+      }
     }
 
     if (!bookingRow && roomNumber) {
-      const [tariffRows] = await conn.query(
-        `
-          SELECT g.id AS bookingId, g.booking_code, g.guest_name, g.booking_status
-          FROM guests g
-          INNER JOIN room_tariff rt ON rt.booking_id = g.id
-          WHERE CAST(rt.room_number AS CHAR) = CAST(? AS CHAR)
-            AND LOWER(COALESCE(g.booking_status, 'confirmed')) NOT IN ('checked out', 'cancelled')
-          ORDER BY
-            CASE
-              WHEN LOWER(COALESCE(g.booking_status, '')) LIKE '%checked in%' THEN 0
-              WHEN LOWER(COALESCE(g.booking_status, '')) LIKE '%occupied%' THEN 1
-              WHEN LOWER(COALESCE(g.booking_status, '')) LIKE '%in house%' THEN 2
-              ELSE 3
-            END,
-            g.id DESC
-          LIMIT 1
-        `,
-        [roomNumber],
-      );
-      bookingRow = tariffRows?.[0] || null;
+      try {
+        const [tariffRows] = await conn.query(
+          `
+            SELECT g.id AS bookingId, g.booking_code, g.guest_name, g.booking_status
+            FROM guests g
+            INNER JOIN room_tariff rt ON rt.booking_id = g.id
+            WHERE CAST(rt.room_number AS CHAR) = CAST(? AS CHAR)
+              AND LOWER(COALESCE(g.booking_status, 'confirmed')) NOT IN ('checked out', 'cancelled')
+            ORDER BY
+              CASE
+                WHEN LOWER(COALESCE(g.booking_status, '')) LIKE '%checked in%' THEN 0
+                WHEN LOWER(COALESCE(g.booking_status, '')) LIKE '%occupied%' THEN 1
+                WHEN LOWER(COALESCE(g.booking_status, '')) LIKE '%in house%' THEN 2
+                ELSE 3
+              END,
+              g.id DESC
+            LIMIT 1
+          `,
+          [roomNumber],
+        );
+        bookingRow = tariffRows?.[0] || null;
+      } catch {
+        bookingRow = null;
+      }
+    }
+
+    // Fresh v4 DBs hold bookings/booking_rooms, not guests/room_tariff.
+    if (!bookingRow) {
+      try {
+        const [modernRows] = await conn.query(
+          `
+            SELECT b.id AS bookingId, b.booking_code, b.status AS booking_status
+            FROM bookings b
+            INNER JOIN booking_rooms br ON br.booking_id = b.id
+            WHERE CAST(br.room_number AS CHAR) = CAST(? AS CHAR)
+              AND b.status IN ('checked_in', 'confirmed', 'reserved')
+              ${targetBookingId ? "AND b.id = ?" : ""}
+            ORDER BY b.id DESC
+            LIMIT 1
+          `,
+          targetBookingId ? [roomNumber, targetBookingId] : [roomNumber],
+        );
+        bookingRow = modernRows?.[0] || null;
+        if (bookingRow && !bookingRow.guest_name) bookingRow.guest_name = "";
+        if (bookingRow && !bookingRow.booking_code) bookingRow.booking_code = "";
+      } catch {
+        bookingRow = null;
+      }
     }
 
     if (!bookingRow) {
@@ -1117,16 +1145,11 @@ const chargeBillToRoom = async (data) => {
 
     const folioEntryId = await folioModel.createFolioEntry({
       bookingId: resolvedBookingId,
-      bookingCode,
-      guestName,
-      roomNumber,
       description: `Restaurant - ${billRow.table_number || "Table"} (Bill #${billId})`,
-      debit: Number(billRow.total || data.total || 0),
-      credit: 0,
-      transactionType: "charge",
-      sourceModule: "restaurant",
-      sourceRefId: billId,
-      sourceRefType: "restaurant_bill",
+      amount: Number(billRow.total || data.total || 0),
+      entryType: "Extra Charge",
+      category: "Restaurant",
+      createdBy: "Restaurant",
     });
 
     const [paymentResult] = await conn.query(
@@ -1387,15 +1410,15 @@ exports.payBill = async (req, res) => {
           invoiceNo: String(result.billId || ""),
           items: billItems,
           subtotal: Number(billForPrint?.subtotal || req.body.subtotal || 0),
-          gst: Number(billForPrint?.tax_amount || req.body.gst || 0),
-          serviceCharge: Number(billForPrint?.service_charge || req.body.serviceCharge || 0),
-          discount: Number(billForPrint?.discount_amount || billForPrint?.discount || req.body.discountAmount || 0),
-          discountAmount: Number(billForPrint?.discount_amount || billForPrint?.discount || req.body.discountAmount || 0),
-          customerName: req.body.customerName || req.body.customer_name || billForPrint?.customer_name || "Walk-in Customer",
+          gst: Number(billForPrint?.gst || req.body.gst || 0),
+          serviceCharge: Number(billForPrint?.serviceCharge || req.body.serviceCharge || 0),
+          discount: Number(billForPrint?.discountAmount || billForPrint?.discount || req.body.discountAmount || 0),
+          discountAmount: Number(billForPrint?.discountAmount || billForPrint?.discount || req.body.discountAmount || 0),
+          customerName: req.body.customerName || req.body.customer_name || billForPrint?.customerName || "Walk-in Customer",
           phone: req.body.phone || req.body.customer_phone || billForPrint?.phone || "",
-          tableNumber: req.body.tableNumber || req.body.table || billForPrint?.table_number || "",
+          tableNumber: req.body.tableNumber || req.body.table || billForPrint?.tableNumber || "",
           roomNumber: req.body.roomNumber || req.body.room || "",
-          paymentMethod: req.body.paymentMethod || req.body.payment_method || billForPrint?.payment_method || "cash",
+          paymentMethod: req.body.paymentMethod || req.body.payment_method || billForPrint?.paymentMethod || "Cash",
           printedBy: actor.name || actor.email || "System",
           waiter: billForPrint?.waiter_name || req.body.waiterName || "",
         };
