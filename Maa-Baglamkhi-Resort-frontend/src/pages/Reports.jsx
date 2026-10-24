@@ -505,6 +505,7 @@ const Reports = () => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [actionNotice, setActionNotice] = useState("");
   const [lastFetchedAt, setLastFetchedAt] = useState(null);
   const [filters, setFilters] = useState({
     dateFrom: "",
@@ -662,10 +663,15 @@ const Reports = () => {
     fetchData();
   }, [fetchData]);
 
+  const flashActionNotice = (message) => {
+    setActionNotice(message);
+    window.setTimeout(() => setActionNotice(""), 4000);
+  };
+
   const exportCSV = () => {
     const csv = toCSV(filtered);
     if (!csv) {
-      window.alert("No rows to export");
+      flashActionNotice("No rows to export");
       return;
     }
     downloadText(`report-${reportType}-${todayISO()}.csv`, csv);
@@ -674,7 +680,7 @@ const Reports = () => {
   const printReport = () => {
     const rows = filtered;
     if (!rows.length) {
-      window.alert("No data to print.");
+      flashActionNotice("No data to print.");
       return;
     }
 
@@ -1172,6 +1178,12 @@ const Reports = () => {
         {error ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-4 text-sm font-bold text-rose-700 sm:text-[16px]">
             {error}
+          </div>
+        ) : null}
+
+        {actionNotice ? (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm font-bold text-amber-700 sm:text-[16px]">
+            {actionNotice}
           </div>
         ) : null}
 

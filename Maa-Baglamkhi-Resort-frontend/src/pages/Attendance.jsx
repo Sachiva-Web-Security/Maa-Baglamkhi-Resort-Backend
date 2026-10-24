@@ -34,6 +34,7 @@ const Attendance = () => {
   const [employees, setEmployees] = useState([]);
   const [staff, setStaff] = useState([]);
   const [loadError, setLoadError] = useState("");
+  const [notice, setNotice] = useState(null);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -188,11 +189,19 @@ const Attendance = () => {
   const halfDayStaff = statusCount("Half Day");
   const unmarkedStaff = rowsForDate.filter((e) => !e.status).length;
 
+  const showNotice = (message, tone = "success") => {
+    if (!message) return;
+    setNotice({ message, tone });
+    window.setTimeout(() => {
+      setNotice((current) => (current && current.message === message ? null : current));
+    }, 4000);
+  };
+
   /* ================= ADD (admin only) ================= */
 
   const handleManualSubmit = async (data) => {
     if (!isAdmin) {
-      window.alert("Only admin can add attendance");
+      showNotice("Only admin can add attendance", "error");
       return;
     }
     try {
@@ -210,13 +219,13 @@ const Attendance = () => {
 
       const res = await API.post("/attendance", payload);
       setShowManualEntry(false);
-      window.alert(res.data?.message || "Attendance saved");
+      showNotice(res.data?.message || "Attendance saved");
       setDate(payload.date);
       loadAttendance();
       loadStaff();
     } catch (err) {
       console.error("Error saving attendance", err);
-      window.alert(err?.response?.data?.message || "Error saving attendance");
+      showNotice(err?.response?.data?.message || "Error saving attendance", "error");
     }
   };
 
@@ -242,10 +251,11 @@ const Attendance = () => {
         date,
         checkIn: nowTime(),
       });
+      showNotice(`${employee.name || "Employee"} checked in`);
       loadAttendance();
     } catch (err) {
       console.error("Error checking in", err);
-      window.alert("Could not record check-in");
+      showNotice(err.response?.data?.message || "Could not record check-in", "error");
     }
   };
 
@@ -258,10 +268,11 @@ const Attendance = () => {
         date,
         checkOut: nowTime(),
       });
+      showNotice(`${employee.name || "Employee"} checked out`);
       loadAttendance();
     } catch (err) {
       console.error("Error checking out", err);
-      window.alert("Could not record check-out");
+      showNotice(err.response?.data?.message || "Could not record check-out", "error");
     }
   };
 
@@ -288,6 +299,12 @@ const Attendance = () => {
       {loadError && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
           {loadError}
+        </div>
+      )}
+
+      {notice && (
+        <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${notice.tone === "error" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+          {notice.message}
         </div>
       )}
 
