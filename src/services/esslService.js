@@ -790,7 +790,7 @@ const diagnose = async () => {
     ok: usingTcp ? Boolean(cfg.host) : Boolean(cfg.portName),
     detail: usingTcp
       ? cfg.host
-        ? "Target: " + target
+        ? "Target: " + target + " (protocol: " + cfg.protocol + ")"
         : "No host/IP set — fill in Host/IP in Settings."
       : cfg.portName
       ? "Target: " + target
