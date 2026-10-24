@@ -200,7 +200,7 @@ const PaymentSettingsManager = ({ rows, onSubmit, onUpdate, onDelete }) => {
           </span>
           <input
             name="qrImageUrl"
-            value={form.qrImageUrl}
+            value={form.qrImageUrl.startsWith("data:image/") ? "" : form.qrImageUrl}
             onChange={handleChange}
             className={inputClass}
             placeholder="/uploads/payment-qr.png or external URL"

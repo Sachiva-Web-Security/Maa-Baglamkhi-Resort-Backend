@@ -1569,29 +1569,30 @@ const Accounts = () => {
 
 
   const savePaymentSetting = async (method, id, form) => {
-    const payload = new FormData();
-    payload.append("paymentMode", form.paymentMode || "UPI");
-    payload.append("department", form.department || "Hotel");
-    payload.append("providerName", form.providerName || "");
-    payload.append("upiId", form.upiId || "");
-    payload.append("accountHolderName", form.accountHolderName || "");
-    payload.append("bankName", form.bankName || "");
-    payload.append("qrImageUrl", form.qrImageUrl || "");
-    payload.append("isActive", form.isActive ? "1" : "0");
-    payload.append("notes", form.notes || "");
-    if (form.qrImageFile) {
-      payload.append("qrImage", form.qrImageFile);
-    }
-
+    // Plain JSON instead of FormData: the multer/busboy backend 500s on
+    // Transfer-Encoding: chunked multipart bodies. A picked QR file is sent as
+    // base64 so the whole body stays scalar text.
+    const base = {
+      paymentMode: form.paymentMode || "UPI",
+      department: form.department || "Hotel",
+      providerName: form.providerName || "",
+      upiId: form.upiId || "",
+      accountHolderName: form.accountHolderName || "",
+      bankName: form.bankName || "",
+      qrImageUrl: form.qrImageUrl || "",
+      isActive: form.isActive ? "1" : "0",
+      notes: form.notes || "",
+    };
     try {
+      let payload = base;
+      if (form.qrImageFile) {
+        const buf = Buffer.from(await form.qrImageFile.arrayBuffer());
+        payload = { ...base, qrImageBase64: `data:${form.qrImageFile.type || "image/png"};base64,${buf.toString("base64")}` };
+      }
       if (method === "post") {
-        await API.post("/accounts/payment-settings", payload, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
+        await API.post("/accounts/payment-settings", payload);
       } else {
-        await API.put(`/accounts/payment-settings/${id}`, payload, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
+        await API.put(`/accounts/payment-settings/${id}`, payload);
       }
       await refreshAccountsData();
       return true;
