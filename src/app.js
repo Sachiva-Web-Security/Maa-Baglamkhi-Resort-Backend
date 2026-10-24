@@ -130,31 +130,6 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// ── Temporary diagnostics (remove after debugging) ─────────────────────────
-const _diagStatus = new WeakSet();
-const _diagEnd = new WeakSet();
-app.use((req, res, next) => {
-  if (!res.statusCode) res.statusCode = 200;
-  const origStatus = res.status;
-  res.status = function (code) {
-    if (!_diagStatus.has(this)) {
-      _diagStatus.add(this);
-      console.error(`[DIAG] res.status(${code}) at ${req.method} ${req.originalUrl} (was ${this.statusCode})`);
-      console.error(new Error("stack").stack.split("\n").slice(1, 12).join("\n"));
-    }
-    return origStatus.call(this, code);
-  };
-  const origEnd = res.end;
-  res.end = function (...args) {
-    if (!_diagEnd.has(this)) {
-      _diagEnd.add(this);
-      console.error(`[DIAG] res.end at ${req.method} ${req.originalUrl} statusCode=${this.statusCode} bodyLen=${args[0] ? String(args[0]).length : 0}`);
-    }
-    return origEnd.apply(this, args);
-  };
-  next();
-});
-
 app.use((err, req, res, next) => {
   if (!err) return next();
 

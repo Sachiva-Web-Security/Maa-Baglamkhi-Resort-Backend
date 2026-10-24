@@ -419,10 +419,84 @@ const status = () => ({
   lastImportCount,
 });
 
+/* ------------------------------------------------------------------ */
+/* Live operations (admin-triggered from the Settings UI)
+/* ------------------------------------------------------------------ */
+
+/**
+ * Manually trigger one poll cycle right now. Returns the outcome so the
+ * Settings UI can display "N new records imported" without waiting 30 s.
+ */
+const pollNow = async () => {
+  if (stopping) return { ok: false, error: "poller is stopping" };
+  if (pollInFlight) return { ok: false, error: "poll already in flight — try again in a moment" };
+
+  const cfg = await getEsslConfig();
+  if (!cfg.enabled) return { ok: false, error: "eSSL import is disabled in settings" };
+  if (!cfg.portName) return { ok: false, error: "No COM port configured. Fill in Serial Port and save first." };
+
+  // Reopen the port so admin just changed the port name in the UI — the
+  // previously-open handle would be for the old port.
+  stopPort();
+  await poll();
+
+  return {
+    ok: !lastError,
+    error: lastError,
+    imported: lastImportCount,
+    lastPollAt,
+  };
+};
+
+/**
+ * Re-read config and (re)start the poll timer. Called after an admin saves
+ * settings in the UI, so a restart of the backend process is never needed.
+ */
+const restart = async () => {
+  stopPoller();
+  stopping = false;
+  timer = null;
+  port = null;
+  await start();
+  return status();
+};
+
+/**
+ * List the serial ports currently visible on this machine, so an admin can
+ * pick the eSSL port in the Settings UI instead of guessing from Device Manager.
+ */
+const listSerialPorts = async () => {
+  if (!SerialPortModule) {
+    return {
+      ok: false,
+      ports: [],
+      error:
+        "serialport is not installed on this PC — run `npm install serialport` in the backend folder, then restart the backend.",
+    };
+  }
+  try {
+    const ports = await SerialPortModule.SerialPort.list();
+    return {
+      ok: true,
+      ports: ports.map((p) => ({
+        path: p.path,
+        manufacturer: p.manufacturer || "",
+        productName: p.productName || "",
+        vendorId: p.vendorId ? `0x${p.vendorId.toString(16).toUpperCase()}` : "",
+      })),
+    };
+  } catch (err) {
+    return { ok: false, ports: [], error: err.message };
+  }
+};
+
 module.exports = {
   start,
   stopPoller,
+  restart,
   status,
   getEsslConfig,
   parseEsslLogs,
+  pollNow,
+  listSerialPorts,
 };

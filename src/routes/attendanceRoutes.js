@@ -8,6 +8,7 @@ const attendanceController = require("../controller/attendanceController");
 const esslController = require("../controller/esslController");
 
 router.get("/essl/status", authMiddleware, esslController.getStatus);
+router.get("/essl/ports", authMiddleware, roleMiddleware(["admin"]), esslController.listPorts);
 router.get("/essl/devices", authMiddleware, esslController.getDevices);
 router.post(
   "/essl/devices",
@@ -21,6 +22,8 @@ router.put(
   roleMiddleware(["admin"]),
   esslController.disableDevice
 );
+router.post("/essl/poll", authMiddleware, roleMiddleware(["admin"]), esslController.pollNow);
+router.post("/essl/restart", authMiddleware, roleMiddleware(["admin"]), esslController.restart);
 
 /* ── Standard attendance routes ──────────────────────────────────────── */
 

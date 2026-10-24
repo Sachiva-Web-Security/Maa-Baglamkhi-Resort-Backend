@@ -131,6 +131,45 @@ exports.createDevice = async (req, res) => {
 };
 
 /**
+ * POST /api/attendance/essl/poll
+ * Admin only: force one sync cycle right now (instead of waiting for the next 30 s tick).
+ */
+exports.pollNow = async (req, res) => {
+  try {
+    const result = await esslService.pollNow();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+};
+
+/**
+ * POST /api/attendance/essl/restart
+ * Admin only: re-read config and restart the poll timer after the admin saved settings.
+ */
+exports.restart = async (req, res) => {
+  try {
+    const st = await esslService.restart();
+    res.json({ message: "eSSL poller restarted with latest settings", ...st });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * GET /api/attendance/essl/ports
+ * List serial ports visible on this machine (admin picks the eSSL port in the Settings UI).
+ */
+exports.listPorts = async (req, res) => {
+  try {
+    const result = await esslService.listSerialPorts();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, ports: [], error: err.message });
+  }
+};
+
+/**
  * PUT /api/attendance/essl/devices/:id
  * Deactivate a mapping (soft delete).
  */
