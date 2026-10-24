@@ -50,12 +50,22 @@ async function runSchemaFile() {
  * migrate step safe to run on every boot.
  */
 async function runMigrations(connection) {
-  // 1. attendance_records.method — distinguishes manual vs. eSSL-biometric entries
-  await connection.query(
-    `ALTER TABLE attendance_records
-     ADD COLUMN IF NOT EXISTS method ENUM('Manual','Biometric','GPS') NOT NULL DEFAULT 'Manual'
-     AFTER leave_type`
+  // 1. attendance_records.method — distinguishes manual vs. eSSL-biometric entries.
+  // `ADD COLUMN IF NOT EXISTS` is MariaDB-only; on stock MySQL (Windows) it throws
+  // a syntax error, so probe information_schema first (works on both engines).
+  const [methodCols] = await connection.query(
+    `SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'attendance_records'
+       AND COLUMN_NAME = 'method'`
   );
+  if (!methodCols[0].cnt) {
+    await connection.query(
+      `ALTER TABLE attendance_records
+       ADD COLUMN method ENUM('Manual','Biometric','GPS') NOT NULL DEFAULT 'Manual'
+       AFTER leave_type`
+    );
+  }
 
   // 2. essl_devices — maps eSSL terminal user ids to employees
   await connection.query(

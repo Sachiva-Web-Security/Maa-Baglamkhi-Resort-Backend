@@ -29,12 +29,25 @@ class AttendanceRecords {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 
       // Idempotent: adds the column to databases created before `method` existed.
-      await conn.query(
-        `ALTER TABLE attendance_records
-         ADD COLUMN IF NOT EXISTS method
-         ENUM('Manual','Biometric','GPS') NOT NULL DEFAULT 'Manual'
-         AFTER leave_type`
+      // NOTE: `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` is a MariaDB-only syntax.
+      // On stock MySQL (10.4 on XAMPP; 8.0+ on Windows) it throws a SQL syntax
+      // error and silently aborts the whole schema bootstrap (incl. essl_devices),
+      // which is why the other PC kept logging "Schema error for attendance_records".
+      // Probe first — works on both engines.
+      const [methodCols] = await conn.query(
+        `SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'attendance_records'
+           AND COLUMN_NAME = 'method'`
       )
+      if (!methodCols[0].cnt) {
+        await conn.query(
+          `ALTER TABLE attendance_records
+           ADD COLUMN method
+           ENUM('Manual','Biometric','GPS') NOT NULL DEFAULT 'Manual'
+           AFTER leave_type`
+        )
+      }
 
       // eSSL terminal — maps numeric terminal user ids to employee emails.
       await conn.query(

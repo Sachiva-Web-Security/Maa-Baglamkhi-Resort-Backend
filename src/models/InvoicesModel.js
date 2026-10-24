@@ -10,6 +10,19 @@ class Invoices {
     try {
       await conn.beginTransaction()
 
+      // Self-heal: legacy hotels POS-era `invoices` tables can exist WITHOUT
+      // invoice_date, so this DDL is skipped (CREATE IF NOT EXISTS sees the
+      // table). Probe and add the column — every INSERT on this table (both
+      // accounts createInvoice and booking auto-invoice) requires it, so a
+      // missing invoice_date surfaces as "Field 'invoice_date' doesn't have a
+      // default value" at booking-payment time.
+      const [cols] = await conn.query("SHOW COLUMNS FROM `invoices` LIKE 'invoice_date'")
+      if (!cols.length) {
+        await conn.query(
+          "ALTER TABLE `invoices` ADD COLUMN `invoice_date` DATE NULL AFTER `invoice_type`"
+        )
+      }
+
       await conn.query(`CREATE TABLE IF NOT EXISTS \`invoices\` (
             \`id\` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   \`booking_id\` BIGINT UNSIGNED,

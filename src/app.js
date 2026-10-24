@@ -39,6 +39,7 @@ const { ensureSchema: ensureAssignmentSchema } = require("./models/HousekeepingA
 const { ensureSchema: ensureGroupBookingSchema } = require("./models/BookingsModel");
 const { ensureSchema: ensureNotificationSchema } = require("./models/NotificationsModel");
 const { ensureSchema: ensureRegisterSchema } = require("./models/UsersModel");
+const { ensureSchema: ensureInvoicesSchema } = require("./models/InvoicesModel");
 const auditLogger = require("./middleware/auditLogger");
 const { getCorsOptions } = require("./config/security");
 
@@ -201,6 +202,7 @@ async function initializeDatabase(options = {}) {
     await bootstrapSchema("Assignment schema init", ensureAssignmentSchema);
     await bootstrapSchema("Group booking schema init", ensureGroupBookingSchema);
     await bootstrapSchema("Notification schema init", ensureNotificationSchema);
+    await bootstrapSchema("Invoices schema init", ensureInvoicesSchema);
     await bootstrapSchema("Print log schema init", async () => {
       const printLogModel = require("./models/PrintLogsModel");
       await printLogModel.ensureSchema();
