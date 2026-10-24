@@ -697,7 +697,7 @@
     "testPath": "/api/audit-logs",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":109348,\"user_id\":94,\"user_name\":null,\"user_role\":null,\"action\":\"update\",\"module\":\"unknown\",\"endpoint\":\"/api/attendance/999999999\",\"http_method\":\"PATCH\",\"request_data\":\"{\\\"params\\\":{\\\"id\\\":\\\"999"
+    "body": "[{\"id\":110253,\"user_id\":94,\"user_name\":null,\"user_role\":null,\"action\":\"update\",\"module\":\"unknown\",\"endpoint\":\"/api/attendance/999999999\",\"http_method\":\"PATCH\",\"request_data\":\"{\\\"params\\\":{\\\"id\\\":\\\"999"
   },
   {
     "method": "POST",
@@ -1814,7 +1814,7 @@
     "testPath": "/api/chef/notifications",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":823,\"user_id\":null,\"user_role\":\"kitchen\",\"type\":\"new_order\",\"title\":\"New Order: Table LT-4a25bd\",\"message\":\"KOT KOT-LT-4a25bd — 1 items from Lifecycle Test\",\"data\":\"{\\\"orderId\\\":147,\\\"kotNo\\\":\\"
+    "body": "[{\"id\":828,\"user_id\":null,\"user_role\":null,\"type\":\"general\",\"title\":\"\",\"message\":\"\",\"data\":null,\"is_read\":0,\"read_at\":null,\"created_at\":\"2026-10-24T19:56:33.000Z\",\"updated_at\":\"2026-10-24T19:56:33.000"
   },
   {
     "method": "POST",
@@ -1844,7 +1844,7 @@
     "testPath": "/api/chef/notifications",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"success\":true,\"id\":824}"
+    "body": "{\"success\":true,\"id\":830}"
   },
   {
     "method": "DELETE",
@@ -2224,7 +2224,7 @@
     "testPath": "/api/housekeeping/logs",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":299,\"room_id\":null,\"roomNo\":\"HK-8d5d25\",\"assignment_id\":null,\"assignee\":\"Lifecycle Tester\",\"guest_status\":\"Vacant Dirty\",\"oldStatus\":\"Vacant Dirty\",\"final_status\":\"Vacant Clean\",\"newStatus\":\"Va"
+    "body": "[{\"id\":301,\"room_id\":null,\"roomNo\":\"999999999\",\"assignment_id\":null,\"assignee\":\"No Housekeeper\",\"guest_status\":null,\"oldStatus\":null,\"final_status\":\"Vacant Dirty\",\"newStatus\":\"Vacant Dirty\",\"verified_"
   },
   {
     "method": "GET",
@@ -2334,7 +2334,7 @@
     "testPath": "/api/housekeeping/amenities",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":289,\"room_id\":null,\"room_no\":\"ANG500\",\"category\":\"General\",\"item_name\":\"Item\",\"quantity\":1,\"unit_cost\":\"0.00\",\"total_cost\":\"0.00\",\"notes\":null,\"logged_by\":\"Staff\",\"created_at\":\"2026-10-24T18:47"
+    "body": "[{\"id\":292,\"room_id\":null,\"room_no\":null,\"category\":\"General\",\"item_name\":\"Item\",\"quantity\":1,\"unit_cost\":\"0.00\",\"total_cost\":\"0.00\",\"notes\":null,\"logged_by\":\"Staff\",\"created_at\":\"2026-10-24T19:56:30."
   },
   {
     "method": "POST",
@@ -2344,7 +2344,7 @@
     "testPath": "/api/housekeeping/amenities",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"message\":\"Amenity logged\",\"id\":291}"
+    "body": "{\"message\":\"Amenity logged\",\"id\":293}"
   },
   {
     "method": "DELETE",
@@ -2454,7 +2454,7 @@
     "testPath": "/api/housekeeping/costing",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":164,\"room_id\":null,\"room_no\":null,\"staff_cost\":\"0.00\",\"linen_cost\":\"0.00\",\"toiletrie_cost\":\"0.00\",\"misc_cost\":\"0.00\",\"total_cost\":\"0.00\",\"logged_by\":\"Staff\",\"created_at\":\"2026-10-24T18:47:13.00"
+    "body": "[{\"id\":166,\"room_id\":null,\"room_no\":null,\"staff_cost\":\"0.00\",\"linen_cost\":\"0.00\",\"toiletrie_cost\":\"0.00\",\"misc_cost\":\"0.00\",\"total_cost\":\"0.00\",\"logged_by\":\"Staff\",\"created_at\":\"2026-10-24T19:56:31.00"
   },
   {
     "method": "POST",
@@ -2464,7 +2464,7 @@
     "testPath": "/api/housekeeping/costing",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"message\":\"Cost logged\",\"id\":165}"
+    "body": "{\"message\":\"Cost logged\",\"id\":167}"
   },
   {
     "method": "GET",
@@ -2685,6 +2685,16 @@
     "code": 200,
     "verdict": "PASS",
     "body": "[{\"id\":134,\"poNumber\":\"PO-WP-1792867648831\",\"vendor\":\"Write Probe Vendor\",\"itemName\":\"WriteProbeItem 1792867648831\",\"quantity\":\"5.00\",\"unit\":null,\"rate\":\"25.00\",\"expectedDate\":null,\"status\":\"Draft\",\"c"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/purchase-orders/:id",
+    "file": "inventoryRoutes",
+    "raw": "/purchase-orders/:id",
+    "testPath": "/api/inventory/purchase-orders/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Purchase order not found.\"}"
   },
   {
     "method": "POST",
@@ -3284,7 +3294,7 @@
     "testPath": "/api/notifications",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":824,\"user_id\":null,\"user_role\":null,\"type\":\"general\",\"title\":\"\",\"message\":\"\",\"data\":null,\"is_read\":0,\"read_at\":null,\"created_at\":\"2026-10-24T19:21:34.000Z\",\"updated_at\":\"2026-10-24T19:21:34.000"
+    "body": "[{\"id\":830,\"user_id\":null,\"user_role\":null,\"type\":\"general\",\"title\":\"\",\"message\":\"\",\"data\":null,\"is_read\":0,\"read_at\":null,\"created_at\":\"2026-10-24T20:13:22.000Z\",\"updated_at\":\"2026-10-24T20:13:22.000"
   },
   {
     "method": "GET",
@@ -3294,7 +3304,7 @@
     "testPath": "/api/notification",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":824,\"user_id\":null,\"user_role\":null,\"type\":\"general\",\"title\":\"\",\"message\":\"\",\"data\":null,\"is_read\":0,\"read_at\":null,\"created_at\":\"2026-10-24T19:21:34.000Z\",\"updated_at\":\"2026-10-24T19:21:34.000"
+    "body": "[{\"id\":830,\"user_id\":null,\"user_role\":null,\"type\":\"general\",\"title\":\"\",\"message\":\"\",\"data\":null,\"is_read\":0,\"read_at\":null,\"created_at\":\"2026-10-24T20:13:22.000Z\",\"updated_at\":\"2026-10-24T20:13:22.000"
   },
   {
     "method": "POST",
@@ -3344,7 +3354,7 @@
     "testPath": "/api/notifications",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"success\":true,\"id\":825}"
+    "body": "{\"success\":true,\"id\":831}"
   },
   {
     "method": "POST",
@@ -3354,7 +3364,7 @@
     "testPath": "/api/notification",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"success\":true,\"id\":826}"
+    "body": "{\"success\":true,\"id\":832}"
   },
   {
     "method": "DELETE",
