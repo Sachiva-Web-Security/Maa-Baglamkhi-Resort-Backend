@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  FaBan,
+  FaBoxOpen,
   FaCalendarAlt,
   FaChartBar,
   FaDownload,
   FaFileAlt,
   FaHotel,
+  FaListAlt,
   FaMoneyBillWave,
   FaPrint,
+  FaStar,
   FaSyncAlt,
   FaUserFriends,
 } from "react-icons/fa";
@@ -34,6 +38,20 @@ const REPORTS = [
   { key: "cash-summary", label: "Cash Summary", note: "Petty cash and cash receipts", icon: FaMoneyBillWave },
   { key: "refund-collection", label: "Refund Collection", note: "Refunded payments and cancelled bookings", icon: FaMoneyBillWave },
   { key: "stock-summary", label: "Current Stock Summary", note: "On-hand quantities and value", icon: FaChartBar },
+  { key: "collection-report", label: "Collection Report", note: "Receipts by day and channel", icon: FaMoneyBillWave },
+  { key: "item-wise", label: "Item-wise Report", note: "Quantity and value per item", icon: FaListAlt },
+  { key: "invoice-group-wise", label: "Invoice Group-wise", note: "Sales grouped by invoice", icon: FaFileAlt },
+  { key: "sales-by-guest", label: "Sales by Guest", note: "Charges per in-house guest", icon: FaUserFriends },
+  { key: "sales-by-order-type", label: "Sales by Order Type", note: "Table / room / takeaway split", icon: FaUtensils },
+  { key: "due-list", label: "Due List", note: "Open balances right now", icon: FaMoneyBillWave },
+  { key: "table-wise", label: "Table-wise Report", note: "Sales per restaurant table", icon: FaUtensils },
+  { key: "nc-sales", label: "Non-Cash Sales", note: "Card, UPI and netbanking receipts", icon: FaMoneyBillWave },
+  { key: "parcel-sales", label: "Parcel Sales", note: "Takeaway and delivery sales", icon: FaBoxOpen },
+  { key: "void-kot-history", label: "Void / KOT History", note: "Cancelled items and KOTs", icon: FaBan },
+  { key: "refund-item-summary", label: "Refund Item Summary", note: "Refunded payments in the period", icon: FaMoneyBillWave },
+  { key: "pax", label: "Pax Report", note: "Guest counts per booking", icon: FaUserFriends },
+  { key: "day-end-summary", label: "Day-end Summary", note: "One line per day", icon: FaCalendarAlt },
+  { key: "feedback-analytics", label: "Feedback Analytics", note: "Guest ratings and reviews", icon: FaStar },
 ];
 
 const isoDate = (d) => {
@@ -179,7 +197,7 @@ export default function ReportsSuite() {
           <button
             type="button"
             onClick={downloadNow}
-            disabled={!csvText}
+            disabled={loading || rows.length === 0}
             className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
             <FaDownload size={13} /> Download CSV
@@ -192,7 +210,7 @@ export default function ReportsSuite() {
               <button
                 key={r.key}
                 type="button"
-                onClick={() => { setReportKey(r.key); setCsvText(""); }}
+                onClick={() => { setReportKey(r.key); }}
                 className={`rounded-lg px-3 py-1.5 text-[12px] font-bold tracking-wide transition ${reportKey === r.key ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
               >
                 {r.label}

@@ -137,6 +137,7 @@ const Sidebar = ({ isMobile, sidebarOpen, setSidebarOpen, setIsAuthenticated }) 
       { id: 1103, name: "Menu Recipes", icon: FaUtensils, path: "/inventory/recipes", section: "records" },
       { id: 1101, name: "Chef Issues", icon: FaExchangeAlt, path: "/inventory/chef-issues", section: "records" },
       { id: 111, name: "Reports", icon: FaChartBar, path: "/reports", section: "records" },
+      { id: 111a, name: "Reports Suite", icon: FaListAlt, path: "/reports/suite", section: "records" },
       { id: 112, name: "Audit Logs", icon: FaHistory, path: "/audit-logs", section: "records" },
       { id: 113, name: "User Management", icon: FaUserCheck, path: "/user", section: "records" },
       { id: 1131, name: "Print Management", icon: FaClipboardList, path: "/print", section: "records" },
@@ -155,6 +156,7 @@ const Sidebar = ({ isMobile, sidebarOpen, setSidebarOpen, setIsAuthenticated }) 
       { id: 207, name: "Restaurant POS", icon: FaUtensils, path: "/restaurant", section: "operations" },
       { id: 208, name: "Accounts", icon: FaWallet, path: "/accounts", section: "records" },
       { id: 209, name: "Reports", icon: FaChartBar, path: "/reports", section: "records" },
+      { id: 209a, name: "Reports Suite", icon: FaListAlt, path: "/reports/suite", section: "records" },
       { id: 210, name: "Inventory", icon: FaBoxes, path: "/inventory", section: "records" },
       { id: 2101, name: "Chef Issues", icon: FaExchangeAlt, path: "/inventory/chef-issues", section: "records" },
       { id: 211, name: "Audit Logs", icon: FaHistory, path: "/audit-logs", section: "records" },
@@ -195,6 +197,7 @@ const Sidebar = ({ isMobile, sidebarOpen, setSidebarOpen, setIsAuthenticated }) 
       { id: 502, name: "Assign Notifications", icon: FaBell, path: "/assignment-notification", section: "operations" },
       { id: 503, name: "Accounts", icon: FaWallet, path: "/accounts", section: "records" },
       { id: 504, name: "Reports", icon: FaChartBar, path: "/reports", section: "records" },
+      { id: 504a, name: "Reports Suite", icon: FaListAlt, path: "/reports/suite", section: "records" },
       // { id: 505, name: "Inventory", icon: FaBoxes, path: "/inventory", section: "records",
       //   children: [
       //     { id: 5050, name: "Categories", path: "/inventory/categories", icon: FaListAlt },

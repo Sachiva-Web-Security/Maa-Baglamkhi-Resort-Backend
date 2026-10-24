@@ -958,3 +958,634 @@ router.get("/stock-summary", async (req, res) => {
 });
 
 module.exports = router;
+
+// Parse bills.items_json into item rows. Shape seen in the wild:
+//   [{ name, quantity, rate }]  or  [{ item, qty, price }]
+function billItems(itemsJson) {
+  if (!itemsJson) return [];
+  try {
+    const arr = JSON.parse(itemsJson);
+    if (!Array.isArray(arr)) return [];
+    return arr.map((it) => ({
+      name: it.name || it.item || it.title || "item",
+      quantity: Number(it.quantity ?? it.qty ?? 0),
+      rate: Number(it.rate ?? it.unit_price ?? it.price ?? 0),
+      total: Number(it.total ?? (Number(it.quantity ?? it.qty ?? 0) * Number(it.rate ?? it.unit_price ?? it.price ?? 0))),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// ── 20. Collection report — receipts day by day ────────────────────────────
+
+router.get("/collection-report", async (req, res) => {
+  const { from, to } = dateRange(req);
+  const rows = await queryOrEmpty(
+    `SELECT
+       DATE(p.created_at) AS date,
+       COALESCE(pm.name, p.payment_type, 'unknown') AS channel,
+       p.payment_type,
+       COUNT(*) AS count,
+       COALESCE(SUM(p.amount), 0) AS total
+     FROM payments p
+     LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id
+     WHERE p.status = 'completed'
+       AND DATE(p.created_at) >= ? AND DATE(p.created_at) <= ?
+     GROUP BY DATE(p.created_at), COALESCE(pm.name, p.payment_type, 'unknown'), p.payment_type
+     ORDER BY date DESC, total DESC`,
+    [from, to],
+  );
+  await sendReport(req, res, {
+    reportKey: "collection-report",
+    columns: ["date", "channel", "payment_type", "count", "total"],
+    rows,
+    summary: {
+      from,
+      to,
+      total: round2(rows.reduce((a, r) => a + Number(r.total || 0), 0)),
+      count: rows.reduce((a, r) => a + Number(r.count || 0), 0),
+      note: (await tableExists("payments")) ? "" : "payments table not present on this deployment",
+    },
+  });
+});
+
+// ── 21. Item-wise report — quantity and value per menu item ──────────────
+
+router.get("/item-wise", async (req, res) => {
+  const { from, to } = dateRange(req);
+  const hasOrderItems = await tableExists("order_items");
+  const hasBills = await tableExists("bills");
+  const out = [];
+  if (hasOrderItems) {
+    const rows = await queryOrEmpty(
+      `SELECT
+         oi.name AS item,
+         COALESCE(SUM(oi.quantity), 0) AS quantity,
+         COALESCE(SUM(oi.total), 0) AS value
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       WHERE DATE(o.created_at) >= ? AND DATE(o.created_at) <= ?
+       GROUP BY oi.name
+       ORDER BY value DESC`,
+      [from, to],
+    );
+    out.push(...rows.map((r) => ({ source: "order_items", item: r.item, quantity: r.quantity, value: round2(r.value) })));
+  }
+  if (hasBills) {
+    // bills.items_json: [{ name, quantity, rate }] — aggregate server-side.
+    const bills = await queryOrEmpty(
+      `SELECT items_json FROM bills WHERE items_json IS NOT NULL AND items_json != '' AND DATE(created_at) >= ? AND DATE(created_at) <= ?`,
+      [from, to],
+    );
+    const agg = new Map();
+    for (const b of safeArray(bills)) {
+      for (const it of billItems(b.items_json)) {
+        const key = String(it.name).toLowerCase();
+        const cur = agg.get(key) || { item: it.name, quantity: 0, value: 0 };
+        cur.quantity += Number(it.quantity || 0);
+        cur.value = round2(cur.value + Number(it.total || 0));
+        agg.set(key, cur);
+      }
+    }
+    out.push(...[...agg.values()].map((r) => ({ source: "bills.items_json", ...r })));
+  }
+  out.sort((a, b) => Number(b.value || 0) - Number(a.value || 0));
+  await sendReport(req, res, {
+    reportKey: "item-wise",
+    columns: ["source", "item", "quantity", "value"],
+    rows: out,
+    summary: {
+      from,
+      to,
+      items: out.length,
+      total_value: round2(out.reduce((a, r) => a + Number(r.value || 0), 0)),
+      note: out.length === 0 && !hasOrderItems && !hasBills
+        ? "no item source present (order_items / bills.items_json)"
+        : "",
+    },
+  });
+});
+
+// ── 22. Invoice group-wise — sales grouped by invoice ─────────────────────
+
+router.get("/invoice-group-wise", async (req, res) => {
+  const { from, to } = dateRange(req);
+  const hasInvoices = await tableExists("invoices");
+  const rows = hasInvoices
+    ? await queryOrEmpty(
+        `SELECT
+           i.invoice_no AS invoice_no,
+           DATE_FORMAT(COALESCE(i.invoice_date, i.date, i.created_at), '%Y-%m-%d') AS date,
+           i.customer_name,
+           i.payment_status,
+           COALESCE(i.total, i.final_total) AS total,
+           COALESCE(i.paid_amount, 0) AS paid,
+           COALESCE(i.balance, 0) AS balance
+         FROM invoices i
+         WHERE DATE(COALESCE(i.invoice_date, i.date, i.created_at)) >= ?
+           AND DATE(COALESCE(i.invoice_date, i.date, i.created_at)) <= ?
+         ORDER BY date DESC, i.id DESC`,
+        [from, to],
+      )
+    : [];
+  await sendReport(req, res, {
+    reportKey: "invoice-group-wise",
+    columns: ["invoice_no", "date", "customer_name", "payment_status", "total", "paid", "balance"],
+    rows,
+    summary: {
+      from,
+      to,
+      invoices: rows.length,
+      billed: round2(rows.reduce((a, r) => a + Number(r.total || 0), 0)),
+      collected: round2(rows.reduce((a, r) => a + Number(r.paid || 0), 0)),
+      outstanding: round2(rows.reduce((a, r) => a + Number(r.balance || 0), 0)),
+      note: hasInvoices ? "" : "invoices table not present on this deployment",
+    },
+  });
+});
+
+// ── 23. Sales by guest — hotel charges per in-house guest ────────────────
+
+router.get("/sales-by-guest", async (req, res) => {
+  const { from, to } = dateRange(req);
+  const has = await tableExists("bookings");
+  const rows = has
+    ? await queryOrEmpty(
+        `SELECT
+           b.booking_code,
+           r.room_number,
+           (
+             SELECT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(gp.first_name,''),' ',COALESCE(gp.last_name,''))),''), bg.guest_name)
+             FROM booking_guests bg LEFT JOIN guest_profiles gp ON gp.id = bg.guest_profile_id
+             WHERE bg.booking_id = b.id ORDER BY bg.id LIMIT 1
+           ) AS guest_name,
+           b.total_guests AS guests,
+           b.total_amount AS room_charges,
+           (SELECT COALESCE(SUM(f.amount),0) FROM folio_entries f WHERE f.booking_id = b.id AND f.entry_type = 'debit' AND f.created_at IS NOT NULL AND f.created_at >= ? AND f.created_at <= ?) AS extras,
+           b.balance_amount
+         FROM bookings b
+         JOIN booking_rooms br ON br.booking_id = b.id
+         JOIN rooms r ON r.id = br.room_id
+         WHERE b.status <> 'cancelled' AND b.check_in >= ? AND b.check_out <= ?
+         ORDER BY b.check_in DESC, r.room_number`,
+        [from, to, from, to],
+      )
+    : [];
+  await sendReport(req, res, {
+    reportKey: "sales-by-guest",
+    columns: ["booking_code", "room_number", "guest_name", "guests", "room_charges", "extras", "balance"],
+    rows,
+    summary: {
+      from,
+      to,
+      guests: rows.length,
+      room_charges: round2(rows.reduce((a, r) => a + Number(r.room_charges || 0), 0)),
+      extras: round2(rows.reduce((a, r) => a + Number(r.extras || 0), 0)),
+      note: has ? "" : "bookings table not present on this deployment",
+    },
+  });
+});
+
+// ── 24. Sales by order type — entity_type split (Table/Room/Token/Takeaway) ─
+
+router.get("/sales-by-order-type", async (req, res) => {
+  const { from, to } = dateRange(req);
+  const hasBills = await tableExists("bills");
+  const hasOrders = await tableExists("orders");
+  const billRows = hasBills
+    ? await queryOrEmpty(
+        `SELECT COALESCE(entity_type, 'Table') AS order_type, COUNT(*) AS count,
+           COALESCE(SUM(total), 0) AS value
+         FROM bills WHERE DATE(created_at) >= ? AND DATE(created_at) <= ?
+         GROUP BY COALESCE(entity_type, 'Table')`,
+        [from, to],
+      )
+    : [];
+  const orderRows = hasOrders
+    ? await queryOrEmpty(
+        `SELECT COALESCE(entity_type, 'Table') AS order_type, COUNT(*) AS count,
+           COALESCE(SUM(total_amount), 0) AS value
+         FROM orders WHERE DATE(created_at) >= ? AND DATE(created_at) <= ?
+         GROUP BY COALESCE(entity_type, 'Table')`,
+        [from, to],
+      )
+    : [];
+  const rows = [...billRows, ...orderRows]
+    .filter((r) => Number(r.value || 0) > 0 || Number(r.count || 0) > 0)
+    .map((r) => ({ ...r, value: round2(r.value) }));
+  await sendReport(req, res, {
+    reportKey: "sales-by-order-type",
+    columns: ["order_type", "count", "value"],
+    rows,
+    summary: {
+      from,
+      to,
+      total: round2(rows.reduce((a, r) => a + Number(r.value || 0), 0)),
+      note: !hasBills && !hasOrders ? "no bills/orders table present on this deployment" : "",
+    },
+  });
+});
+
+// ── 25. Due list — open balances right now (not a period report) ─────────
+
+router.get("/due-list", async (req, res) => {
+  const { from, to } = dateRange(req);
+  const hasBills = await tableExists("bills");
+  const hasInvoices = await tableExists("invoices");
+  const hasBookings = await tableExists("bookings");
+  const billRows = hasBills
+    ? await queryOrEmpty(
+        `SELECT 'restaurant' AS source, b.id AS ref_id,
+           b.table_number AS reference, b.customer_name AS party, b.total, b.paid_amount,
+           (b.total - COALESCE(b.paid_amount, 0)) AS due
+         FROM bills b
+         WHERE b.total > COALESCE(b.paid_amount, 0) AND b.total > 0
+         ORDER BY due DESC`,
+        [],
+      )
+    : [];
+  const invoiceRows = hasInvoices
+    ? await queryOrEmpty(
+        `SELECT 'invoice' AS source, i.id AS ref_id, i.invoice_no AS reference,
+           i.customer_name AS party, COALESCE(i.total, i.final_total) AS total,
+           COALESCE(i.paid_amount, 0) AS paid, COALESCE(i.balance, 0) AS due
+         FROM invoices i
+         WHERE COALESCE(i.balance, 0) > 0
+         ORDER BY due DESC`,
+        [],
+      )
+    : [];
+  const bookingRows = hasBookings
+    ? await queryOrEmpty(
+        `SELECT 'booking' AS source, b.id AS ref_id, b.booking_code AS reference,
+           COALESCE(g.name, b.customer_name, 'guest') AS party, b.total_amount AS total,
+           b.advance_amount AS paid, COALESCE(b.balance_amount, 0) AS due
+         FROM bookings b
+         LEFT JOIN customers g ON g.id = b.customer_id
+         WHERE b.status NOT IN ('cancelled','checked_out') AND COALESCE(b.balance_amount, 0) > 0
+         ORDER BY due DESC`,
+        [],
+      )
+    : [];
+  const rows = [
+    ...billRows.map((r) => ({ ...r, total: r.total || 0, paid: r.paid || 0 })),
+    ...invoiceRows,
+    ...bookingRows,
+  ].filter((r) => Number(r.due || 0) > 0);
+  await sendReport(req, res, {
+    reportKey: "due-list",
+    columns: ["source", "ref_id", "reference", "party", "total", "paid", "due"],
+    rows,
+    summary: {
+      as_of: to,
+      open_items: rows.length,
+      total_due: round2(rows.reduce((a, r) => a + Number(r.due || 0), 0)),
+      note: "live open balances, not a period report",
+    },
+  });
+});
+
+// ── 26. Table-wise report — sales per restaurant table ───────────────────
+
+router.get("/table-wise", async (req, res) => {
+  const { from, to } = dateRange(req);
+  const hasBills = await tableExists("bills");
+  const rows = hasBills
+    ? await queryOrEmpty(
+        `SELECT
+           COALESCE(NULLIF(b.table_number, ''), '—') AS table_number,
+           COUNT(*) AS bills,
+           COALESCE(SUM(b.total), 0) AS value,
+           COALESCE(SUM(b.paid_amount), 0) AS paid,
+           COALESCE(SUM(b.total - COALESCE(b.paid_amount,0)), 0) AS balance
+         FROM bills b
+         WHERE DATE(b.created_at) >= ? AND DATE(b.created_at) <= ?
+           AND COALESCE(b.entity_type, 'Table') = 'Table'
+         GROUP BY COALESCE(NULLIF(b.table_number, ''), '—')
+         ORDER BY value DESC`,
+        [from, to],
+      )
+    : [];
+  await sendReport(req, res, {
+    reportKey: "table-wise",
+    columns: ["table_number", "bills", "value", "paid", "balance"],
+    rows,
+    summary: {
+      from,
+      to,
+      tables: rows.length,
+      total: round2(rows.reduce((a, r) => a + Number(r.value || 0), 0)),
+      note: hasBills ? "" : "bills table not present on this deployment",
+    },
+  });
+});
+
+// ── 27. Non-cash sales — receipts by non-cash channel ────────────────────
+
+router.get("/nc-sales", async (req, res) => {
+  const { from, to } = dateRange(req);
+  const hasPayments = await tableExists("payments");
+  const rows = hasPayments
+    ? await queryOrEmpty(
+        `SELECT
+           COALESCE(pm.name, p.payment_type, 'unknown') AS channel,
+           p.payment_type,
+           COUNT(*) AS count,
+           COALESCE(SUM(p.amount), 0) AS value
+         FROM payments p
+         LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id
+         WHERE p.status = 'completed'
+           AND COALESCE(LOWER(COALESCE(pm.name, p.payment_type)), '') <> 'cash'
+           AND DATE(p.created_at) >= ? AND DATE(p.created_at) <= ?
+         GROUP BY COALESCE(pm.name, p.payment_type, 'unknown'), p.payment_type
+         ORDER BY value DESC`,
+        [from, to],
+      )
+    : [];
+  await sendReport(req, res, {
+    reportKey: "nc-sales",
+    columns: ["channel", "payment_type", "count", "value"],
+    rows,
+    summary: {
+      from,
+      to,
+      total: round2(rows.reduce((a, r) => a + Number(r.value || 0), 0)),
+      note: hasPayments ? "non-cash completed receipts (card / UPI / netbanking / wallet)" : "payments table not present on this deployment",
+    },
+  });
+});
+
+// ── 28. Parcel (takeaway / delivery) sales ────────────────────────────────
+
+router.get("/parcel-sales", async (req, res) => {
+  const { from, to } = dateRange(req);
+  const hasOrders = await tableExists("orders");
+  const hasBills = await tableExists("bills");
+  const orderRows = hasOrders
+    ? await queryOrEmpty(
+        `SELECT COALESCE(o.entity_type, 'Takeaway') AS source_type,
+           COALESCE(o.table_number, '—') AS reference, o.status,
+           o.waiter_name, DATE_FORMAT(o.created_at, '%Y-%m-%d %H:%i') AS created_at,
+           o.total_amount AS value
+         FROM orders o
+         WHERE o.entity_type = 'Takeaway'
+           AND DATE(o.created_at) >= ? AND DATE(o.created_at) <= ?
+         ORDER BY o.created_at DESC`,
+        [from, to],
+      )
+    : [];
+  const billRows = hasBills
+    ? await queryOrEmpty(
+        `SELECT 'Takeaway' AS source_type, b.table_number AS reference, b.payment_status AS status,
+           b.waiter_name, DATE_FORMAT(b.created_at, '%Y-%m-%d %H:%i') AS created_at, b.total AS value
+         FROM bills b
+         WHERE b.entity_type = 'Takeaway'
+           AND DATE(b.created_at) >= ? AND DATE(b.created_at) <= ?
+         ORDER BY b.created_at DESC`,
+        [from, to],
+      )
+    : [];
+  const rows = [
+    ...orderRows.map((r) => ({ source: "orders", value: round2(r.value), ...r })),
+    ...billRows.map((r) => ({ source: "bills", value: round2(r.value), ...r })),
+  ];
+  await sendReport(req, res, {
+    reportKey: "parcel-sales",
+    columns: ["source", "source_type", "reference", "status", "waiter_name", "created_at", "value"],
+    rows,
+    summary: {
+      from,
+      to,
+      orders: rows.length,
+      total: round2(rows.reduce((a, r) => a + Number(r.value || 0), 0)),
+      note: "takeaway / delivery only (entity_type = 'Takeaway')",
+    },
+  });
+});
+
+// ── 29. Void / item-action history from the kitchen log ──────────────────
+
+router.get("/void-kot-history", async (req, res) => {
+  const { from, to } = dateRange(req);
+  const hasActions = await tableExists("restaurant_item_action_requests");
+  const hasKot = await tableExists("kot_orders");
+  const actionRows = hasActions
+    ? await queryOrEmpty(
+        `SELECT 'item_action' AS kind, a.id AS ref_id, a.table_number, a.token_item_id,
+           a.action_type, a.reason, a.requested_by, a.status,
+           DATE_FORMAT(a.created_at, '%Y-%m-%d %H:%i') AS created_at
+         FROM restaurant_item_action_requests a
+         WHERE DATE(a.created_at) >= ? AND DATE(a.created_at) <= ?
+         ORDER BY a.created_at DESC`,
+        [from, to],
+      )
+    : [];
+  const voidRows = hasKot
+    ? await queryOrEmpty(
+        `SELECT 'kot_cancelled' AS kind, k.id AS ref_id, k.table_number, NULL AS token_item_id,
+           k.status AS action_type, k.ready_message AS reason, k.waiter_name AS requested_by,
+           'cancelled' AS status, DATE_FORMAT(k.created_at, '%Y-%m-%d %H:%i') AS created_at
+         FROM kot_orders k
+         WHERE k.status = 'cancelled'
+           AND DATE(k.created_at) >= ? AND DATE(k.created_at) <= ?
+         ORDER BY k.created_at DESC`,
+        [from, to],
+      )
+    : [];
+  const rows = [...actionRows, ...voidRows];
+  await sendReport(req, res, {
+    reportKey: "void-kot-history",
+    columns: ["kind", "ref_id", "table_number", "token_item_id", "action_type", "reason", "requested_by", "status", "created_at"],
+    rows,
+    summary: {
+      from,
+      to,
+      voids: voidRows.length,
+      item_actions: actionRows.length,
+      note:
+        "item-level voids have no dedicated table on this deployment; the nearest history is restaurant_item_action_requests (per-item action requests incl. voids) plus cancelled KOTs. If your POS records item-level voids only in bills.items_json diffs, that is not a queryable history and is not reported here.",
+    },
+  });
+});
+
+// ── 30. Refund item summary — refunded line items where recorded ────────
+
+router.get("/refund-item-summary", async (req, res) => {
+  const { from, to } = dateRange(req);
+  const hasPayments = await tableExists("payments");
+  const rows = hasPayments
+    ? await queryOrEmpty(
+        `SELECT p.reference_no, p.booking_id, p.payment_type, p.status,
+           DATE_FORMAT(p.created_at, '%Y-%m-%d') AS date, p.amount AS refund_amount,
+           p.transaction_details
+         FROM payments p
+         WHERE LOWER(COALESCE(p.payment_type, '')) LIKE '%refund%' OR p.status = 'refunded'
+           AND DATE(p.created_at) >= ? AND DATE(p.created_at) <= ?
+         ORDER BY p.created_at DESC`,
+        [from, to],
+      )
+    : [];
+  await sendReport(req, res, {
+    reportKey: "refund-item-summary",
+    columns: ["reference_no", "booking_id", "payment_type", "status", "date", "refund_amount", "transaction_details"],
+    rows,
+    summary: {
+      from,
+      to,
+      refunds: rows.length,
+      total: round2(rows.reduce((a, r) => a + Number(r.refund_amount || 0), 0)),
+      note:
+        "no per-line refund-item table exists on this deployment; this reports the refunded payments themselves (see also /refund-collection for cancelled-booking balances).",
+    },
+  });
+});
+
+// ── 31. Pax — guest counts per booking, period view ──────────────────────
+
+router.get("/pax", async (req, res) => {
+  const { from, to } = dateRange(req);
+  const hasPax = await tableExists("pax");
+  const paxRows = hasPax
+    ? await queryOrEmpty(
+        `SELECT p.id, p.booking_id, p.room_number, p.adults, p.children, p.meal_plan,
+           (p.adults + p.children) AS total_pax
+         FROM pax p
+         WHERE p.created_at IS NULL OR DATE(p.created_at) >= ? AND DATE(p.created_at) <= ?
+         ORDER BY p.created_at DESC`,
+        [from, to],
+      )
+    : [];
+  const rows = paxRows.length
+    ? paxRows
+    : await (async () => {
+        // pax table is created on demand by paxModel; fall back to bookings
+        // guest counts so the report still has period numbers.
+        const hasBookings = await tableExists("bookings");
+        return hasBookings
+          ? await queryOrEmpty(
+              `SELECT b.id AS booking_id, b.booking_code, r.room_number,
+                 b.adults, b.children, b.infants,
+                 (COALESCE(b.adults,0) + COALESCE(b.children,0) + COALESCE(b.infants,0)) AS total_pax,
+                 '' AS meal_plan, 'bookings' AS source
+               FROM bookings b LEFT JOIN booking_rooms br ON br.booking_id = b.id
+               LEFT JOIN rooms r ON r.id = br.room_id
+               WHERE b.status <> 'cancelled' AND b.check_in >= ? AND b.check_out <= ?
+               ORDER BY b.check_in DESC`,
+              [from, to],
+            )
+          : [];
+      })();
+  await sendReport(req, res, {
+    reportKey: "pax",
+    columns: ["booking_id", "booking_code", "room_number", "adults", "children", "infants", "total_pax", "meal_plan", "source"],
+    rows,
+    summary: {
+      from,
+      to,
+      total_pax: round2(rows.reduce((a, r) => a + Number(r.total_pax || 0), 0)),
+      notes: !hasPax
+        ? "pax table not present; values derived from bookings guest counts (adults + children + infants)"
+        : "",
+    },
+  });
+});
+
+// ── 32. Day-end summary — one line per day for the period ────────────────
+
+router.get("/day-end-summary", async (req, res) => {
+  const { from, to } = dateRange(req);
+  const [hotelRows, billRows, banquetRows, payRows] = await Promise.all([
+    queryOrEmpty(
+      `SELECT DATE(check_in) AS d, COALESCE(SUM(total_amount),0) AS v FROM bookings
+       WHERE status <> 'cancelled' AND check_in >= ? AND check_in <= ? GROUP BY DATE(check_in)`,
+      [from, to],
+    ),
+    queryOrEmpty(
+      `SELECT DATE(created_at) AS d, COALESCE(SUM(total),0) AS v FROM bills
+       WHERE DATE(created_at) >= ? AND DATE(created_at) <= ? GROUP BY DATE(created_at)`,
+      [from, to],
+    ),
+    queryOrEmpty(
+      `SELECT DATE(event_date) AS d, COALESCE(SUM(total_amount),0) AS v FROM banquet_bookings
+       WHERE DATE(event_date) >= ? AND DATE(event_date) <= ? GROUP BY DATE(event_date)`,
+      [from, to],
+    ),
+    queryOrEmpty(
+      `SELECT DATE(created_at) AS d,
+         COALESCE(SUM(CASE WHEN payment_type = 'refund' THEN 0 ELSE amount END),0) AS receipts,
+         COALESCE(SUM(CASE WHEN payment_type = 'refund' THEN amount ELSE 0 END),0) AS refunds
+       FROM payments
+       WHERE status = 'completed' AND DATE(created_at) >= ? AND DATE(created_at) <= ?
+       GROUP BY DATE(created_at)`,
+      [from, to],
+    ),
+  ]);
+  const days = new Set([...hotelRows, ...billRows, ...banquetRows, ...payRows].map((r) => String(r.d)));
+  const hotelMap = new Map(hotelRows.map((r) => [String(r.d), Number(r.v || 0)]));
+  const billMap = new Map(billRows.map((r) => [String(r.d), Number(r.v || 0)]));
+  const banquetMap = new Map(banquetRows.map((r) => [String(r.d), Number(r.v || 0)]));
+  const payMap = new Map(payRows.map((r) => [String(r.d), { r: Number(r.receipts || 0), f: Number(r.refunds || 0) }]));
+  const rows = [...days].sort().map((d) => {
+    const p = payMap.get(d) || { r: 0, f: 0 };
+    return {
+      date: d,
+      hotel: round2(hotelMap.get(d) || 0),
+      restaurant: round2(billMap.get(d) || 0),
+      banquet: round2(banquetMap.get(d) || 0),
+      receipts: round2(p.r),
+      refunds: round2(p.f),
+      day_total: round2((hotelMap.get(d) || 0) + (billMap.get(d) || 0) + (banquetMap.get(d) || 0)),
+    };
+  });
+  await sendReport(req, res, {
+    reportKey: "day-end-summary",
+    columns: ["date", "hotel", "restaurant", "banquet", "receipts", "refunds", "day_total"],
+    rows,
+    summary: {
+      from,
+      to,
+      days: rows.length,
+      grand_total: round2(rows.reduce((a, r) => a + r.day_total, 0)),
+    },
+  });
+});
+
+// ── 33. Feedback analytics — ratings from the feedback table ─────────────
+
+router.get("/feedback-analytics", async (req, res) => {
+  const { from, to } = dateRange(req);
+  const hasReviews = await tableExists("guest_reviews");
+  const rows = hasReviews
+    ? await queryOrEmpty(
+        `SELECT g.id AS booking_id, g.guest_profile_id,
+           COALESCE(NULLIF(TRIM(CONCAT(COALESCE(gp.first_name,''),' ',COALESCE(gp.last_name,''))),''), 'guest') AS guest,
+           g.overall_rating, g.cleanliness_rating, g.service_rating, g.location_rating, g.value_rating,
+           g.is_published, DATE_FORMAT(COALESCE(g.published_at, g.created_at), '%Y-%m-%d') AS date,
+           g.review_title
+         FROM guest_reviews g
+         LEFT JOIN guest_profiles gp ON gp.id = g.guest_profile_id
+         WHERE DATE(COALESCE(g.published_at, g.created_at)) >= ?
+           AND DATE(COALESCE(g.published_at, g.created_at)) <= ?
+         ORDER BY g.id DESC`,
+        [from, to],
+      )
+    : [];
+  const ratings = rows.map((r) => Number(r.overall_rating || 0)).filter((n) => n > 0);
+  await sendReport(req, res, {
+    reportKey: "feedback-analytics",
+    columns: ["booking_id", "guest_profile_id", "guest", "overall_rating", "cleanliness_rating", "service_rating", "location_rating", "value_rating", "is_published", "date", "review_title"],
+    rows,
+    summary: {
+      from,
+      to,
+      reviews: rows.length,
+      avg_overall: ratings.length ? round2(ratings.reduce((a, n) => a + n, 0) / ratings.length) : null,
+      published: rows.filter((r) => Number(r.is_published) === 1).length,
+      note:
+        hasReviews
+          ? ""
+          : "guest_reviews table not present on this deployment; the `reports` table (0 rows) and `review_media` were checked and hold no rating fields — no feedback data source exists to report on.",
+    },
+  });
+});
