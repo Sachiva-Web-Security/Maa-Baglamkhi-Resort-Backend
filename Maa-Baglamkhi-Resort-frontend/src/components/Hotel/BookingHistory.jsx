@@ -49,20 +49,27 @@ const BookingHistory = () => {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [page, setPage] = useState(1);
+  const [loadError, setLoadError] = useState("");
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     const loadHistory = async () => {
+      setLoadError("");
       try {
         const response = await API.get("/hotel/booking-history");
         setRows(dedupeBookings(Array.isArray(response.data) ? response.data : []));
       } catch (error) {
         console.error(error);
-        alert("Booking history could not be loaded.");
+        setLoadError(
+          error.response?.data?.message ||
+            "Booking history could not be loaded. Check your connection and try again.",
+        );
+        setRows([]);
       }
     };
 
     loadHistory();
-  }, []);
+  }, [retryKey]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / BOOKING_HISTORY_PAGE_SIZE));
   const paginatedRows = rows.slice(
