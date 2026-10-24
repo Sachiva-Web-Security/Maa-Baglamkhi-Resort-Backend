@@ -111,7 +111,15 @@ class PrintQueue {
       const job = rows[0];
       await this.processJob(job);
     } catch (err) {
-      this.logger("Failed to fetch next job:", err.message);
+      // Loud but throttled: the first failure of each kind, then at most
+      // once a minute, so a missing table can't spam the console every 2s.
+      const key = String(err.code || err.message);
+      const now = Date.now();
+      if (this._lastErrLog !== key || now - (this._lastErrLogTime || 0) > 60000) {
+        this._lastErrLog = key;
+        this._lastErrLogTime = now;
+        this.logger("Failed to fetch next job:", err.message, "(suppressed repeats for 60s)");
+      }
     } finally {
       this.processing = false;
     }

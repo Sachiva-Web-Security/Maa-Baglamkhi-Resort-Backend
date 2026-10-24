@@ -10,6 +10,28 @@ class PrintLogs {
     try {
       await conn.beginTransaction()
 
+      // print_queue — background print job queue (poller + retry tracking).
+      // The PrintQueue service runs a processor loop that reads this table,
+      // so it must exist before the processor starts on a fresh machine.
+      await conn.query(`CREATE TABLE IF NOT EXISTS \`print_queue\` (
+            \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            \`job_id\` VARCHAR(120) NOT NULL,
+            \`print_type\` VARCHAR(80) NOT NULL,
+            \`payload\` JSON NOT NULL,
+            \`printer_name\` VARCHAR(255) NOT NULL,
+            \`priority\` INT NOT NULL DEFAULT 0,
+            \`retry_count\` INT NOT NULL DEFAULT 0,
+            \`max_retries\` INT NOT NULL DEFAULT 3,
+            \`status\` VARCHAR(50) NOT NULL DEFAULT 'queued',
+            \`error_message\` TEXT DEFAULT NULL,
+            \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            \`processed_at\` DATETIME DEFAULT NULL,
+            PRIMARY KEY (\`id\`),
+            KEY \`idx_job_id\` (\`job_id\`),
+            KEY \`idx_status\` (\`status\`),
+            KEY \`idx_priority\` (\`priority\`, \`created_at\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+
       await conn.query(`CREATE TABLE IF NOT EXISTS \`print_logs\` (
             \`id\` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   \`print_type\` VARCHAR(50) NOT NULL,
