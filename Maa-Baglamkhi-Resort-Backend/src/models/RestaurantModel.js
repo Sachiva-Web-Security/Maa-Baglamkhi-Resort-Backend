@@ -434,7 +434,7 @@ exports.deleteTable = async (id, callback) => {
     const tableNumber = String(tableRow.number || "").trim();
 
     const [activeTokens] = await run(
-      "SELECT id FROM tokens WHERE tableNumber = ? AND status = 'active' LIMIT 1",
+      "SELECT id FROM tokens WHERE table_number = ? AND status = 'active' LIMIT 1",
       [tableNumber],
     );
     if (activeTokens?.length) {
@@ -444,7 +444,7 @@ exports.deleteTable = async (id, callback) => {
     }
 
     const [pendingOrders] = await run(
-      "SELECT id FROM orders WHERE tableNumber = ? AND status = 'pending' LIMIT 1",
+      "SELECT id FROM orders WHERE table_number = ? AND status = 'pending' LIMIT 1",
       [tableNumber],
     );
     if (pendingOrders?.length) {
@@ -454,7 +454,7 @@ exports.deleteTable = async (id, callback) => {
     }
 
     const [pendingBills] = await run(
-      "SELECT id FROM bills WHERE tableNumber = ? AND COALESCE(paymentStatus, 'Unpaid') <> 'Paid' LIMIT 1",
+      "SELECT id FROM bills WHERE table_number = ? AND COALESCE(LOWER(payment_status), 'unpaid') <> 'paid' LIMIT 1",
       [tableNumber],
     );
     if (pendingBills?.length) {
