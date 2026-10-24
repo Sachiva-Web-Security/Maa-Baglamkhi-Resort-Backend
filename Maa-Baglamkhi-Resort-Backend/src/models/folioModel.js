@@ -111,10 +111,41 @@ const getFolioTotals = async (bookingId) => {
   };
 };
 
+// ─── Create a folio entry (camelCase API used by the restaurant module) ───
+const createFolioEntry = async ({
+  bookingId,
+  description,
+  amount,
+  entryType = "Extra Charge",
+  category = "Restaurant",
+  createdBy = "Restaurant",
+  entryDate,
+}) => {
+  if (!bookingId || !description || amount === undefined) {
+    throw new Error("bookingId, description, and amount are required");
+  }
+  const result = await runQuery(
+    `INSERT INTO hotel_folio_entries
+       (booking_id, entry_date, entry_type, category, description, amount, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      bookingId,
+      entryDate || new Date().toISOString().slice(0, 10),
+      entryType,
+      category,
+      description,
+      Number(amount),
+      createdBy,
+    ],
+  );
+  return result.insertId;
+};
+
 module.exports = {
   ensureSchema,
   getFolioByBooking,
   addFolioEntry,
+  createFolioEntry,
   deleteFolioEntry,
   getFolioTotals,
 };
