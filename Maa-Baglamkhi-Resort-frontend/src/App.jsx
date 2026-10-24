@@ -71,6 +71,8 @@ import LiveBoard from "./pages/LiveBoard";
 import PrintManagement from "./pages/PrintManagement";
 import StaffDashboard from "./pages/StaffDashboard";
 import User from "./pages/User";
+import NotFound from "./pages/NotFound";
+import ErrorBoundary from "./components/ErrorBoundary";
 import AuditReport from "./pages/reports/AuditReport";
 import CollectionReport from "./pages/reports/CollectionReport";
 import DaywiseCollection from "./pages/reports/DaywiseCollection";
@@ -246,7 +248,8 @@ function AppRoutes({ isAuthenticated, setIsAuthenticated, protect }) {
           element={isAuthenticated ? <RoleHomeRedirect /> : <Register />}
         />
         <Route path="/" element={<RoleHomeRedirect />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="/404" element={<NotFound />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     );
   }
@@ -371,7 +374,7 @@ function AppRoutes({ isAuthenticated, setIsAuthenticated, protect }) {
             <Route path="live-board" element={<LiveBoard />} />
           </Route>
 
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/404" replace />} />
         </Routes>
       </div>
     </div>
@@ -414,13 +417,15 @@ function App() {
   );
 
   return (
-    <Router>
-      <AppRoutes
-        isAuthenticated={isAuthenticated}
-        setIsAuthenticated={setIsAuthenticated}
-        protect={protect}
-      />
-    </Router>
+    <ErrorBoundary>
+      <Router>
+        <AppRoutes
+          isAuthenticated={isAuthenticated}
+          setIsAuthenticated={setIsAuthenticated}
+          protect={protect}
+        />
+      </Router>
+    </ErrorBoundary>
   );
 }
 
