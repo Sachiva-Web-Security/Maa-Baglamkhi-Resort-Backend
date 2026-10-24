@@ -77,6 +77,29 @@ async function runMigrations(connection) {
        KEY idx_employee (employee_id)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
   );
+
+  // 3. print_queue — background print job queue (polled by services/PrintQueue.js).
+  // Without this the print processor loops on "table doesn't exist" every 2s.
+  await connection.query(
+    `CREATE TABLE IF NOT EXISTS print_queue (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+       job_id VARCHAR(120) NOT NULL,
+       print_type VARCHAR(80) NOT NULL,
+       payload JSON NOT NULL,
+       printer_name VARCHAR(255) NOT NULL,
+       priority INT NOT NULL DEFAULT 0,
+       retry_count INT NOT NULL DEFAULT 0,
+       max_retries INT NOT NULL DEFAULT 3,
+       status VARCHAR(50) NOT NULL DEFAULT 'queued',
+       error_message TEXT DEFAULT NULL,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       processed_at DATETIME DEFAULT NULL,
+       PRIMARY KEY (id),
+       KEY idx_job_id (job_id),
+       KEY idx_status (status),
+       KEY idx_priority (priority, created_at)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+  );
 }
 
 async function ensureDatabaseExists() {
@@ -128,7 +151,7 @@ async function run() {
     const uploadsDir = ensureUploadsDir();
     console.log(`Uploads directory ready: ${uploadsDir}`);
 
-    const { initializeDatabase } = require("./app");
+    const { initializeDatabase } = require("./src/app");
     await initializeDatabase();
 
     console.log("Schema bootstrap completed.");

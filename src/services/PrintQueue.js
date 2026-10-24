@@ -21,6 +21,7 @@ const numericUserId = (value) => {
   return Number.isInteger(n) && n > 0 ? n : null;
 };
 const { ensureSchema } = require("../models/PrintLogsModel");
+const printLogsModel = require("../models/PrintLogsModel");
 const PrintConfig = require("../PrintConfig");
 
 
@@ -96,6 +97,9 @@ class PrintQueue {
     this.processing = true;
 
     try {
+      // Self-heal on a fresh machine: if print_queue hasn't been created yet,
+      // create it here before the first read instead of error-looping.
+      await printLogsModel.ensureSchema();
       const [rows] = await db.query(
         `SELECT * FROM print_queue
          WHERE status = 'queued'
