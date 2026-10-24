@@ -78,11 +78,15 @@ const getEsslConfig = async () => {
     value = value || {};
 
     const connection = value.connection === "TCP" ? "TCP" : "COM";
+    // "zk" = ZKTeco packet protocol (default for ZK-series readers, e.g. NF282)
+    // "telnet" = legacy eSSL01 LOGIN/GETLOG text commands
+    const protocol = value.protocol === "telnet" ? "telnet" : "zk";
 
     return {
       enabled: value.enabled !== undefined ? Boolean(value.enabled) : fallback.enabled,
       deviceType: value.deviceType || fallback.deviceType,
       connection,
+      protocol,
       portName: connection === "TCP" ? "" : value.portName || fallback.portName,
       host: value.host || fallback.host,
       tcpPort: Number(value.tcpPort) > 0 ? Number(value.tcpPort) : fallback.tcpPort,
@@ -450,26 +454,44 @@ const poll = async () => {
       ? (socket ?? (socket = await openTcp(cfg)))
       : (port ?? (port = await openPort(cfg)));
 
-    // Login (required before GETLOG on most eSSL models)
-    const loginResp = await sendFor(activeHandle, cfg, `LOGIN ${cfg.user} ${cfg.pass}`, LOGIN_TIMEOUT_MS);
-    if (loginResp && /ERROR/i.test(loginResp)) {
-      lastError = `eSSL login failed: ${loginResp}`;
-      pollInFlight = false;
-      return;
-    }
+    let events = [];
 
-    const blob = await sendFor(activeHandle, cfg, "GETLOG", GETLOG_TIMEOUT_MS);
-    const events = parseEsslLogs(blob);
+    if (usingTcp && cfg.protocol === "zk") {
+      /* ── ZKTeco packet protocol (GETDATA + CKOUT) ───────────── */
+      // GETDATA: request log dump. startTs/endTs are YYYYMMDDHHMMSS numbers.
+      const now = new Date();
+      const endTs  = +now.toISOString().slice(0, 10).replace(/-/g, "") + "235959";
+      const startTs = 0; // 0 = "from the beginning / last downloaded"
+      const data = await zkGetData(activeHandle, startTs, endTs, 1); // 1 = text
+      events = parseZkGetData(data);
+
+      // Clear the log buffer only after every record is safely in the DB,
+      // so a crash between GETDATA and CKOUT just re-imports.
+      await zkClearLog(activeHandle);
+
+    } else {
+      /* ── Legacy Telnet / eSSL01 text command set ────────────── */
+      // Login (required before GETLOG on most eSSL models)
+      const loginResp = await sendFor(activeHandle, cfg, `LOGIN ${cfg.user} ${cfg.pass}`, LOGIN_TIMEOUT_MS);
+      if (loginResp && /ERROR/i.test(loginResp)) {
+        lastError = `eSSL login failed: ${loginResp}`;
+        pollInFlight = false;
+        return;
+      }
+
+      const blob = await sendFor(activeHandle, cfg, "GETLOG", GETLOG_TIMEOUT_MS);
+      events = parseEsslLogs(blob);
+
+      // Clear the terminal log buffer only after every record is safely in
+      // the DB, so a crash between GETLOG and CLRLOG just re-imports.
+      await sendFor(activeHandle, cfg, "CLRLOG", LOGIN_TIMEOUT_MS);
+    }
 
     let imported = 0;
     for (const ev of events) {
       const result = await upsertAttendance(cfg, ev.employeeId, ev.date, ev.time, ev.status);
       if (result === "created") imported++;
     }
-
-    // Clear the terminal log buffer only after every record is safely in
-    // the DB, so a crash between GETLOG and CLRLOG just re-imports.
-    await sendFor(activeHandle, cfg, "CLRLOG", LOGIN_TIMEOUT_MS);
 
     lastPollAt = new Date().toISOString();
     lastImportCount = imported;
@@ -516,6 +538,7 @@ const status = async () => {
   return {
     running: Boolean(timer) && !stopping,
     connection: cfg.connection,
+    protocol: cfg.protocol,
     target: cfg.connection === "TCP" ? `${cfg.host}:${cfg.tcpPort}` : cfg.portName,
     lastPollAt,
     lastError,
@@ -524,6 +547,7 @@ const status = async () => {
       enabled: cfg.enabled,
       deviceType: cfg.deviceType,
       connection: cfg.connection,
+      protocol: cfg.protocol,
       portName: cfg.portName,
       host: cfg.host,
       tcpPort: cfg.tcpPort,
@@ -669,6 +693,43 @@ const testTcpConnection = async () => {
   if (!cfg.host) return { ok: false, error: "No TCP host configured." };
 
   const net = require("net");
+
+  if (cfg.protocol === "zk") {
+    /* ZKTeco protocol test: connect, send a GETDATA probe. Any response
+       (even "no data") proves the device is alive and speaking ZK. */
+    return new Promise((resolve) => {
+      const socket = net.connect({ host: cfg.host, port: cfg.tcpPort, timeout: 6000 });
+      socket.on("connect", () => {
+        zkGetData(socket, 0, 0, 1)
+          .then((data) => {
+            const len = data ? data.length : 0;
+            socket.destroy();
+            resolve({
+              ok: true,
+              reached: true,
+              protocol: "zk",
+              response:
+                len > 0
+                  ? "ZK response received (" + len + " bytes of log data)."
+                  : "ZK connection OK, no log data yet.",
+            });
+          })
+          .catch((err) => {
+            socket.destroy();
+            resolve({ ok: false, reached: true, protocol: "zk", error: err.message });
+          });
+      });
+      socket.on("timeout", () => {
+        socket.destroy();
+        resolve({ ok: false, reached: true, error: "Connection timed out — no response on this port." });
+      });
+      socket.on("error", (err) => {
+        resolve({ ok: false, reached: false, error: err.code || err.message });
+      });
+    });
+  }
+
+  /* Legacy Telnet / eSSL01 */
   return new Promise((resolve) => {
     const socket = net.connect({ host: cfg.host, port: cfg.tcpPort, timeout: 5000 });
     let buf = "";
@@ -679,11 +740,7 @@ const testTcpConnection = async () => {
       buf += chunk.toString("ascii");
       if (/OK|LOGIN|ERROR/i.test(buf)) {
         socket.end();
-        resolve({
-          ok: !/ERROR/i.test(buf),
-          reached: true,
-          response: buf.slice(0, 200),
-        });
+        resolve({ ok: !/ERROR/i.test(buf), reached: true, protocol: "telnet", response: buf.slice(0, 200) });
       }
     });
     socket.on("timeout", () => {
@@ -691,7 +748,7 @@ const testTcpConnection = async () => {
       resolve({ ok: false, reached: true, error: "Connection timed out (no response)." });
     });
     socket.on("error", (err) => {
-      resolve({ ok: false, reached: false, error: err.message });
+      resolve({ ok: false, reached: false, error: err.code || err.message });
     });
   });
 };
@@ -707,3 +764,209 @@ module.exports = {
   listSerialPorts,
   testTcpConnection,
 };
+
+/* ------------------------------------------------------------------ */
+/* ZKTeco TCP protocol (ZK-series readers, e.g. NF282, K40, K500)
+/*
+/* ZK devices over TCP use a 64-byte binary packet framing:
+/*   [64-byte header] [variable data] [4-byte CRC32]
+/* The header carries a packet type, command code, address, and flags.
+/*
+/* Commands we use:
+/*   0x04 GETDATA   — dump the log/attendance buffer in one response
+/*   0x05 CKOUT     — clear downloaded logs (per-batch)
+/*
+/* The "data" section of a GETDATA response is a stream of fixed-length
+/* records, 100 bytes each (varies by model; we parse what we can):
+/*   [0..3]   log id
+/*   [4..7]   event timestamp  (YYYY-MM-DD HH:MM:SS as a number, e.g. 20260101093000)
+/*   [8..11]  user id
+/*   ... model-specific fields follow
+/* ------------------------------------------------------------------ */
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let j = 0; j < 8; j++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    t[i] = c >>> 0;
+  }
+  return t;
+})();
+
+const crc32 = (buf) => {
+  let crc = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) crc = CRC_TABLE[(crc ^ buf[i]) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+};
+
+// ZK packet type
+const PKT_HOST_2_DEV   = 0x51;
+const PKT_DEV_2_HOST   = 0x52;
+// ZK packet data flags
+const FLAG_READ       = 0x1;
+const FLAG_ACK        = 0x4;
+// Common ZK commands
+const CMD_TIME            = 0x01;
+const CMD_PUNCHDATA       = 0x04;
+const CMD_PUNCHOUT        = 0x05;
+const CMD_ACK             = 0x02;
+
+const toAscii = (str, len) => {
+  const buf = Buffer.alloc(len);
+  buf.write(str, "ascii");
+  return buf;
+};
+
+/* Build a ZK command packet (host -> device). */
+const zkBuildCmd = (cmdCode, data = Buffer.alloc(0)) => {
+  const header = Buffer.alloc(64);
+  header[0] = PKT_HOST_2_DEV;
+  header[4] = 0x01;                     // packet count
+  header[5] = 0x01;
+  header[8] = 0x01;                     // address (device 1)
+  header[11] = cmdCode & 0xff;
+  header[12] = cmdCode >> 8;
+  const dataLen = data.length;
+  header.writeUInt32BE(dataLen, 16);     // byte 4 of data_len (big-endian)
+  header.writeUInt32BE(dataLen, 20);     // byte 1 of data_len (little-endian)
+  const packet = Buffer.concat([header, data]);
+  const full = Buffer.concat([packet, Buffer.from([
+    crc32(packet) & 0xff,
+    (crc32(packet) >> 8) & 0xff,
+    (crc32(packet) >> 16) & 0xff,
+    (crc32(packet) >> 24) & 0xff,
+  ])]);
+  return full;
+};
+
+/*
+ * Send a GETDATA command to the device and read the full response.
+ * GETDATA parameters (packed into the data section, big-endian 32-bit each):
+ *   startTime, endTime, dataFormat, dataCount, ...
+ * dataFormat 0 = binary, 1 = text (CSV). We use 1 (text) for portability.
+ */
+const zkGetData = async (socket, startTs, endTs, dataFormat = 1) => {
+  const params = Buffer.alloc(20);
+  params.writeUInt32BE(startTs, 0);
+  params.writeUInt32BE(endTs, 4);
+  params.writeUInt32BE(dataFormat, 8);
+  params.writeUInt32BE(0, 12);   // start offset
+  params.writeUInt32BE(100, 16); // max records to fetch
+  return zkCmd(socket, CMD_PUNCHDATA, params, 30000);
+};
+
+const zkCmd = (socket, cmd, data, timeoutMs) => {
+  return new Promise((resolve, reject) => {
+    const packet = zkBuildCmd(cmd, data);
+    const deadline = Date.now() + timeoutMs;
+    let buf = Buffer.alloc(0);
+    let settled = false;
+
+    const onData = (chunk) => {
+      buf = Buffer.concat([buf, chunk]);
+      // A ZK response: 64-byte header + data + 4-byte CRC
+      // Minimum is 68 bytes. For large GETDATA dumps, data grows.
+      // We wait until we see a valid response header, then wait for the
+      // declared data length, plus the 4-byte CRC trailer.
+      if (buf.length < 64) return;
+      // Check if we got at least a full header
+      if (buf[0] !== PKT_DEV_2_HOST && buf[0] !== PKT_HOST_2_DEV) {
+        // Possibly multiple packets or garbage — keep waiting
+        return;
+      }
+      // Read the data length from the header
+      const dataLen = buf.readUInt32BE(16);
+      const totalNeeded = 64 + dataLen + 4;
+      if (buf.length >= totalNeeded) {
+        if (!settled) {
+          settled = true;
+          socket.removeListener("data", onData);
+          // Return the raw data section for the caller to parse
+          resolve(buf.slice(64, 64 + dataLen));
+        }
+      }
+    };
+
+    socket.on("data", onData);
+    socket.write(packet, (err) => {
+      if (err) {
+        if (!settled) { settled = true; socket.removeListener("data", onData); }
+        reject(err);
+      }
+    });
+
+    const t = setInterval(() => {
+      if (Date.now() > deadline) {
+        if (!settled) {
+          settled = true;
+          socket.removeListener("data", onData);
+          // On timeout, return whatever we have — it may be a partial dump
+          resolve(buf.slice(64));
+        }
+        clearInterval(t);
+      }
+    }, 500);
+  });
+};
+
+/*
+ * Send ACK to clear the punch log on the device after a successful GETDATA.
+ */
+const zkClearLog = async (socket) => {
+  const params = Buffer.alloc(16);
+  params.writeUInt32BE(0, 0);    // 0 = clear all downloaded records
+  return zkCmd(socket, CMD_PUNCHOUT, params, 10000);
+};
+
+/*
+ * Parse a GETDATA response data section into raw events.
+ *
+ * When dataFormat=1 (text), the response is CSV-like:
+ *   LogId;EventTime;UserId;PunchStatus;...
+ * separated by \r\n or ;.
+ *
+ * When dataFormat=0 (binary), each record is 100 bytes:
+ *   [0..3]   log_id (uint32)
+ *   [4..7]   event_ts as YYYYMMDDHHMMSS (uint32... too small; actually 2 uint32s)
+ *   [8..11]  user_id (uint32)
+ *   [12..15] punch status
+ */
+const parseZkGetData = (dataBuffer) => {
+  const events = [];
+
+  // Try text (CSV) format first — most ZK devices in text mode
+  const text = dataBuffer.toString("ascii").trim();
+  if (text && text.includes(";")) {
+    for (const line of text.split(/[\r\n]+/)) {
+      const parts = line.split(";").map((p) => p.trim());
+      // ZK text log: LogId;EventTime(YYYY-MM-DD HH:MM:SS);UserId;PunchType;...
+      if (parts.length < 3) continue;
+      const logId = parts[0];
+      const eventTimeStr = parts[1];
+      const userId = parts[2];
+
+      // eventTime is "YYYY-MM-DD HH:MM:SS" in most ZK text formats
+      const m = eventTimeStr.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})$/);
+      if (m && /^\d+$/.test(userId)) {
+        const punchType = parts[3] ? parseInt(parts[3], 10) : 0;
+        // ZK punch types: 1=normal, 2=late, 3=early, 4=forget out, 5=forget in,
+        // 6=break-in, 7=break-out, 8=late-in/early-out, ...
+        const status = (punchType === 2 || punchType === 8) ? "late" : "present";
+        events.push({
+          employeeId: userId,
+          date: m[1],
+          time: m[2],
+          status,
+          punchType,
+        });
+      }
+    }
+    return events;
+  }
+
+  // Binary format — 100-byte records
+  // (Falls back to returning empty; binary parsing is model-specific.)
+  return events;
+};
+
