@@ -24,6 +24,7 @@ router.put(
 );
 router.post("/essl/poll", authMiddleware, roleMiddleware(["admin"]), esslController.pollNow);
 router.post("/essl/test-tcp", authMiddleware, roleMiddleware(["admin"]), esslController.testTcp);
+router.post("/essl/diagnose", authMiddleware, roleMiddleware(["admin"]), esslController.diagnose);
 router.post("/essl/restart", authMiddleware, roleMiddleware(["admin"]), esslController.restart);
 
 /* ── Standard attendance routes ──────────────────────────────────────── */

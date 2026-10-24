@@ -163,6 +163,19 @@ exports.testTcp = async (req, res) => {
 };
 
 /**
+ * POST /api/attendance/essl/diagnose
+ * Admin only: run every connectivity check at once and return a checklist.
+ */
+exports.diagnose = async (req, res) => {
+  try {
+    const result = await esslService.diagnose();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ allOk: false, checks: [], error: err.message });
+  }
+};
+
+/**
  * POST /api/attendance/essl/restart
  * Admin only: re-read config and restart the poll timer after the admin saved settings.
  */

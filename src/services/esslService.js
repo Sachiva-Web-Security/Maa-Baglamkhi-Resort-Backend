@@ -753,6 +753,130 @@ const testTcpConnection = async () => {
   });
 };
 
+/**
+ * Run every eSSL connectivity check at once so an admin can see in one
+ * place exactly where the chain is broken. All checks are non-destructive.
+ */
+const diagnose = async () => {
+  const checks = [];
+
+  // 1 — database reachable
+  let dbOk = false;
+  try {
+    const [rows] = await db.query("SELECT 1 AS ok");
+    dbOk = Array.isArray(rows) && rows.length > 0;
+  } catch {}
+  checks.push({
+    key: "database",
+    label: "MySQL database reachable",
+    ok: dbOk,
+    detail: dbOk
+      ? "Connected."
+      : "Cannot reach the database — check .env and the MySQL service.",
+  });
+
+  // 2 — config
+  let cfg;
+  try {
+    cfg = await getEsslConfig();
+  } catch {
+    cfg = { enabled: false, connection: "COM", host: "", tcpPort: 0, portName: "", protocol: "zk" };
+  }
+  const usingTcp = cfg.connection === "TCP";
+  const target = usingTcp ? `${cfg.host}:${cfg.tcpPort}` : cfg.portName;
+  checks.push({
+    key: "config",
+    label: usingTcp ? "TCP target configured" : "COM port configured",
+    ok: usingTcp ? Boolean(cfg.host) : Boolean(cfg.portName),
+    detail: usingTcp
+      ? cfg.host
+        ? "Target: " + target
+        : "No host/IP set — fill in Host/IP in Settings."
+      : cfg.portName
+      ? "Target: " + target
+      : "No COM port set — detect ports in Settings.",
+  });
+
+  // 3 — serial ports visible
+  let portInfo;
+  try {
+    portInfo = await listSerialPorts();
+  } catch {
+    portInfo = { ok: false, ports: [] };
+  }
+  checks.push({
+    key: "ports",
+    label: "Serial ports visible on this PC",
+    ok: portInfo.ports.length > 0,
+    detail:
+      portInfo.ports.length > 0
+        ? portInfo.ports.map((p) => p.path).join(", ")
+        : "No serial ports detected — plug in the USB cable and retry.",
+  });
+
+  // 4 — TCP connection
+  let tcpResult = { ok: false, reached: false };
+  if (usingTcp && cfg.host) {
+    try {
+      tcpResult = await testTcpConnection();
+    } catch {}
+  }
+  checks.push({
+    key: "tcp",
+    label: "TCP connection to " + (usingTcp ? target : "(COM mode — skipped)"),
+    ok: !usingTcp || tcpResult.ok,
+    detail: usingTcp
+      ? tcpResult.reached
+        ? tcpResult.ok
+          ? "Reached: " + (tcpResult.response || "OK")
+          : "No response: " + (tcpResult.error || "silent")
+        : "Could not reach host: " + (tcpResult.error || "refused")
+      : "Not in TCP mode.",
+  });
+
+  // 5 — employee mappings
+  let mappings = 0;
+  try {
+    const [mrows] = await db.query("SELECT COUNT(*) AS c FROM essl_devices WHERE active = 1");
+    mappings = (mrows[0] && mrows[0].c) || 0;
+  } catch {}
+  checks.push({
+    key: "mappings",
+    label: "Employee mappings registered",
+    ok: mappings > 0,
+    detail:
+      mappings > 0
+        ? mappings + " active mapping(s)."
+        : "No mappings yet — add one so punches can be attributed to employees.",
+  });
+
+  // 6 — poller state
+  let poller = { running: false, lastError: null, lastPollAt: null, lastImportCount: 0 };
+  try {
+    poller = await status();
+  } catch {}
+  checks.push({
+    key: "poller",
+    label: "Background poller",
+    ok: !poller.lastError,
+    detail: poller.lastError
+      ? "Last error: " + poller.lastError
+      : poller.running
+      ? "Running — last sync: " +
+        (poller.lastPollAt ? new Date(poller.lastPollAt).toLocaleString() : "never") +
+        " (" + (poller.lastImportCount || 0) + " imported)."
+      : "Idle — no target configured yet.",
+  });
+
+  const passing = checks.filter((c) => c.ok).length;
+  return {
+    allOk: passing === checks.length,
+    passing,
+    total: checks.length,
+    checks,
+  };
+};
+
 module.exports = {
   start,
   stopPoller,
@@ -763,6 +887,7 @@ module.exports = {
   pollNow,
   listSerialPorts,
   testTcpConnection,
+  diagnose,
 };
 
 /* ------------------------------------------------------------------ */
