@@ -194,17 +194,23 @@ exports.addOrderItem = (req, res) => {
             status: "Pending",
           };
 
-          Kitchen.createOrder(kitchenOrder, (kErr) => {
-            if (kErr) {
-              // kitchen failure should not block room order creation
-              console.error("Kitchen createOrder failed:", kErr);
-            }
-            res.json({
-              message: "Items added to room order",
-              orderId,
-              kitchen: kErr ? "kitchen push failed" : "sent to kitchen",
-            });
-          });
+          Kitchen.createOrder
+            ? Kitchen.createOrder(kitchenOrder, (kErr) => {
+                if (kErr) {
+                  // kitchen failure should not block room order creation
+                  console.error("Kitchen createOrder failed:", kErr);
+                }
+                res.json({
+                  message: "Items added to room order",
+                  orderId,
+                  kitchen: kErr ? "kitchen push failed" : "sent to kitchen",
+                });
+              })
+            : res.json({
+                message: "Items added to room order",
+                orderId,
+                kitchen: "kitchen push skipped (no KOT model)",
+              });
         }
       });
     });

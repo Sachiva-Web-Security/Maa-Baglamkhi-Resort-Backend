@@ -28,6 +28,23 @@ exports.ensureSchema = async () => {
     )
   `);
 
+  // Waiter-queue columns: room_service_orders must carry the assignment the
+  // delivery routes update/read, so add them if a pre-existing table lacks them.
+  for (const col of [
+    "waiter_name VARCHAR(100) DEFAULT NULL",
+    "order_id INT DEFAULT NULL",
+  ]) {
+    try {
+      const [cols] = await runQuery("SHOW COLUMNS FROM room_service_orders");
+      const colName = col.split(" ")[0].toLowerCase();
+      if (Array.isArray(cols) && !cols.some((c) => String(c.Field).toLowerCase() === colName)) {
+        await runQuery(`ALTER TABLE room_service_orders ADD COLUMN ${col}`);
+      }
+    } catch (err) {
+      if (err && !/Table .* doesn't exist/i.test(err.message)) console.error("Room service schema alter failed:", err.message);
+    }
+  }
+
   await runQuery(`
     CREATE TABLE IF NOT EXISTS room_menu_items (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -72,9 +89,23 @@ exports.ensureSchema = async () => {
 /* ================= ROOMS ================= */
 
 exports.addRoom = (data, callback) => {
-  // Table uses column `room_number` in the rest of the codebase; use it for compatibility
-  const sql = "INSERT INTO rooms (room_number) VALUES (?)";
-  db.query(sql, [data.number], callback);
+  // Table uses column `room_number` in the rest of the codebase; use it for compatibility.
+  // On a fresh schema this table may be owned by the hotel inventory, which adds a
+  // NOT NULL category_id, so fall back to that shape when the simple insert is
+  // rejected and mark the result explicitly (INSERT IGNORE yields affectedRows 0
+  // when the room already exists, which the caller reports as "already exists").
+  const runSimple = (cb) =>
+    db.query("INSERT INTO rooms (room_number) VALUES (?)", [data.number], cb);
+
+  runSimple((err, result, fields) => {
+    if (!err || !/category_id/i.test(String(err.message || "")))
+      return callback(err, result, fields);
+    db.query(
+      "INSERT INTO rooms (category_id, room_number) VALUES ((SELECT MIN(id) FROM room_categories), ?)",
+      [data.number],
+      (e2, r2, f2) => callback(e2 || err, r2, f2)
+    );
+  });
 };
 
 exports.getRooms = (callback) => {
