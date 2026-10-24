@@ -1223,6 +1223,7 @@ CREATE TABLE IF NOT EXISTS `attendance_records` (
   `check_out` TIME,
   `status` ENUM('present','absent','late','half_day','on_leave','holiday','week_off') DEFAULT 'present',
   `leave_type` ENUM('casual','sick','earned','maternity','paternity','unpaid','other'),
+  `method` ENUM('Manual','Biometric','GPS') DEFAULT 'Manual',
   `notes` TEXT,
   `approved_by` BIGINT UNSIGNED,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1232,6 +1233,29 @@ CREATE TABLE IF NOT EXISTS `attendance_records` (
   KEY `idx_date` (`date`),
   KEY `idx_status` (`status`),
   FOREIGN KEY (`employee_id`) REFERENCES `employees`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+/*
+ * eSSL biometric terminal — employee ID mapping.
+ * The terminal stores fingerprints per numeric user id (typically 1..128).
+ * Each row maps that id to a user email and optionally a device label.
+ */
+CREATE TABLE IF NOT EXISTS `essl_devices` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `device_name` VARCHAR(100) NOT NULL,
+  `serial_number` VARCHAR(60),
+  `connection` VARCHAR(30) NOT NULL DEFAULT 'COM',
+  `baud_rate` INT NOT NULL DEFAULT 9600,
+  `employee_id` BIGINT UNSIGNED NOT NULL,
+  `employee_email` VARCHAR(160) NOT NULL,
+  `terminal_user_id` INT UNSIGNED NOT NULL,
+  `active` TINYINT(1) NOT NULL DEFAULT 1,
+  `last_sync_at` DATETIME,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_terminal_user` (`terminal_user_id`),
+  KEY `idx_employee` (`employee_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `salary_payments` (

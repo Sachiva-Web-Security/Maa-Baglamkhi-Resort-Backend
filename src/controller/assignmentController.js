@@ -132,6 +132,8 @@ exports.create = async (req, res) => {
     task,
     priority,
     notes,
+    dueTime, due_time,
+    assignedBy,
   } = req.body;
 
   if (!task) return res.status(400).json({ message: "task is required" });
@@ -176,13 +178,15 @@ exports.create = async (req, res) => {
 
   const normalizedPriority = priorityMap[String(priority || "Normal").toLowerCase()] || "normal";
   const normalizedTaskType = taskTypeMap[String(task).toLowerCase().trim()] || "other";
+  const dueTimeValue = (dueTime || due_time || "").trim() || null;
+  const assignedByName = (assignedBy || "").trim() || null;
 
   try {
     // query() returns rows-only, so insertId has to come from db.query.
     const [result] = await db.query(
       `INSERT INTO housekeeping_assignments
-         (room_id, room_number, assigned_to, assigned_to_name, task_type, priority, notes, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+         (room_id, room_number, assigned_to, assigned_to_name, task_type, priority, notes, status, due_time, assigned_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
       [
         roomId,
         roomNumber || room_number || "",
@@ -191,6 +195,8 @@ exports.create = async (req, res) => {
         normalizedTaskType,
         normalizedPriority,
         notes || null,
+        dueTimeValue,
+        assignedByName,
       ]
     );
     res.json({ message: "Assignment created", id: result.insertId });
@@ -208,6 +214,8 @@ exports.update = async (req, res) => {
     staffName, staff_name,
     roomNumber, room_number,
     notes,
+    dueTime, due_time,
+    assignedBy,
   } = req.body;
 
   // Only real columns of housekeeping_assignments. The old controller also
@@ -264,6 +272,11 @@ exports.update = async (req, res) => {
     values.push(roomNumber ?? room_number);
   }
   if (notes !== undefined) { fields.push("notes = ?"); values.push(notes); }
+  if (dueTime !== undefined || due_time !== undefined) {
+    fields.push("due_time = ?");
+    values.push((dueTime ?? due_time ?? "").trim() || null);
+  }
+  if (assignedBy !== undefined) { fields.push("assigned_by = ?"); values.push(assignedBy || null); }
 
   if (!fields.length) return res.status(400).json({ message: "No fields to update" });
 

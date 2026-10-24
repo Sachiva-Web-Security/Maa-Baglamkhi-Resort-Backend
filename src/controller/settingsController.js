@@ -31,6 +31,21 @@ const getSettings = async () => {
   await ensureSettingsRow();
   const [rows] = await db.query("SELECT * FROM app_settings WHERE id = 1 LIMIT 1");
   const row = rows[0] || {};
+
+  // Fetch eSSL config from the JSON key-value store (if the key column exists)
+  let esslDevice = null;
+  try {
+    const [esslRows] = await db.query(
+      "SELECT value FROM app_settings WHERE `key` = 'essl_device' LIMIT 1"
+    );
+    if (esslRows && esslRows[0]) {
+      const val = esslRows[0].value;
+      esslDevice = typeof val === "string" ? JSON.parse(val) : val;
+    }
+  } catch {
+    /* key column not yet migrated — leave null */
+  }
+
   return {
     id: row.id,
     adminWhatsappNumber:
@@ -50,6 +65,7 @@ const getSettings = async () => {
       row.business_contact ||
       process.env.BUSINESS_CONTACT ||
       "",
+    esslDevice,
     updatedAt: row.updated_at || null,
   };
 };
@@ -100,6 +116,24 @@ exports.getSettings = async (_req, res) => {
   }
 };
 
+/**
+ * Persist the eSSL device config as a JSON value under the key 'essl_device'.
+ * The eSSL poller reads this row at each cycle, so a running backend picks up
+ * changes without a restart.
+ */
+const updateEsslSettings = async (patch) => {
+  if (!patch.esslDevice) return;
+  const row = patch.esslDevice;
+  await db.query(
+    `INSERT INTO app_settings (\`key\`, value, description)
+     VALUES ('essl_device', ?, 'eSSL biometric attendance terminal config')
+     ON DUPLICATE KEY UPDATE
+       value = VALUES(value),
+       updated_at = NOW()`,
+    [JSON.stringify(row)]
+  );
+};
+
 exports.updateSettings = async (req, res) => {
   try {
     const allowed = [
@@ -108,6 +142,7 @@ exports.updateSettings = async (req, res) => {
       "smsEnabled",
       "businessName",
       "businessContact",
+      "esslDevice",
     ];
     const patch = {};
     for (const key of allowed) {
@@ -126,6 +161,9 @@ exports.updateSettings = async (req, res) => {
       }
       patch.adminWhatsappNumber = digits;
     }
+
+    // Persist eSSL device settings separately (stored as JSON under key 'essl_device')
+    await updateEsslSettings(patch);
 
     const settings = await updateSettings(patch);
     res.json({ message: "Settings updated", settings });

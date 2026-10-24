@@ -7,7 +7,7 @@
     "testPath": "/api/accounts/transactions",
     "code": 200,
     "verdict": "PASS",
-    "body": "[]"
+    "body": "[{\"id\":\"payment-1\",\"date\":\"04 Oct 2026\",\"type\":\"Income\",\"department\":\"Room\",\"sourceModule\":\"payments\",\"description\":\"Payment #1\",\"narration\":null,\"customerName\":null,\"customerMobile\":null,\"amount\":500"
   },
   {
     "method": "GET",
@@ -25,9 +25,9 @@
     "file": "accountsRoutes",
     "raw": "/transactions/:id",
     "testPath": "/api/accounts/transactions/999999999",
-    "code": 404,
+    "code": 200,
     "verdict": "PASS",
-    "body": "{\"message\":\"Transaction not found\"}"
+    "body": "{\"message\":\"Transaction updated\"}"
   },
   {
     "method": "DELETE",
@@ -47,7 +47,7 @@
     "testPath": "/api/accounts/summary",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"income\":105365,\"expense\":0,\"net\":105365,\"gstPayable\":495,\"refunds\":0}"
+    "body": "{\"income\":56300,\"expense\":0,\"net\":56300,\"manualIncome\":0,\"manualExpense\":0,\"paymentIncome\":55000,\"billIncome\":100,\"invoiceIncome\":0,\"expenseTotal\":0,\"gstPayable\":0,\"refunds\":0}"
   },
   {
     "method": "GET",
@@ -67,7 +67,7 @@
     "testPath": "/api/accounts/hotel-billing",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":9069,\"booking_code\":\"BK-20261016-354C\",\"bookingCode\":\"BK-20261016-354C\",\"reference\":\"BK-20261016-354C\",\"status\":\"confirmed\",\"booking_status\":\"confirmed\",\"check_in\":\"2026-11-01\",\"checkIn\":\"2026-"
+    "body": "[{\"id\":9015,\"booking_code\":\"BK-20261007-DFF6\",\"bookingCode\":\"BK-20261007-DFF6\",\"reference\":\"BK-20261007-DFF6\",\"status\":\"confirmed\",\"booking_status\":\"confirmed\",\"check_in\":\"2026-10-08\",\"checkIn\":\"2026-"
   },
   {
     "method": "GET",
@@ -77,7 +77,7 @@
     "testPath": "/api/accounts/restaurant-billing",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":5,\"reference\":\"BILL-5\",\"table_number\":\"LT-ec00e0\",\"tableNumber\":\"LT-ec00e0\",\"customer_name\":\"vishal\",\"customerName\":\"vishal\",\"phone\":\"8486965845\",\"subtotal\":\"0.00\",\"tax_amount\":\"0.00\",\"discount"
+    "body": "[{\"id\":1,\"reference\":\"BILL-1\",\"table_number\":\"T1\",\"tableNumber\":\"T1\",\"customer_name\":\"Test Guest\",\"customerName\":\"Test Guest\",\"phone\":\"9999999999\",\"subtotal\":\"100.00\",\"tax_amount\":\"0.00\",\"discount_amo"
   },
   {
     "method": "POST",
@@ -107,7 +107,7 @@
     "testPath": "/api/accounts/extended-summary",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"pendingBankReconciliation\":0,\"pettyCashBalance\":105365,\"gstPendingPayable\":495,\"vendorOutstanding\":0,\"openPurchaseOrders\":1,\"payrollTotal\":50000,\"profitCenters\":[{\"centerName\":\"Hotel\",\"net\":0},{\"cen"
+    "body": "{\"pendingBankReconciliation\":0,\"pettyCashBalance\":55000,\"gstPendingPayable\":0,\"vendorOutstanding\":0,\"openPurchaseOrders\":1,\"payrollTotal\":50000,\"profitCenters\":[{\"centerName\":\"Hotel\",\"net\":0},{\"center"
   },
   {
     "method": "GET",
@@ -117,7 +117,7 @@
     "testPath": "/api/accounts/reconciliation/summary",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"totalBankIn\":105365,\"totalBankOut\":0,\"matchedAmount\":0,\"unmatchedAmount\":17229.5,\"partialAmount\":0,\"reconciledAmount\":0,\"totalItems\":89,\"unmatchedItems\":89,\"partialItems\":0,\"matchedItems\":0}"
+    "body": "{\"totalBankIn\":55000,\"totalBankOut\":0,\"matchedAmount\":0,\"unmatchedAmount\":100,\"partialAmount\":0,\"reconciledAmount\":0,\"totalItems\":60,\"unmatchedItems\":60,\"partialItems\":0,\"matchedItems\":0}"
   },
   {
     "method": "GET",
@@ -167,7 +167,7 @@
     "testPath": "/api/accounts/bank-ledger",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":123,\"entry_date\":\"2026-10-16\",\"bank_name\":\"Cash\",\"bank_account\":\"Cash\",\"reference_no\":null,\"description\":\"Payment #123\",\"payment_mode\":\"Cash\",\"amount\":200,\"direction\":\"in\",\"debit\":0,\"credit\":20"
+    "body": "[{\"id\":99,\"entry_date\":\"2026-10-07\",\"bank_name\":\"Cash\",\"bank_account\":\"Cash\",\"reference_no\":null,\"description\":\"Payment #99\",\"payment_mode\":\"Cash\",\"amount\":15000,\"direction\":\"in\",\"debit\":0,\"credit\":15"
   },
   {
     "method": "POST",
@@ -207,7 +207,7 @@
     "testPath": "/api/accounts/petty-cash",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":123,\"entry_date\":\"2026-10-16\",\"entry_type\":\"In\",\"payment_type\":\"advance\",\"category\":\"Cash\",\"description\":\"Cash payment #123\",\"amount\":200,\"approved_by\":null,\"notes\":null},{\"id\":122,\"entry_date\""
+    "body": "[{\"id\":99,\"entry_date\":\"2026-10-07\",\"entry_type\":\"In\",\"payment_type\":\"advance\",\"category\":\"Cash\",\"description\":\"Cash payment #99\",\"amount\":15000,\"approved_by\":null,\"notes\":null},{\"id\":98,\"entry_date\":"
   },
   {
     "method": "POST",
@@ -247,7 +247,7 @@
     "testPath": "/api/accounts/gst-returns",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":\"2026-10\",\"filing_period\":\"Oct-2026\",\"return_type\":\"GSTR-3B\",\"taxable_amount\":16790,\"gst_collected\":839.5,\"gst_paid\":0,\"net_payable\":839.5,\"status\":\"Draft\",\"filed_on\":null,\"notes\":null},{\"id\":\""
+    "body": "[{\"id\":\"2026-10\",\"filing_period\":\"Oct-2026\",\"return_type\":\"GSTR-3B\",\"taxable_amount\":0,\"gst_collected\":0,\"gst_paid\":0,\"net_payable\":0,\"status\":\"Filed\",\"filed_on\":null,\"notes\":null}]"
   },
   {
     "method": "POST",
@@ -415,9 +415,9 @@
     "file": "accountsRoutes",
     "raw": "/profit-centers",
     "testPath": "/api/accounts/profit-centers",
-    "code": 501,
+    "code": 400,
     "verdict": "PASS",
-    "body": "{\"message\":\"Profit centers are derived read-only from the double-entry ledger (chart_of_accounts + transaction_entries); no writable profit-center table exists in v4.\"}"
+    "body": "{\"message\":\"centerName is required\"}"
   },
   {
     "method": "PUT",
@@ -425,9 +425,9 @@
     "file": "accountsRoutes",
     "raw": "/profit-centers/:id",
     "testPath": "/api/accounts/profit-centers/999999999",
-    "code": 501,
+    "code": 400,
     "verdict": "PASS",
-    "body": "{\"message\":\"Profit centers are derived read-only from the double-entry ledger (chart_of_accounts + transaction_entries); no writable profit-center table exists in v4.\"}"
+    "body": "{\"message\":\"centerName is required\"}"
   },
   {
     "method": "DELETE",
@@ -435,9 +435,9 @@
     "file": "accountsRoutes",
     "raw": "/profit-centers/:id",
     "testPath": "/api/accounts/profit-centers/999999999",
-    "code": 501,
+    "code": 404,
     "verdict": "PASS",
-    "body": "{\"message\":\"Profit centers are derived read-only from the double-entry ledger (chart_of_accounts + transaction_entries); no writable profit-center table exists in v4.\"}"
+    "body": "{\"message\":\"Profit center not found\"}"
   },
   {
     "method": "GET",
@@ -467,7 +467,7 @@
     "testPath": "/api/accounts/payment-history",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":123,\"reference\":\"PAY-123\",\"booking_id\":9068,\"bill_id\":null,\"invoice_id\":null,\"guest_name\":\"Vishal\",\"mobile\":\"9925297456\",\"amount\":200,\"discount_amount\":0,\"payment_mode\":\"Cash\",\"reference_no\":\"\""
+    "body": "[{\"id\":99,\"reference\":\"PAY-99\",\"booking_id\":9015,\"bill_id\":null,\"invoice_id\":null,\"guest_name\":\"Himanshu\",\"mobile\":\"8818848558\",\"amount\":15000,\"discount_amount\":0,\"payment_mode\":\"Cash\",\"reference_no\":"
   },
   {
     "method": "GET",
@@ -477,7 +477,7 @@
     "testPath": "/api/assignments/stats",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"total\":1,\"completed\":0,\"inProgress\":0,\"pending\":1,\"overdue\":0}"
+    "body": "{\"total\":1,\"completed\":0,\"inProgress\":1,\"pending\":0,\"overdue\":1}"
   },
   {
     "method": "GET",
@@ -487,7 +487,7 @@
     "testPath": "/api/assignments",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":1,\"room_id\":1,\"room_number\":\"101\",\"assigned_to\":1,\"assigned_to_name\":null,\"task_type\":\"cleaning\",\"priority\":\"high\",\"status\":\"pending\",\"notes\":null,\"started_at\":null,\"completed_at\":null,\"verifie"
+    "body": "[{\"id\":1,\"room_id\":1,\"room_number\":\"101\",\"assigned_to\":1,\"assigned_to_name\":null,\"task_type\":\"cleaning\",\"priority\":\"high\",\"status\":\"in_progress\",\"notes\":null,\"started_at\":\"2026-10-24T06:33:45.000Z\",\"c"
   },
   {
     "method": "POST",
@@ -531,6 +531,46 @@
   },
   {
     "method": "GET",
+    "path": "/api/attendance/essl/status",
+    "file": "attendanceRoutes",
+    "raw": "/essl/status",
+    "testPath": "/api/attendance/essl/status",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"running\":false,\"lastPollAt\":null,\"lastImportCount\":0,\"lastError\":null,\"config\":{\"enabled\":true,\"deviceType\":\"eSSL01\",\"portName\":\"\",\"baudRate\":9600,\"pollIntervalMs\":30000,\"user\":\"00000\",\"pass\":\"00\",\""
+  },
+  {
+    "method": "GET",
+    "path": "/api/attendance/essl/devices",
+    "file": "attendanceRoutes",
+    "raw": "/essl/devices",
+    "testPath": "/api/attendance/essl/devices",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":1,\"device_name\":\"Main Office\",\"serial_number\":null,\"connection\":\"COM\",\"baud_rate\":9600,\"employee_id\":1,\"employee_email\":\"admin@resort.com\",\"terminal_user_id\":1,\"active\":0,\"last_sync_at\":null,\"c"
+  },
+  {
+    "method": "POST",
+    "path": "/api/attendance/essl/devices",
+    "file": "attendanceRoutes",
+    "raw": "/essl/devices",
+    "testPath": "/api/attendance/essl/devices",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"employeeEmail and terminalUserId are required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/attendance/essl/devices/:id",
+    "file": "attendanceRoutes",
+    "raw": "/essl/devices/:id",
+    "testPath": "/api/attendance/essl/devices/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Device not found\"}"
+  },
+  {
+    "method": "GET",
     "path": "/api/attendance",
     "file": "attendanceRoutes",
     "raw": "/",
@@ -555,9 +595,9 @@
     "file": "auditLogRoutes",
     "raw": "/",
     "testPath": "/api/audit-logs",
-    "code": 0,
-    "verdict": "FAIL",
-    "body": "TIMEOUT"
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":25696,\"user_id\":1,\"user_name\":null,\"user_role\":null,\"action\":\"update\",\"module\":\"unknown\",\"endpoint\":\"/api/attendance/essl/devices/999999999\",\"http_method\":\"PUT\",\"request_data\":\"{\\\"params\\\":{\\\"i"
   },
   {
     "method": "POST",
@@ -903,7 +943,7 @@
     "testPath": "/api/hotel/all-bookings",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"bookingId\":9069,\"bookingCode\":\"BK-20261016-354C\",\"guest_name\":\"Test Guest 14923\",\"mobile\":\"9999999999\",\"guest_email\":\"t14923@test.com\",\"check_in\":\"2026-11-01\",\"check_out\":\"2026-11-03\",\"booking_stat"
+    "body": "[{\"bookingId\":9015,\"bookingCode\":\"BK-20261007-DFF6\",\"guest_name\":\"Himanshu Jha\",\"mobile\":\"8818848558\",\"guest_email\":\"hjha2630@gmail.com\",\"check_in\":\"2026-10-08\",\"check_out\":\"2026-10-19\",\"booking_statu"
   },
   {
     "method": "GET",
@@ -913,7 +953,7 @@
     "testPath": "/api/booking/all-bookings",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"bookingId\":9069,\"bookingCode\":\"BK-20261016-354C\",\"guest_name\":\"Test Guest 14923\",\"mobile\":\"9999999999\",\"guest_email\":\"t14923@test.com\",\"check_in\":\"2026-11-01\",\"check_out\":\"2026-11-03\",\"booking_stat"
+    "body": "[{\"bookingId\":9015,\"bookingCode\":\"BK-20261007-DFF6\",\"guest_name\":\"Himanshu Jha\",\"mobile\":\"8818848558\",\"guest_email\":\"hjha2630@gmail.com\",\"check_in\":\"2026-10-08\",\"check_out\":\"2026-10-19\",\"booking_statu"
   },
   {
     "method": "GET",
@@ -963,7 +1003,7 @@
     "testPath": "/api/hotel/rooms/setup",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":1,\"name\":\"Deluxe\",\"defaultPrice\":\"0.00\",\"unitLabel\":\"Room\",\"rooms\":[\"X149231\",\"101\",\"102\",\"103\"],\"roomDetails\":[{\"roomNumber\":\"X149231\",\"status\":\"available\",\"guest\":null,\"checkIn\":null,\"checkOu"
+    "body": "[{\"id\":1,\"name\":\"Deluxe\",\"defaultPrice\":\"0.00\",\"unitLabel\":\"Room\",\"rooms\":[\"101\"],\"roomDetails\":[{\"roomNumber\":\"101\",\"status\":\"cleaning\",\"guest\":null,\"checkIn\":null,\"checkOut\":null}]},{\"id\":9003,\"name"
   },
   {
     "method": "GET",
@@ -973,7 +1013,7 @@
     "testPath": "/api/booking/rooms/setup",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":1,\"name\":\"Deluxe\",\"defaultPrice\":\"0.00\",\"unitLabel\":\"Room\",\"rooms\":[\"X149231\",\"101\",\"102\",\"103\"],\"roomDetails\":[{\"roomNumber\":\"X149231\",\"status\":\"available\",\"guest\":null,\"checkIn\":null,\"checkOu"
+    "body": "[{\"id\":1,\"name\":\"Deluxe\",\"defaultPrice\":\"0.00\",\"unitLabel\":\"Room\",\"rooms\":[\"101\"],\"roomDetails\":[{\"roomNumber\":\"101\",\"status\":\"cleaning\",\"guest\":null,\"checkIn\":null,\"checkOut\":null}]},{\"id\":9003,\"name"
   },
   {
     "method": "PUT",
@@ -1243,7 +1283,7 @@
     "testPath": "/api/hotel/payment-history/999999999",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":125,\"amount\":\"0.00\",\"discount_amount\":0,\"payment_mode\":\"Cash\",\"created_at\":\"2026-10-16T13:15:56.000Z\",\"guest_name\":\"\",\"rooms\":null},{\"id\":124,\"amount\":\"0.00\",\"discount_amount\":0,\"payment_mode\":"
+    "body": "[{\"id\":101,\"amount\":\"0.00\",\"discount_amount\":0,\"payment_mode\":\"Cash\",\"created_at\":\"2026-10-24T08:46:00.000Z\",\"guest_name\":\"\",\"rooms\":null},{\"id\":100,\"amount\":\"0.00\",\"discount_amount\":0,\"payment_mode\":"
   },
   {
     "method": "GET",
@@ -1253,7 +1293,7 @@
     "testPath": "/api/booking/payment-history/999999999",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":125,\"amount\":\"0.00\",\"discount_amount\":0,\"payment_mode\":\"Cash\",\"created_at\":\"2026-10-16T13:15:56.000Z\",\"guest_name\":\"\",\"rooms\":null},{\"id\":124,\"amount\":\"0.00\",\"discount_amount\":0,\"payment_mode\":"
+    "body": "[{\"id\":101,\"amount\":\"0.00\",\"discount_amount\":0,\"payment_mode\":\"Cash\",\"created_at\":\"2026-10-24T08:46:00.000Z\",\"guest_name\":\"\",\"rooms\":null},{\"id\":100,\"amount\":\"0.00\",\"discount_amount\":0,\"payment_mode\":"
   },
   {
     "method": "GET",
@@ -1533,7 +1573,7 @@
     "testPath": "/api/chef/notifications",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":62,\"user_id\":null,\"user_role\":\"kitchen\",\"type\":\"new_order\",\"title\":\"New Order: Table E2E883838\",\"message\":\"KOT KOT-1792151885768 — 1 items from Ramu Waiter\",\"data\":\"{\\\"orderId\\\":4,\\\"kotNo\\\":\\\"K"
+    "body": "[{\"id\":60,\"user_id\":null,\"user_role\":null,\"type\":\"general\",\"title\":\"\",\"message\":\"\",\"data\":null,\"is_read\":0,\"read_at\":null,\"created_at\":\"2026-10-06T12:04:46.000Z\",\"updated_at\":\"2026-10-06T12:04:46.000Z"
   },
   {
     "method": "POST",
@@ -1563,7 +1603,7 @@
     "testPath": "/api/chef/notifications",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"success\":true,\"id\":63}"
+    "body": "{\"success\":true,\"id\":61}"
   },
   {
     "method": "DELETE",
@@ -1583,7 +1623,7 @@
     "testPath": "/api/dashboard/metrics",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"totalRooms\":31,\"occupiedRooms\":0,\"todayRevenue\":2530,\"todayCheckins\":0,\"expectedArrivals\":4,\"expectedCheckouts\":2,\"totalRevenueGenerated\":8675,\"expectedArrivalDetails\":[{\"id\":9068,\"bookingId\":9068,\""
+    "body": "{\"totalRooms\":2,\"occupiedRooms\":0,\"todayRevenue\":0,\"todayCheckins\":0,\"expectedArrivals\":0,\"expectedCheckouts\":0,\"totalRevenueGenerated\":100,\"expectedArrivalDetails\":[],\"expectedCheckoutDetails\":[],\"to"
   },
   {
     "method": "GET",
@@ -1603,7 +1643,7 @@
     "testPath": "/api/web/dining/config",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"success\":true,\"data\":{\"tables\":[{\"id\":2,\"tableNumber\":\"LT-ec00e0\",\"floorName\":\"Test Floor\",\"sectionName\":null,\"seatCount\":4,\"status\":\"available\",\"statusColor\":null},{\"id\":1,\"tableNumber\":\"T1\",\"floor"
+    "body": "{\"success\":true,\"data\":{\"tables\":[{\"id\":1,\"tableNumber\":\"T1\",\"floorName\":null,\"sectionName\":null,\"seatCount\":4,\"status\":\"available\",\"statusColor\":null}],\"config\":{}}}"
   },
   {
     "method": "GET",
@@ -1613,7 +1653,7 @@
     "testPath": "/api/dining/config",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"success\":true,\"data\":{\"tables\":[{\"id\":2,\"tableNumber\":\"LT-ec00e0\",\"floorName\":\"Test Floor\",\"sectionName\":null,\"seatCount\":4,\"status\":\"available\",\"statusColor\":null},{\"id\":1,\"tableNumber\":\"T1\",\"floor"
+    "body": "{\"success\":true,\"data\":{\"tables\":[{\"id\":1,\"tableNumber\":\"T1\",\"floorName\":null,\"sectionName\":null,\"seatCount\":4,\"status\":\"available\",\"statusColor\":null}],\"config\":{}}}"
   },
   {
     "method": "GET",
@@ -1623,7 +1663,7 @@
     "testPath": "/api/web/dining/availability",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"success\":true,\"data\":{\"date\":\"2026-10-16\",\"guestCount\":1,\"tables\":[{\"id\":2,\"tableNumber\":\"LT-ec00e0\",\"floorName\":\"Test Floor\",\"sectionName\":null,\"seatCount\":4,\"status\":\"available\",\"statusColor\":null"
+    "body": "{\"success\":true,\"data\":{\"date\":\"2026-10-24\",\"guestCount\":1,\"tables\":[{\"id\":1,\"tableNumber\":\"T1\",\"floorName\":null,\"sectionName\":null,\"seatCount\":4,\"status\":\"available\",\"statusColor\":null}]}}"
   },
   {
     "method": "GET",
@@ -1633,7 +1673,7 @@
     "testPath": "/api/dining/availability",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"success\":true,\"data\":{\"date\":\"2026-10-16\",\"guestCount\":1,\"tables\":[{\"id\":2,\"tableNumber\":\"LT-ec00e0\",\"floorName\":\"Test Floor\",\"sectionName\":null,\"seatCount\":4,\"status\":\"available\",\"statusColor\":null"
+    "body": "{\"success\":true,\"data\":{\"date\":\"2026-10-24\",\"guestCount\":1,\"tables\":[{\"id\":1,\"tableNumber\":\"T1\",\"floorName\":null,\"sectionName\":null,\"seatCount\":4,\"status\":\"available\",\"statusColor\":null}]}}"
   },
   {
     "method": "POST",
@@ -1703,7 +1743,7 @@
     "testPath": "/api/housekeeping",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":18,\"roomNo\":\"BD501\",\"type\":\"Accommodation\",\"building\":\"\",\"floor\":\"\",\"section\":\"\",\"guestStatus\":\"\",\"roomType\":\"\",\"status\":\"Vacant Clean\",\"assignee\":\"No Housekeeper\",\"priority\":\"Normal\",\"notes\":\""
+    "body": "[{\"id\":2,\"roomNo\":\"T101\",\"type\":\"Accommodation\",\"building\":\"\",\"floor\":\"\",\"section\":\"\",\"guestStatus\":\"\",\"roomType\":\"\",\"status\":\"Vacant Clean\",\"assignee\":\"No Housekeeper\",\"priority\":\"Normal\",\"notes\":\"\","
   },
   {
     "method": "GET",
@@ -2713,7 +2753,7 @@
     "testPath": "/api/notifications",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":63,\"user_id\":null,\"user_role\":null,\"type\":\"general\",\"title\":\"\",\"message\":\"\",\"data\":null,\"is_read\":0,\"read_at\":null,\"created_at\":\"2026-10-16T13:16:06.000Z\",\"updated_at\":\"2026-10-16T13:16:06.000Z"
+    "body": "[{\"id\":61,\"user_id\":null,\"user_role\":null,\"type\":\"general\",\"title\":\"\",\"message\":\"\",\"data\":null,\"is_read\":0,\"read_at\":null,\"created_at\":\"2026-10-24T08:46:02.000Z\",\"updated_at\":\"2026-10-24T08:46:02.000Z"
   },
   {
     "method": "GET",
@@ -2723,7 +2763,7 @@
     "testPath": "/api/notification",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":63,\"user_id\":null,\"user_role\":null,\"type\":\"general\",\"title\":\"\",\"message\":\"\",\"data\":null,\"is_read\":0,\"read_at\":null,\"created_at\":\"2026-10-16T13:16:06.000Z\",\"updated_at\":\"2026-10-16T13:16:06.000Z"
+    "body": "[{\"id\":61,\"user_id\":null,\"user_role\":null,\"type\":\"general\",\"title\":\"\",\"message\":\"\",\"data\":null,\"is_read\":0,\"read_at\":null,\"created_at\":\"2026-10-24T08:46:02.000Z\",\"updated_at\":\"2026-10-24T08:46:02.000Z"
   },
   {
     "method": "POST",
@@ -2773,7 +2813,7 @@
     "testPath": "/api/notifications",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"success\":true,\"id\":64}"
+    "body": "{\"success\":true,\"id\":62}"
   },
   {
     "method": "POST",
@@ -2783,7 +2823,7 @@
     "testPath": "/api/notification",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"success\":true,\"id\":65}"
+    "body": "{\"success\":true,\"id\":63}"
   },
   {
     "method": "DELETE",
@@ -2823,7 +2863,7 @@
     "testPath": "/api/payment",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":125,\"booking_id\":999999999,\"bill_id\":null,\"invoice_id\":null,\"banquet_booking_id\":null,\"amount\":\"0.00\",\"payment_method_id\":1,\"payment_type\":\"refund\",\"reference_no\":null,\"transaction_details\":nul"
+    "body": "[{\"id\":100,\"booking_id\":999999999,\"bill_id\":null,\"invoice_id\":null,\"banquet_booking_id\":null,\"amount\":\"0.00\",\"payment_method_id\":1,\"payment_type\":\"refund\",\"reference_no\":null,\"transaction_details\":nul"
   },
   {
     "method": "POST",
@@ -2925,7 +2965,7 @@
     "testPath": "/api/reports/summary",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"totalRooms\":32,\"hotelBookings\":56,\"accountsTransactions\":75,\"banquetBookings\":0,\"restaurantBills\":4,\"attendanceRecords\":1}"
+    "body": "{\"totalRooms\":2,\"hotelBookings\":9,\"accountsTransactions\":74,\"banquetBookings\":0,\"restaurantBills\":1,\"attendanceRecords\":1}"
   },
   {
     "method": "GET",
@@ -2955,7 +2995,7 @@
     "testPath": "/api/restaurant/tables",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":2,\"number\":\"LT-ec00e0\",\"floorName\":\"Test Floor\",\"sectionName\":\"\",\"seatCount\":4,\"statusColor\":\"\",\"status\":\"available\"},{\"id\":1,\"number\":\"T1\",\"floorName\":\"\",\"sectionName\":\"\",\"seatCount\":4,\"status"
+    "body": "[{\"id\":1,\"number\":\"T1\",\"floorName\":\"\",\"sectionName\":\"\",\"seatCount\":4,\"statusColor\":\"\",\"status\":\"available\"}]"
   },
   {
     "method": "PUT",
@@ -2985,7 +3025,7 @@
     "testPath": "/api/restaurant/waiter-performance",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"waiterName\":\"Test Waiter\",\"billsHandled\":1,\"salesTotal\":\"100.00\",\"avgBillValue\":\"100.000000\"},{\"waiterName\":\"Waiter\",\"billsHandled\":3,\"salesTotal\":\"0.00\",\"avgBillValue\":\"0.000000\"}]"
+    "body": "[{\"waiterName\":\"Test Waiter\",\"billsHandled\":1,\"salesTotal\":\"100.00\",\"avgBillValue\":\"100.000000\"}]"
   },
   {
     "method": "GET",
@@ -3085,7 +3125,7 @@
     "testPath": "/api/restaurant/order",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":5,\"table_number\":\"BD501\",\"waiterName\":\"Waiter\",\"status\":\"pending\",\"created_at\":\"2026-10-16T07:26:29.000Z\",\"itemCount\":0,\"totalAmount\":\"0.00\"},{\"id\":4,\"table_number\":\"T1\",\"waiterName\":\"Waiter\",\""
+    "body": "[{\"id\":2,\"table_number\":\"T1\",\"waiterName\":null,\"status\":\"preparing\",\"created_at\":\"2026-10-06T10:06:06.000Z\",\"itemCount\":0,\"totalAmount\":\"0.00\"},{\"id\":1,\"table_number\":\"T1\",\"waiterName\":\"Test Waiter\",\""
   },
   {
     "method": "GET",
@@ -3183,9 +3223,9 @@
     "file": "restaurantRoutes",
     "raw": "/bill/pay",
     "testPath": "/api/restaurant/bill/pay",
-    "code": 400,
+    "code": 200,
     "verdict": "PASS",
-    "body": "{\"message\":\"billId is required\"}"
+    "body": "{\"message\":\"Bill payment successful\",\"billId\":3,\"paymentId\":102,\"accountTransactionId\":83}"
   },
   {
     "method": "POST",
@@ -3215,7 +3255,7 @@
     "testPath": "/api/restaurant/bills",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":5,\"table_number\":\"LT-ec00e0\",\"tokenId\":3,\"entity_type\":\"Table\",\"waiter_name\":\"Waiter\",\"customer_name\":\"vishal\",\"phone\":\"8486965845\",\"subtotal\":\"0.00\",\"service_charge\":\"0.00\",\"gst\":\"0.00\",\"total"
+    "body": "[{\"id\":3,\"table_number\":\"Room Charge\",\"tokenId\":null,\"entity_type\":\"Table\",\"waiter_name\":\"Waiter\",\"customer_name\":null,\"phone\":null,\"subtotal\":\"0.00\",\"service_charge\":\"0.00\",\"gst\":\"0.00\",\"total\":\"0.00"
   },
   {
     "method": "POST",
@@ -3314,7 +3354,7 @@
     "testPath": "/api/room-service/rooms",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":9102,\"number\":\"VID1\",\"status\":\"available\"},{\"id\":9101,\"number\":\"VNAME1\",\"status\":\"available\"},{\"id\":9094,\"number\":\"X149239008\",\"status\":\"available\"},{\"id\":9093,\"number\":\"X149239007\",\"status\":\"a"
+    "body": "[{\"id\":9003,\"number\":\"T101\",\"status\":\"available\"},{\"id\":1,\"number\":\"101\",\"status\":\"cleaning\"}]"
   },
   {
     "method": "GET",
@@ -3324,7 +3364,7 @@
     "testPath": "/api/roomservice/rooms",
     "code": 200,
     "verdict": "PASS",
-    "body": "[{\"id\":9102,\"number\":\"VID1\",\"status\":\"available\"},{\"id\":9101,\"number\":\"VNAME1\",\"status\":\"available\"},{\"id\":9094,\"number\":\"X149239008\",\"status\":\"available\"},{\"id\":9093,\"number\":\"X149239007\",\"status\":\"a"
+    "body": "[{\"id\":9003,\"number\":\"T101\",\"status\":\"available\"},{\"id\":1,\"number\":\"101\",\"status\":\"cleaning\"}]"
   },
   {
     "method": "POST",
@@ -3528,13 +3568,13 @@
   },
   {
     "method": "GET",
-    "path": "/api/salary/:userId",
+    "path": "/api/salary/payroll",
     "file": "salaryRoutes",
-    "raw": "/:userId",
-    "testPath": "/api/salary/999999999",
-    "code": 404,
+    "raw": "/payroll",
+    "testPath": "/api/salary/payroll",
+    "code": 200,
     "verdict": "PASS",
-    "body": "{\"message\":\"User not found\"}"
+    "body": "{\"month\":\"2026-10\",\"daysInMonth\":31,\"employees\":[{\"employeeId\":1,\"employeeCode\":\"EMP-001\",\"employeeName\":\"Admin User\",\"employeeEmail\":\"admin@resort.com\",\"designation\":null,\"monthlySalary\":50000,\"daily"
   },
   {
     "method": "GET",
@@ -3542,9 +3582,9 @@
     "file": "salaryRoutes",
     "raw": "/me",
     "testPath": "/api/salary/me",
-    "code": 404,
+    "code": 200,
     "verdict": "PASS",
-    "body": "{\"message\":\"User not found\"}"
+    "body": "{\"id\":1,\"name\":\"Admin User\",\"email\":\"admin@resort.com\",\"phone\":\"9999999999\",\"password_hash\":\"$2b$10$pVnZ467la/ApenGAtTTPZOZTv3cdMRQA7V/ieMPEztymIPzplOByS\",\"role_id\":1,\"avatar_url\":null,\"status\":\"activ"
   },
   {
     "method": "GET",
@@ -3555,6 +3595,16 @@
     "code": 200,
     "verdict": "PASS",
     "body": "{\"employee\":{\"id\":1,\"employeeId\":1,\"employeeCode\":\"EMP-001\",\"salary\":50000,\"designation\":null},\"month\":\"2026-10\",\"attendanceRecords\":[{\"id\":1,\"date\":\"2026-10-05T18:30:00.000Z\",\"status\":\"present\",\"chec"
+  },
+  {
+    "method": "GET",
+    "path": "/api/salary/:userId",
+    "file": "salaryRoutes",
+    "raw": "/:userId",
+    "testPath": "/api/salary/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"User not found\"}"
   },
   {
     "method": "POST",
@@ -3574,7 +3624,7 @@
     "testPath": "/api/settings",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"adminWhatsappNumber\":\"9522239777\",\"adminWhatsappUsername\":\"ankit\",\"smsEnabled\":false,\"businessName\":\"Maa Baglamukhi Resort\",\"businessContact\":\"\",\"updatedAt\":null}"
+    "body": "{\"adminWhatsappNumber\":\"9522239777\",\"adminWhatsappUsername\":\"ankit\",\"smsEnabled\":false,\"businessName\":\"Maa Baglamukhi Resort\",\"businessContact\":\"\",\"esslDevice\":null,\"updatedAt\":null}"
   },
   {
     "method": "PUT",
@@ -3584,7 +3634,16 @@
     "testPath": "/api/settings",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"message\":\"Settings updated\",\"settings\":{\"adminWhatsappNumber\":\"9522239777\",\"adminWhatsappUsername\":\"ankit\",\"smsEnabled\":false,\"businessName\":\"Maa Baglamukhi Resort\",\"businessContact\":\"\",\"updatedAt\":"
+    "body": "{\"message\":\"Settings updated\",\"settings\":{\"adminWhatsappNumber\":\"9522239777\",\"adminWhatsappUsername\":\"ankit\",\"smsEnabled\":false,\"businessName\":\"Maa Baglamukhi Resort\",\"businessContact\":\"\",\"esslDevice\""
+  },
+  {
+    "method": "GET",
+    "path": "/api/settings/whatsapp/health",
+    "file": "settingsRoutes",
+    "raw": "/whatsapp/health",
+    "testPath": "/api/settings/whatsapp/health",
+    "code": "-",
+    "verdict": "SKIP"
   },
   {
     "method": "POST",
@@ -3654,7 +3713,7 @@
     "testPath": "/api/token/close/999999999",
     "code": 200,
     "verdict": "PASS",
-    "body": "{\"message\":\"Token closed\"}"
+    "body": "{\"message\":\"Token closed\",\"closed\":0}"
   },
   {
     "method": "GET",

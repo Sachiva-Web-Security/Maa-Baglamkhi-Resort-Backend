@@ -44,6 +44,41 @@ async function runSchemaFile() {
   }
 }
 
+/**
+ * Idempotent migrations for databases that predate a new column or table.
+ * `ADD COLUMN IF NOT EXISTS` and `CREATE TABLE IF NOT EXISTS` keep the
+ * migrate step safe to run on every boot.
+ */
+async function runMigrations(connection) {
+  // 1. attendance_records.method — distinguishes manual vs. eSSL-biometric entries
+  await connection.query(
+    `ALTER TABLE attendance_records
+     ADD COLUMN IF NOT EXISTS method ENUM('Manual','Biometric','GPS') NOT NULL DEFAULT 'Manual'
+     AFTER leave_type`
+  );
+
+  // 2. essl_devices — maps eSSL terminal user ids to employees
+  await connection.query(
+    `CREATE TABLE IF NOT EXISTS essl_devices (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+       device_name VARCHAR(100) NOT NULL,
+       serial_number VARCHAR(60),
+       connection VARCHAR(30) NOT NULL DEFAULT 'COM',
+       baud_rate INT NOT NULL DEFAULT 9600,
+       employee_id BIGINT UNSIGNED NOT NULL,
+       employee_email VARCHAR(160) NOT NULL,
+       terminal_user_id INT UNSIGNED NOT NULL,
+       active TINYINT(1) NOT NULL DEFAULT 1,
+       last_sync_at DATETIME,
+       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+       PRIMARY KEY (id),
+       UNIQUE KEY uniq_terminal_user (terminal_user_id),
+       KEY idx_employee (employee_id)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+  );
+}
+
 async function ensureDatabaseExists() {
   const connection = await mysql.createConnection({
     ...getDbBaseConfig(),
@@ -75,6 +110,20 @@ async function run() {
 
     await runSchemaFile();
     console.log("Schema file applied.");
+
+    // Apply idempotent migrations so existing databases pick up new columns/tables
+    {
+      const connection = await mysql.createConnection({
+        ...getDbBaseConfig(),
+        database: getDatabaseName(),
+      });
+      try {
+        await runMigrations(connection);
+        console.log("Migrations applied.");
+      } finally {
+        await connection.end();
+      }
+    }
 
     const uploadsDir = ensureUploadsDir();
     console.log(`Uploads directory ready: ${uploadsDir}`);

@@ -24,6 +24,8 @@ class HousekeepingAssignments {
   \`completed_at\` DATETIME,
   \`verified_by\` BIGINT UNSIGNED,
   \`verified_at\` DATETIME,
+  \`due_time\` TIME NULL,
+  \`assigned_by\` VARCHAR(120) NULL,
   \`created_at\` TIMESTAMP,
   \`updated_at\` TIMESTAMP,
   PRIMARY KEY (\`id\`),

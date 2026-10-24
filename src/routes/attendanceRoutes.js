@@ -3,6 +3,27 @@ const authMiddleware = require("../middleware/authMiddleware");
 const roleMiddleware = require("../middleware/roleMiddleware");
 const attendanceController = require("../controller/attendanceController");
 
+/* ── eSSL biometric terminal routes (registered first so they take
+     precedence over the catch-all GET / above) ────────────────────── */
+const esslController = require("../controller/esslController");
+
+router.get("/essl/status", authMiddleware, esslController.getStatus);
+router.get("/essl/devices", authMiddleware, esslController.getDevices);
+router.post(
+  "/essl/devices",
+  authMiddleware,
+  roleMiddleware(["admin"]),
+  esslController.createDevice
+);
+router.put(
+  "/essl/devices/:id",
+  authMiddleware,
+  roleMiddleware(["admin"]),
+  esslController.disableDevice
+);
+
+/* ── Standard attendance routes ──────────────────────────────────────── */
+
 router.get("/", authMiddleware, (req, res, next) => {
   const { date } = req.query;
   if (!date) return res.status(400).json({ message: "date query required" });

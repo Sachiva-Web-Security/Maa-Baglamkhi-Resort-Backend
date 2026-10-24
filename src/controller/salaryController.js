@@ -209,6 +209,110 @@ exports.getMyAttendanceWithSalary = async (req, res) => {
 };
 
 /**
+ * ADMIN: Generate a payroll report for a given month.
+ * Uses actual attendance data (including eSSL-biometric imports) to compute
+ * earned pay per employee.
+ *
+ * GET /api/salary/payroll?month=YYYY-MM
+ *   or  /api/salary/payroll  (defaults to current month)
+ */
+exports.getPayrollReport = async (req, res) => {
+  try {
+    const { month: monthParam } = req.query || {};
+    const [year, month] = monthParam ? monthParam.split("-").map(Number) : [new Date().getFullYear(), new Date().getMonth() + 1];
+
+    // 1. Fetch all active employees with their base salary
+    const [employees] = await db.query(
+      `SELECT e.id AS employee_id, e.employee_code, e.base_salary, e.user_id,
+              u.name AS employee_name, u.email AS employee_email,
+              d.name AS designation
+       FROM employees e
+       LEFT JOIN users u ON u.id = e.user_id
+       LEFT JOIN designations d ON d.id = e.designation_id
+       WHERE e.is_active = 1
+       ORDER BY u.name`
+    );
+
+    // 2. For each employee, fetch their attendance records for the month
+    const now = new Date();
+    const daysInMonth = new Date(year, month, 0).getDate();
+
+    const payroll = [];
+    for (const emp of employees) {
+      const records = await AttendanceRecordsModel.findByEmployeeAndMonth(
+        emp.employee_id,
+        month,
+        year
+      );
+
+      // Count each status category
+      const counts = { present: 0, absent: 0, late: 0, half_day: 0, on_leave: 0, holiday: 0, week_off: 0 };
+      let biometricDays = 0;
+      let manualDays = 0;
+
+      for (const rec of records) {
+        const status = String(rec.status || "").toLowerCase();
+        if (counts[status] !== undefined) counts[status]++;
+        if (String(rec.method || "").toLowerCase() === "biometric") biometricDays++;
+        else manualDays++;
+      }
+
+      const monthlySalary = Number(emp.base_salary || 0);
+      const daily = daysInMonth > 0 ? monthlySalary / daysInMonth : 0;
+
+      // Earned pay = base salary for present/late/holiday/week_off days
+      // (late is 50%, half_day is 50% per the multipliers)
+      let earnedPay = 0;
+      earnedPay += counts.present * daily;
+      earnedPay += counts.late * daily * 0.5;
+      earnedPay += counts.holiday * daily;
+      earnedPay += counts.week_off * daily;
+      // half_day = 50%, absent = 0, on_leave = 0
+
+      payroll.push({
+        employeeId: emp.employee_id,
+        employeeCode: emp.employee_code,
+        employeeName: emp.employee_name,
+        employeeEmail: emp.employee_email,
+        designation: emp.designation,
+        monthlySalary,
+        dailyRate: Number(daily.toFixed(2)),
+        attendance: counts,
+        totalDays: daysInMonth,
+        presentDays: counts.present,
+        lateDays: counts.late,
+        absentDays: counts.absent,
+        onLeaveDays: counts.on_leave,
+        holidayDays: counts.holiday,
+        biometricDays,
+        manualDays,
+        earnedPay: Number(earnedPay.toFixed(2)),
+      });
+    }
+
+    // Summary
+    const totalEarned = payroll.reduce((s, p) => s + p.earnedPay, 0);
+    const totalSalary = payroll.reduce((s, p) => s + p.monthlySalary, 0);
+    const avgEarnedPct = totalSalary > 0 ? ((totalEarned / totalSalary) * 100).toFixed(1) : "0";
+
+    res.json({
+      month: `${year}-${String(month).padStart(2, "0")}`,
+      daysInMonth,
+      employees: payroll,
+      summary: {
+        totalEmployees: payroll.length,
+        totalMonthlySalary: Number(totalSalary.toFixed(2)),
+        totalEarnedPay: Number(totalEarned.toFixed(2)),
+        avgEarnedPercent: avgEarnedPct,
+      },
+    });
+  } catch (err) {
+    console.error("getPayrollReport error:", err);
+    res.status(500).json({ message: "Failed to fetch payroll report", error: err.message });
+  }
+};
+
+/**
  * ADMIN: Recalculate salary_amount for all attendance records of an employee
  * based on their stored salary and current status.
  * POST /api/salary/:userId/recalculate

@@ -9,7 +9,17 @@ router.post("/:userId", authMiddleware, roleMiddleware(["admin"]), salaryControl
 // Admin-only: List all employees with salary info
 router.get("/", authMiddleware, roleMiddleware(["admin"]), salaryController.getAllEmployeesWithSalary);
 
-// Admin or self: Get salary of a specific user
+// Admin-only: Payroll report for a given month (uses actual attendance incl. eSSL)
+// Registered before /:userId so "payroll" is not swallowed as a userId param
+router.get("/payroll", authMiddleware, roleMiddleware(["admin"]), salaryController.getPayrollReport);
+
+// Self: Get my salary
+router.get("/me", authMiddleware, salaryController.getMySalary);
+
+// Self: Get my attendance with calculated salary
+router.get("/me/attendance", authMiddleware, salaryController.getMyAttendanceWithSalary);
+
+// Admin or self: Get salary of a specific user (catch-all param — register last)
 router.get("/:userId", authMiddleware, salaryController.getEmployeeSalary);
 
 // Self: Get my salary
