@@ -59,8 +59,8 @@ const getEsslConfig = async () => {
     tcpPort: Number(process.env.ESSL_TCP_PORT) || 4350,
     baudRate: Number(process.env.ESSL_BAUD_RATE) || 9600,
     pollIntervalMs: Number(process.env.ESSL_POLL_INTERVAL_MS) || DEFAULT_POLL_MS,
-    user: process.env.ESSL_USER || "00000",
-    pass: process.env.ESSL_PASS || "00",
+    user: process.env.ESSL_USER || "essl",
+    pass: process.env.ESSL_PASS || "essl",
   };
 
   try {
