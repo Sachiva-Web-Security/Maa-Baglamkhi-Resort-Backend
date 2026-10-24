@@ -1,13 +1,20 @@
 const db = require("../config/db");
 const { getRequestActor, isWaiterActor, namesMatch } = require("../utils/requestActor");
 
-// Resolve a payment-mode label to a payment_methods.id. Creates the row if needed.
+// Resolve a payment-mode label to a payment_methods.id. Normalises through the
+// bills enum first so unknown labels land on "other" instead of minting junk
+// rows; only real enum values may seed the table.
 const resolvePaymentMethodId = async (paymentMode) => {
-  const label = String(paymentMode || "").trim();
+  const label = normalizePaymentMethod(paymentMode) || String(paymentMode || "").trim();
   if (!label) return null;
   try {
     const [rows] = await db.query("SELECT id FROM payment_methods WHERE LOWER(name) = LOWER(?) LIMIT 1", [label]);
     if (rows && rows[0]) return rows[0].id;
+    const [check] = await db.query("SELECT COUNT(*) AS c FROM payment_methods");
+    if (check?.[0]?.c > 0) {
+      const [retry] = await db.query("SELECT id FROM payment_methods ORDER BY id ASC LIMIT 1");
+      return retry?.[0]?.id || null;
+    }
     const code = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 30) || "other";
     const [result] = await db.query("INSERT INTO payment_methods (name, code, is_active) VALUES (?, ?, 1)", [label, code]);
     if (result?.insertId) return result.insertId;
@@ -607,6 +614,18 @@ const normalizePaymentMethod = (value) => {
   return allowed.has(s) ? s : "other";
 };
 
+// bills.payment_status is an enum; fall back to the column default instead of
+// rejecting values the live schema does not hold.
+const normalizePaymentStatusForBills = (value) => {
+  const s = String(value || "unpaid").toLowerCase().trim();
+  const allowed = new Set(["unpaid", "partial", "paid", "refunded", "cancelled"]);
+  return allowed.has(s) ? s : "unpaid";
+};
+
+// Legacy camelCase payload field -> bills column
+const snakeField = { gst: "tax_amount", serviceCharge: "service_charge", discountAmount: "discount_amount", customerName: "customer_name", tableNumber: "table_number", paymentMethod: "payment_method" };
+const rowValue = (row, field, snake) => (row ? row[snakeField[field] || snake] : undefined);
+
 const createRestaurantBill = async (data) => {
   const conn = await db.getConnection();
   try {
@@ -706,9 +725,7 @@ const buildResolvedWaiterName = (data) =>
   (String(data.entityType || "Table").toLowerCase() === "room" ? "Room Service" : "Waiter");
 
 const findReusableOpenBill = async (conn, data) => {
-  const normalizedStatus = String(data.invoiceStatus || "Saved").toLowerCase();
-  const canReuseOpenBill = normalizedStatus !== "paid";
-  if (!canReuseOpenBill) return null;
+  if (normalizePaymentStatusForBills(data.invoiceStatus || data.paymentStatus) === "paid") return null;
 
   if (data.tokenId) {
     const [rows] = await conn.query(
@@ -932,7 +949,7 @@ const processBillPayment = async (data) => {
       [normalizePaymentMethod(data.paymentMethod || billRow.payment_method || null), Number(billRow.total || data.total || 0), billId],
     );
 
-    if (billRow.tableNumber) {
+    if (billRow.table_number) {
       await conn.query(
         "UPDATE tokens SET status='completed' WHERE table_number=? AND status='active'",
         [billRow.table_number],
@@ -1103,7 +1120,7 @@ const chargeBillToRoom = async (data) => {
       bookingCode,
       guestName,
       roomNumber,
-      description: `Restaurant - ${billRow.tableNumber || "Table"} (Bill #${billId})`,
+      description: `Restaurant - ${billRow.table_number || "Table"} (Bill #${billId})`,
       debit: Number(billRow.total || data.total || 0),
       credit: 0,
       transactionType: "charge",
@@ -1120,7 +1137,7 @@ const chargeBillToRoom = async (data) => {
       [
         Number(billId),
         Number(billRow.total || data.total || 0),
-        await resolvePaymentMethodId(normalizePaymentMethod(data.paymentMethod || billRow.paymentMethod || "Cash")),
+        await resolvePaymentMethodId(normalizePaymentMethod(data.paymentMethod || billRow.payment_method || "Cash")),
         data.user?.id || billRow.created_by || null,
       ],
     );
@@ -1151,7 +1168,7 @@ const chargeBillToRoom = async (data) => {
         WHERE id=?
       `,
       [
-        normalizePaymentMethod(data.paymentMethod || billRow.paymentMethod || "Credit"),
+        normalizePaymentMethod(data.paymentMethod || billRow.payment_method || "Credit"),
         resolvedBookingId,
         bookingCode,
         folioEntryId,
@@ -1161,7 +1178,7 @@ const chargeBillToRoom = async (data) => {
 
     await syncLegacyRestaurantBill(conn, billId);
 
-    if (billRow.tableNumber) {
+    if (billRow.table_number) {
       await conn.query(
         "UPDATE tokens SET status='completed' WHERE table_number=? AND status='active'",
         [billRow.table_number],
@@ -1370,15 +1387,15 @@ exports.payBill = async (req, res) => {
           invoiceNo: String(result.billId || ""),
           items: billItems,
           subtotal: Number(billForPrint?.subtotal || req.body.subtotal || 0),
-          gst: Number(billForPrint?.gst || req.body.gst || 0),
-          serviceCharge: Number(billForPrint?.serviceCharge || req.body.serviceCharge || 0),
-          discount: Number(billForPrint?.discountAmount || billForPrint?.discount || req.body.discountAmount || 0),
-          discountAmount: Number(billForPrint?.discountAmount || billForPrint?.discount || req.body.discountAmount || 0),
-          customerName: req.body.customerName || req.body.customer_name || billForPrint?.customerName || "Walk-in Customer",
+          gst: Number(billForPrint?.tax_amount || req.body.gst || 0),
+          serviceCharge: Number(billForPrint?.service_charge || req.body.serviceCharge || 0),
+          discount: Number(billForPrint?.discount_amount || billForPrint?.discount || req.body.discountAmount || 0),
+          discountAmount: Number(billForPrint?.discount_amount || billForPrint?.discount || req.body.discountAmount || 0),
+          customerName: req.body.customerName || req.body.customer_name || billForPrint?.customer_name || "Walk-in Customer",
           phone: req.body.phone || req.body.customer_phone || billForPrint?.phone || "",
-          tableNumber: req.body.tableNumber || req.body.table || billForPrint?.tableNumber || "",
+          tableNumber: req.body.tableNumber || req.body.table || billForPrint?.table_number || "",
           roomNumber: req.body.roomNumber || req.body.room || "",
-          paymentMethod: req.body.paymentMethod || req.body.payment_method || billForPrint?.paymentMethod || "Cash",
+          paymentMethod: req.body.paymentMethod || req.body.payment_method || billForPrint?.payment_method || "cash",
           printedBy: actor.name || actor.email || "System",
           waiter: billForPrint?.waiter_name || req.body.waiterName || "",
         };
