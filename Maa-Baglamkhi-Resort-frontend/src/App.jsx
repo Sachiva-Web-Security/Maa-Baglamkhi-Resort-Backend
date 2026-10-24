@@ -42,6 +42,7 @@ import AuditLogs from "./pages/AuditLogs";
 import Assignment from "./pages/Assignments";
 import AssignmentNotification from "./pages/assignmentnotification";
 import Attendance from "./pages/Attendance";
+import ZkAttendance from "./pages/ZkAttendance";
 import Payroll from "./pages/Payroll";
 import SalaryManagement from "./pages/SalaryManagement";
 import MyAttendance from "./pages/MyAttendance";
@@ -285,6 +286,7 @@ function AppRoutes({ isAuthenticated, setIsAuthenticated, protect }) {
 
           <Route path="/profile" element={protect(<Profile />, ROLES.ALL)} />
           <Route path="/attendance" element={protect(<Attendance />, ROLES.ALL)} />
+          <Route path="/zk-attendance" element={protect(<ZkAttendance />, ["admin"])} />
           <Route path="/my-attendance" element={protect(<MyAttendance />, ROLES.ALL)} />
           <Route path="/salary" element={protect(<SalaryManagement />, ["admin"])} />
           <Route path="/payroll" element={protect(<Payroll />, ["admin"])} />
