@@ -1560,7 +1560,7 @@ const Banquet = () => {
     );
 
     if (remainingRefund <= 0) {
-      window.alert("Is booking ka pura payment pehle hi refund ho chuka hai.");
+      setReservationError("Is booking ka pura payment pehle hi refund ho chuka hai.");
       return;
     }
 
@@ -1572,7 +1572,7 @@ const Banquet = () => {
 
     const refundAmount = Number(value);
     if (!refundAmount || refundAmount <= 0 || refundAmount > remainingRefund) {
-      window.alert("Refund amount valid nahi hai.");
+      setReservationError("Refund amount valid nahi hai.");
       return;
     }
 
@@ -1620,7 +1620,7 @@ const Banquet = () => {
     if (
       !["cancelled", "refunded", "Cancelled", "Refunded"].includes(booking.status)
     ) {
-      window.alert(
+      setReservationError(
         "Delete sirf cancelled ya refunded reservation ke liye available hai."
       );
       return;
@@ -1734,7 +1734,9 @@ const Banquet = () => {
 
   const handleSendBanquetInvoiceWhatsApp = (booking) => {
     if (!booking.invoiceNo) {
-      window.alert("Pehle invoice generate karein (Bill button) phir WhatsApp se send karein.");
+      setReservationError(
+        "Pehle invoice generate karein (Bill button) phir WhatsApp se send karein."
+      );
       return;
     }
     setSelectedBookingForWhatsApp(booking);

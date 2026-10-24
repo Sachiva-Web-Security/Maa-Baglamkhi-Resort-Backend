@@ -50,6 +50,7 @@ const MyAttendance = () => {
   const [loadError, setLoadError] = useState("");
   const [summaryError, setSummaryError] = useState("");
   const [summaryEmpty, setSummaryEmpty] = useState(false);
+  const [saveNotice, setSaveNotice] = useState(null);
 
   const fetchToday = async () => {
     setLoading(true);
@@ -88,6 +89,12 @@ const MyAttendance = () => {
     fetchMonthly();
   }, [month]);
 
+  useEffect(() => {
+    if (!saveNotice) return undefined;
+    const handle = window.setTimeout(() => setSaveNotice(null), 4000);
+    return () => window.clearTimeout(handle);
+  }, [saveNotice]);
+
   const handleMark = async (status) => {
     setMarking(true);
     try {
@@ -98,12 +105,16 @@ const MyAttendance = () => {
       } else if (status === "half_day") {
         if (markIn) payload.checkIn = markIn;
       }
-      await API.post("/attendance", payload);
+      const res = await API.post("/attendance", payload);
+      setSaveNotice({ message: res.data?.message || "Attendance saved", tone: "success" });
       fetchToday();
       fetchMonthly();
     } catch (err) {
       console.error("Error marking attendance:", err);
-      window.alert(err?.response?.data?.message || "Could not save your attendance");
+      setSaveNotice({
+        message: err?.response?.data?.message || "Could not save your attendance",
+        tone: "error",
+      });
     } finally {
       setMarking(false);
     }
@@ -203,6 +214,11 @@ const MyAttendance = () => {
           {markBtn("absent", "Absent", "bg-rose-500")}
           {marking && <span className="text-[14px] font-semibold text-slate-500">Saving…</span>}
         </div>
+        {saveNotice && (
+          <div className={`mt-3 rounded-xl border px-4 py-2.5 text-[14px] font-semibold ${saveNotice.tone === "error" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+            {saveNotice.message}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col gap-4 md:flex-row md:items-end">

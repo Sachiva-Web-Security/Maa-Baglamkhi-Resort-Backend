@@ -248,6 +248,7 @@ const Assignment = () => {
   const [pageLoading, setPageLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [assignmentNotice, setAssignmentNotice] = useState("");
+  const [noticeTone, setNoticeTone] = useState("info");
 
   // Single source of truth for which custom dropdown (if any) is open.
   // Using one state instead of three booleans guarantees only one panel
@@ -413,10 +414,20 @@ const Assignment = () => {
       await refreshAssignments();
     } catch (error) {
       console.log(error);
-      window.alert("Error assigning task");
+      showNotice(error.response?.data?.message || "Error assigning task", "error");
     } finally {
       setSaving(false);
     }
+  };
+
+  const showNotice = (message, tone = "info") => {
+    setAssignmentNotice(message);
+    setNoticeTone(tone);
+    window.setTimeout(() => {
+      setAssignmentNotice((current) =>
+        current === message ? "" : current,
+      );
+    }, 4000);
   };
 
   const updateTaskStatus = async (id, status) => {
@@ -426,9 +437,13 @@ const Assignment = () => {
         actorName: currentName,
       });
       await refreshAssignments();
+      showNotice("Task status updated");
     } catch (error) {
       console.log(error);
-      window.alert("Task status update failed");
+      showNotice(
+        error.response?.data?.message || "Task status update failed",
+        "error",
+      );
     }
   };
 
@@ -436,9 +451,10 @@ const Assignment = () => {
     try {
       await API.delete(`/assignments/${id}`);
       await refreshAssignments();
+      showNotice("Task deleted");
     } catch (error) {
       console.log(error);
-      window.alert("Task delete failed");
+      showNotice(error.response?.data?.message || "Task delete failed", "error");
     }
   };
 
@@ -626,9 +642,9 @@ const Assignment = () => {
 
         {/* NOTIFICATION */}
         {assignmentNotice ? (
-          <section className="flex items-center gap-3 rounded-[22px] border border-blue-200 bg-blue-50/70 px-5 py-4 text-sm font-semibold text-blue-800 shadow-[0_12px_30px_rgba(37,99,235,0.08)] backdrop-blur-md sm:text-[16px]">
-            <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600">
-              <FaInfoCircle />
+          <section className={`flex items-center gap-3 rounded-[22px] border px-5 py-4 text-sm font-semibold shadow-[0_12px_30px_rgba(37,99,235,0.08)] backdrop-blur-md sm:text-[16px] ${noticeTone === "error" ? "border-rose-200 bg-rose-50/70 text-rose-800" : "border-blue-200 bg-blue-50/70 text-blue-800"}`}>
+            <span className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${noticeTone === "error" ? "bg-rose-100 text-rose-600" : "bg-blue-100 text-blue-600"}`}>
+              {noticeTone === "error" ? <FaExclamationTriangle /> : <FaInfoCircle />}
             </span>
             {assignmentNotice}
           </section>
