@@ -846,9 +846,22 @@ const isSettledInvoiceStatus = (value) => {
 // throwing "Data truncated" (matches the controller's normalizer).
 const normalizePaymentMethod = (value) => {
   const allowed = new Set(["cash", "card", "upi", "wallet", "net_banking", "credit", "other"]);
+  const aliases = {
+    upi: "upi",
+    "net banking": "net_banking",
+    netbanking: "net_banking",
+    netbank: "net_banking",
+    "online banking": "net_banking",
+    online: "net_banking",
+    "card payment": "card",
+    "credit card": "card",
+    "debit card": "card",
+    emi: "card",
+    swish: "other",
+  };
   const s = String(value || "").toLowerCase().trim();
   if (!s) return null;
-  return allowed.has(s) ? s : "other";
+  return allowed.has(aliases[s] || s) ? (aliases[s] || s) : "other";
 };
 
 // Map legacy invoice statuses onto the v4 payment_status enum.
@@ -1287,6 +1300,19 @@ const processBillPayment = async (data) => {
       }
 
       if (String(billRow.payment_status || "").toLowerCase() === "paid") {
+        const error = new Error("Bill already paid");
+        error.statusCode = 409;
+        throw error;
+      }
+
+      // The status column can lag behind completed payment rows (a bill row
+      // deleted after its payments were recorded, then recreated). Count the
+      // completed payments on this bill and block when one already exists.
+      const [completedPayments] = await conn.query(
+        `SELECT COUNT(*) AS n FROM ${paymentsTableName} WHERE bill_id = ? AND status = 'completed'`,
+        [billId],
+      );
+      if (Number(completedPayments?.[0]?.n || 0) > 0) {
         const error = new Error("Bill already paid");
         error.statusCode = 409;
         throw error;
