@@ -4,7 +4,7 @@ const {
   createItem, getItems, getItem, updateItem, deleteItem,
   getLowStockAlerts, getExpiringItems,
   logWaste, getWasteLogs, updateWasteLog, deleteWasteLog,
-  createPurchaseOrder, getPurchaseOrders, updatePurchaseOrder, deletePurchaseOrder,
+  createPurchaseOrder, getPurchaseOrders, getPurchaseOrderById, updatePurchaseOrder, deletePurchaseOrder,
   submitAudit, getAuditReport,
   recordTransfer, getTransfers, updateTransfer, deleteTransfer,
   createVendorInward, getVendorInwards, updateVendorInward, deleteVendorInward,
@@ -34,6 +34,7 @@ router.put("/waste/:id", authMiddleware, roleMiddleware(["admin", "manager", "ki
 router.delete("/waste/:id", authMiddleware, roleMiddleware(EDITORS), deleteWasteLog);
 
 router.get("/purchase-orders", authMiddleware, roleMiddleware(READERS), getPurchaseOrders);
+router.get("/purchase-orders/:id", authMiddleware, roleMiddleware(READERS), getPurchaseOrderById);
 router.post("/purchase-orders", authMiddleware, roleMiddleware(EDITORS), createPurchaseOrder);
 router.put("/purchase-orders/:id", authMiddleware, roleMiddleware(EDITORS), updatePurchaseOrder);
 router.delete("/purchase-orders/:id", authMiddleware, roleMiddleware(EDITORS), deletePurchaseOrder);

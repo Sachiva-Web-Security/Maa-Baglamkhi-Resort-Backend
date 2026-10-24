@@ -1127,6 +1127,26 @@ exports.updatePurchaseOrder = async (req, res) => {
   }
 };
 
+exports.getPurchaseOrderById = async (req, res) => {
+  try {
+    await ensureSchema();
+    const [rows] = await db.query(
+      `SELECT id, po_number AS poNumber, vendor, item_name AS itemName,
+              quantity, unit, rate,
+              DATE_FORMAT(expected_date, '%Y-%m-%d') AS expectedDate,
+              status, created_by AS createdBy,
+              created_at AS createdAt
+       FROM inventory_purchase_orders WHERE id = ? LIMIT 1`,
+      [req.params.id],
+    );
+    const row = rows[0];
+    if (!row) return res.status(404).json({ message: "Purchase order not found." });
+    res.json(row);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch purchase order.", error });
+  }
+};
+
 exports.deletePurchaseOrder = async (req, res) => {
   try {
     await ensureSchema();
