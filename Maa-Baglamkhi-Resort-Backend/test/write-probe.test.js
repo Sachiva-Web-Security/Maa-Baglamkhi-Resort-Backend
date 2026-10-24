@@ -150,8 +150,8 @@ async function probeAccountsModules() {
     {
       name: "payroll",
       createPath: "/api/accounts/payroll",
-      createBody: { staffName: "Write Probe", amount: 1000, month: "2026-09" },
-      updateBody: { staffName: "Write Probe Updated", amount: 1100, month: "2026-09" },
+      createBody: { staffName: "Write Probe", amount: 1000, payrollMonth: "2099-01" },
+      updateBody: { staffName: "Write Probe Updated", amount: 1100, payrollMonth: "2099-01" },
     },
     {
       name: "bank-ledger",

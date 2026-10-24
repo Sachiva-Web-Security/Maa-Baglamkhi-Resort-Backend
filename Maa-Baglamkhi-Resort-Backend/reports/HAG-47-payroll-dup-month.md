@@ -36,6 +36,8 @@ This lets the current probe run insert successfully. The next probe run will rec
 **Option B (better) — make the probe month-stamped:**
 Add `payrollMonth: "2099-01"` (or any future month that will never collide) to the write-probe `createBody` in `test/write-probe.test.js`. This makes the probe idempotent: it always writes a fresh `employee+month` combo that does not exist. The existing row 22 then becomes irrelevant to the gate.
 
+> Note (god, 2026-10-24): option B is a one-line test edit, not DB work — the verdict above ("human does it") is overstated. Option A is the true human action: delete row id 22 on the XAMPP DB.
+
 ## Gate state
 
 - test:routes: 450 pass / 0 fail / 12 skip
