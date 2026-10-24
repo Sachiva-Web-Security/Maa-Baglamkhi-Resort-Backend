@@ -1,0 +1,4440 @@
+[
+  {
+    "method": "GET",
+    "path": "/api/accounts",
+    "file": "accountsRoutes",
+    "raw": "/",
+    "testPath": "/api/accounts",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"income\":229005,\"expense\":10,\"net\":228995,\"gstPayable\":0,\"refunds\":34500}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/transactions",
+    "file": "accountsRoutes",
+    "raw": "/transactions",
+    "testPath": "/api/accounts/transactions",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":145,\"transaction_no\":\"TXN-1792273271249-792\",\"date\":\"18 Oct 2026\",\"transaction_date\":\"2026-10-18\",\"type\":\"Income\",\"department\":\"Other\",\"sourceModule\":\"accounts-manual\",\"description\":\"write-prob"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/transactions/:id",
+    "file": "accountsRoutes",
+    "raw": "/transactions/:id",
+    "testPath": "/api/accounts/transactions/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Transaction not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/accounts/transactions/:id",
+    "file": "accountsRoutes",
+    "raw": "/transactions/:id",
+    "testPath": "/api/accounts/transactions/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Transaction not found\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/accounts/transactions/:id",
+    "file": "accountsRoutes",
+    "raw": "/transactions/:id",
+    "testPath": "/api/accounts/transactions/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Transaction deleted\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/summary",
+    "file": "accountsRoutes",
+    "raw": "/summary",
+    "testPath": "/api/accounts/summary",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"income\":229005,\"expense\":10,\"net\":228995,\"gstPayable\":0,\"refunds\":34500}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/department-summary",
+    "file": "accountsRoutes",
+    "raw": "/department-summary",
+    "testPath": "/api/accounts/department-summary",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"roomIncome\":0,\"restaurantIncome\":0,\"banquetIncome\":47880,\"roomExpense\":0,\"restaurantExpense\":0,\"banquetExpense\":0}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/hotel-billing",
+    "file": "accountsRoutes",
+    "raw": "/hotel-billing",
+    "testPath": "/api/accounts/hotel-billing",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"0\":{\"id\":9156,\"booking_code\":\"BK-20261018-5002\",\"bookingCode\":\"BK-20261018-5002\",\"reference\":\"BK-20261018-5002\",\"status\":\"cancelled\",\"booking_status\":\"cancelled\",\"check_in\":\"2026-07-01\",\"checkIn\":\""
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/restaurant-billing",
+    "file": "accountsRoutes",
+    "raw": "/restaurant-billing",
+    "testPath": "/api/accounts/restaurant-billing",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"0\":{\"id\":135,\"reference\":\"BILL-135\",\"table_number\":\"WP-1792302917733\",\"tableNumber\":\"WP-1792302917733\",\"customer_name\":null,\"customerName\":null,\"phone\":null,\"subtotal\":\"0.00\",\"tax_amount\":\"0.00\",\"d"
+  },
+  {
+    "method": "POST",
+    "path": "/api/accounts/income",
+    "file": "accountsRoutes",
+    "raw": "/income",
+    "testPath": "/api/accounts/income",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"description is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/accounts/expense",
+    "file": "accountsRoutes",
+    "raw": "/expense",
+    "testPath": "/api/accounts/expense",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"description is required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/extended-summary",
+    "file": "accountsRoutes",
+    "raw": "/extended-summary",
+    "testPath": "/api/accounts/extended-summary",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"pendingBankReconciliation\":13,\"pettyCashBalance\":29790,\"gstPendingPayable\":0,\"vendorOutstanding\":0,\"openPurchaseOrders\":27,\"payrollTotal\":290000,\"profitCenters\":[{\"centerName\":\"Hotel\",\"net\":0},{\"cen"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/reconciliation/summary",
+    "file": "accountsRoutes",
+    "raw": "/reconciliation/summary",
+    "testPath": "/api/accounts/reconciliation/summary",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"totalBankIn\":246223,\"totalBankOut\":0,\"matchedAmount\":0,\"unmatchedAmount\":80,\"partialAmount\":0,\"reconciledAmount\":0,\"totalItems\":18,\"unmatchedItems\":18,\"partialItems\":0,\"matchedItems\":0}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/reconciliation/items",
+    "file": "accountsRoutes",
+    "raw": "/reconciliation/items",
+    "testPath": "/api/accounts/reconciliation/items",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"sourceType\":\"invoice\",\"sourceId\":94,\"sourceReference\":\"INV-VERIFY-1792275580928\",\"partyName\":\"Walk-in Guest\",\"sourceLabel\":\"-\",\"paymentMode\":\"Unknown\",\"sourceAmount\":0,\"bankAmount\":0,\"difference\":0"
+  },
+  {
+    "method": "POST",
+    "path": "/api/accounts/reconciliation/match",
+    "file": "accountsRoutes",
+    "raw": "/reconciliation/match",
+    "testPath": "/api/accounts/reconciliation/match",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"bankLedgerId is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/accounts/reconciliation/unmatch",
+    "file": "accountsRoutes",
+    "raw": "/reconciliation/unmatch",
+    "testPath": "/api/accounts/reconciliation/unmatch",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"bankLedgerId is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/accounts/settle-pending-bill",
+    "file": "accountsRoutes",
+    "raw": "/settle-pending-bill",
+    "testPath": "/api/accounts/settle-pending-bill",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Invoice not found\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/bank-ledger",
+    "file": "accountsRoutes",
+    "raw": "/bank-ledger",
+    "testPath": "/api/accounts/bank-ledger",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"entry_date\":\"\",\"amount\":0,\"debit\":0,\"credit\":0,\"statement_ref\":null,\"statement_date\":null,\"notes\":null},{\"entry_date\":\"\",\"amount\":0,\"debit\":0,\"credit\":0,\"statement_ref\":null,\"statement_date\":null,\""
+  },
+  {
+    "method": "POST",
+    "path": "/api/accounts/bank-ledger",
+    "file": "accountsRoutes",
+    "raw": "/bank-ledger",
+    "testPath": "/api/accounts/bank-ledger",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"A positive amount is required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/accounts/bank-ledger/:id",
+    "file": "accountsRoutes",
+    "raw": "/bank-ledger/:id",
+    "testPath": "/api/accounts/bank-ledger/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Bank ledger entry not found\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/accounts/bank-ledger/:id",
+    "file": "accountsRoutes",
+    "raw": "/bank-ledger/:id",
+    "testPath": "/api/accounts/bank-ledger/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Bank ledger entry deleted\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/petty-cash",
+    "file": "accountsRoutes",
+    "raw": "/petty-cash",
+    "testPath": "/api/accounts/petty-cash",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"0\":{\"id\":503,\"entry_date\":\"2026-10-18\",\"entry_type\":\"In\",\"payment_type\":\"payment\",\"category\":\"cash\",\"description\":\"Cash payment #503\",\"amount\":\"0.00\",\"approved_by\":null,\"notes\":null},\"1\":{\"id\":501,"
+  },
+  {
+    "method": "POST",
+    "path": "/api/accounts/petty-cash",
+    "file": "accountsRoutes",
+    "raw": "/petty-cash",
+    "testPath": "/api/accounts/petty-cash",
+    "code": 501,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Petty cash is a derived read-only view over the v4 payments table; no writable petty_cash table exists in v4.\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/accounts/petty-cash/:id",
+    "file": "accountsRoutes",
+    "raw": "/petty-cash/:id",
+    "testPath": "/api/accounts/petty-cash/999999999",
+    "code": 501,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Petty cash is a derived read-only view over the v4 payments table; no writable petty_cash table exists in v4.\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/accounts/petty-cash/:id",
+    "file": "accountsRoutes",
+    "raw": "/petty-cash/:id",
+    "testPath": "/api/accounts/petty-cash/999999999",
+    "code": 501,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Petty cash is a derived read-only view over the v4 payments table; no writable petty_cash table exists in v4.\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/gst-returns",
+    "file": "accountsRoutes",
+    "raw": "/gst-returns",
+    "testPath": "/api/accounts/gst-returns",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"return_type\":\"GSTR-3B\",\"taxable_amount\":0,\"gst_collected\":0,\"gst_paid\":0,\"net_payable\":0,\"status\":\"Filed\",\"filed_on\":null,\"notes\":null},{\"return_type\":\"GSTR-3B\",\"taxable_amount\":0,\"gst_collected\":0"
+  },
+  {
+    "method": "POST",
+    "path": "/api/accounts/gst-returns",
+    "file": "accountsRoutes",
+    "raw": "/gst-returns",
+    "testPath": "/api/accounts/gst-returns",
+    "code": 501,
+    "verdict": "PASS",
+    "body": "{\"message\":\"GST returns are derived read-only from invoices.tax_amount; no writable gst_returns table exists in v4.\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/accounts/gst-returns/:id",
+    "file": "accountsRoutes",
+    "raw": "/gst-returns/:id",
+    "testPath": "/api/accounts/gst-returns/999999999",
+    "code": 501,
+    "verdict": "PASS",
+    "body": "{\"message\":\"GST returns are derived read-only from invoices.tax_amount; no writable gst_returns table exists in v4.\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/accounts/gst-returns/:id",
+    "file": "accountsRoutes",
+    "raw": "/gst-returns/:id",
+    "testPath": "/api/accounts/gst-returns/999999999",
+    "code": 501,
+    "verdict": "PASS",
+    "body": "{\"message\":\"GST returns are derived read-only from invoices.tax_amount; no writable gst_returns table exists in v4.\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/vendor-payments",
+    "file": "accountsRoutes",
+    "raw": "/vendor-payments",
+    "testPath": "/api/accounts/vendor-payments",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"0\":{\"id\":20,\"vendor_name\":\"Write Probe 1792273271252\",\"invoice_ref\":null,\"payment_date\":\"2026-10-17T18:30:00.000Z\",\"amount\":\"50.00\",\"payment_mode\":\"Cash\",\"status\":\"Scheduled\",\"notes\":null,\"created_"
+  },
+  {
+    "method": "POST",
+    "path": "/api/accounts/vendor-payments",
+    "file": "accountsRoutes",
+    "raw": "/vendor-payments",
+    "testPath": "/api/accounts/vendor-payments",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"vendorName is required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/accounts/vendor-payments/:id",
+    "file": "accountsRoutes",
+    "raw": "/vendor-payments/:id",
+    "testPath": "/api/accounts/vendor-payments/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Vendor payment not found\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/accounts/vendor-payments/:id",
+    "file": "accountsRoutes",
+    "raw": "/vendor-payments/:id",
+    "testPath": "/api/accounts/vendor-payments/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Vendor payment deleted\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/purchase-orders",
+    "file": "accountsRoutes",
+    "raw": "/purchase-orders",
+    "testPath": "/api/accounts/purchase-orders",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"0\":{\"id\":99,\"po_number\":\"PO-WP-1792302918479\",\"vendor_name\":\"Write Probe Vendor\",\"order_date\":\"2026-10-17T18:30:00.000Z\",\"expected_date\":null,\"total_amount\":\"125.00\",\"status\":\"Draft\",\"notes\":\"Write"
+  },
+  {
+    "method": "POST",
+    "path": "/api/accounts/purchase-orders",
+    "file": "accountsRoutes",
+    "raw": "/purchase-orders",
+    "testPath": "/api/accounts/purchase-orders",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"poNumber and vendorName are required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/accounts/purchase-orders/:id",
+    "file": "accountsRoutes",
+    "raw": "/purchase-orders/:id",
+    "testPath": "/api/accounts/purchase-orders/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Purchase order not found\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/accounts/purchase-orders/:id",
+    "file": "accountsRoutes",
+    "raw": "/purchase-orders/:id",
+    "testPath": "/api/accounts/purchase-orders/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Purchase order deleted\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/payroll",
+    "file": "accountsRoutes",
+    "raw": "/payroll",
+    "testPath": "/api/accounts/payroll",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"staff_name\":\"Employee #undefined\",\"payroll_month\":\"\",\"attendance_days\":0,\"base_salary\":0,\"allowance\":0,\"deduction\":0,\"net_salary\":0,\"paid_amount\":0,\"payment_date\":null},{\"staff_name\":\"Employee #und"
+  },
+  {
+    "method": "POST",
+    "path": "/api/accounts/payroll",
+    "file": "accountsRoutes",
+    "raw": "/payroll",
+    "testPath": "/api/accounts/payroll",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"staffName is required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/accounts/payroll/:id",
+    "file": "accountsRoutes",
+    "raw": "/payroll/:id",
+    "testPath": "/api/accounts/payroll/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Payroll record not found\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/accounts/payroll/:id",
+    "file": "accountsRoutes",
+    "raw": "/payroll/:id",
+    "testPath": "/api/accounts/payroll/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Payroll record deleted\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/profit-centers",
+    "file": "accountsRoutes",
+    "raw": "/profit-centers",
+    "testPath": "/api/accounts/profit-centers",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":1,\"center_name\":\"Hotel\",\"entry_date\":null,\"income_amount\":0,\"expense_amount\":0,\"notes\":null},{\"id\":2,\"center_name\":\"Restaurant\",\"entry_date\":null,\"income_amount\":0,\"expense_amount\":0,\"notes\":nu"
+  },
+  {
+    "method": "POST",
+    "path": "/api/accounts/profit-centers",
+    "file": "accountsRoutes",
+    "raw": "/profit-centers",
+    "testPath": "/api/accounts/profit-centers",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"centerName is required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/accounts/profit-centers/:id",
+    "file": "accountsRoutes",
+    "raw": "/profit-centers/:id",
+    "testPath": "/api/accounts/profit-centers/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"centerName is required\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/accounts/profit-centers/:id",
+    "file": "accountsRoutes",
+    "raw": "/profit-centers/:id",
+    "testPath": "/api/accounts/profit-centers/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Profit center not found\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/payment-settings",
+    "file": "accountsRoutes",
+    "raw": "/payment-settings",
+    "testPath": "/api/accounts/payment-settings",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"department\":\"Hotel\",\"upi_id\":null,\"account_holder_name\":null,\"bank_name\":null,\"qr_image_url\":null,\"is_active\":0,\"notes\":null},{\"department\":\"Hotel\",\"upi_id\":null,\"account_holder_name\":null,\"bank_na"
+  },
+  {
+    "method": "POST",
+    "path": "/api/accounts/payment-settings",
+    "file": "accountsRoutes",
+    "raw": "/payment-settings",
+    "testPath": "/api/accounts/payment-settings",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"paymentMode is required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/accounts/payment-settings/:id",
+    "file": "accountsRoutes",
+    "raw": "/payment-settings/:id",
+    "testPath": "/api/accounts/payment-settings/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Payment setting not found\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/accounts/payment-settings/:id",
+    "file": "accountsRoutes",
+    "raw": "/payment-settings/:id",
+    "testPath": "/api/accounts/payment-settings/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Payment setting deleted\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/accounts/payment-history",
+    "file": "accountsRoutes",
+    "raw": "/payment-history",
+    "testPath": "/api/accounts/payment-history",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"guest_name\":\"Walk-in\",\"mobile\":\"\",\"amount\":0,\"discount_amount\":0,\"payment_mode\":\"Cash\",\"reference_no\":\"\"},{\"guest_name\":\"Walk-in\",\"mobile\":\"\",\"amount\":0,\"discount_amount\":0,\"payment_mode\":\"Cash\",\"r"
+  },
+  {
+    "method": "GET",
+    "path": "/api/assignments/stats",
+    "file": "assignmentRoute",
+    "raw": "/stats",
+    "testPath": "/api/assignments/stats",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"total\":2,\"completed\":2,\"inProgress\":0,\"pending\":0,\"overdue\":0}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/assignments",
+    "file": "assignmentRoute",
+    "raw": "/",
+    "testPath": "/api/assignments",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":8,\"room_id\":null,\"room_number\":\"991\",\"assigned_to\":5,\"assigned_to_name\":\"Tarun HK\",\"task_type\":\"deep_clean\",\"priority\":\"high\",\"status\":\"completed\",\"notes\":\"stanley end-to-end verification row\","
+  },
+  {
+    "method": "POST",
+    "path": "/api/assignments",
+    "file": "assignmentRoute",
+    "raw": "/",
+    "testPath": "/api/assignments",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"task is required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/assignments/:id",
+    "file": "assignmentRoute",
+    "raw": "/:id",
+    "testPath": "/api/assignments/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"No fields to update\"}"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/assignments/:id/status",
+    "file": "assignmentRoute",
+    "raw": "/:id/status",
+    "testPath": "/api/assignments/999999999/status",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"No fields to update\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/assignments/:id",
+    "file": "assignmentRoute",
+    "raw": "/:id",
+    "testPath": "/api/assignments/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Assignment deleted\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/attendance/me",
+    "file": "attendanceRoutes",
+    "raw": "/me",
+    "testPath": "/api/attendance/me",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/attendance/me/salary",
+    "file": "attendanceRoutes",
+    "raw": "/me/salary",
+    "testPath": "/api/attendance/me/salary",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"employee\":{\"id\":94,\"employeeId\":null,\"employeeCode\":null,\"salary\":0,\"monthlySalary\":0,\"designation\":null},\"month\":\"2026-10\",\"year\":2026,\"monthNum\":10,\"daysInMonth\":31,\"daysRecorded\":0,\"summary\":{\"mo"
+  },
+  {
+    "method": "GET",
+    "path": "/api/attendance/employees",
+    "file": "attendanceRoutes",
+    "raw": "/employees",
+    "testPath": "/api/attendance/employees",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"employeeId\":1,\"userId\":null,\"employeeCode\":\"EMP-001\",\"name\":\"Test\",\"email\":null,\"userStatus\":null,\"roleId\":null,\"department\":\"Front Office\",\"designation\":\"Front Office Manager\",\"monthlySalary\":5000"
+  },
+  {
+    "method": "GET",
+    "path": "/api/attendance/report",
+    "file": "attendanceRoutes",
+    "raw": "/report",
+    "testPath": "/api/attendance/report",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"period\":{\"from\":\"2026-10-01\",\"to\":\"2026-10-31\",\"month\":\"2026-10\"},\"summary\":{\"employees\":9,\"days\":18,\"present\":11,\"absent\":4,\"late\":2,\"half_day\":1,\"earned\":19225.79},\"employees\":[{\"employeeId\":1,\"em"
+  },
+  {
+    "method": "GET",
+    "path": "/api/attendance/payroll",
+    "file": "attendanceRoutes",
+    "raw": "/payroll",
+    "testPath": "/api/attendance/payroll",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"month\":\"2026-10\",\"year\":2026,\"monthNum\":10,\"daysInMonth\":31,\"summary\":{\"employees\":29,\"grossMonthlySalary\":906000,\"totalEarned\":9548.39,\"totalPresentDays\":6,\"totalAbsentDays\":4,\"totalLateDays\":1},\"e"
+  },
+  {
+    "method": "GET",
+    "path": "/api/attendance",
+    "file": "attendanceRoutes",
+    "raw": "/",
+    "testPath": "/api/attendance",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":19,\"employeeId\":1,\"employeeUserId\":null,\"name\":\"Test \",\"userName\":\"Test \",\"email\":null,\"user_salary\":50000,\"salary_amount\":806.45,\"department\":\"Front Office\",\"departmentName\":\"Front Office\",\"de"
+  },
+  {
+    "method": "POST",
+    "path": "/api/attendance",
+    "file": "attendanceRoutes",
+    "raw": "/",
+    "testPath": "/api/attendance",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Invalid attendance status\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/attendance/mark",
+    "file": "attendanceRoutes",
+    "raw": "/mark",
+    "testPath": "/api/attendance/mark",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Invalid attendance status\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/attendance/:id",
+    "file": "attendanceRoutes",
+    "raw": "/:id",
+    "testPath": "/api/attendance/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"No updatable fields provided\"}"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/attendance/:id",
+    "file": "attendanceRoutes",
+    "raw": "/:id",
+    "testPath": "/api/attendance/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"No updatable fields provided\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/attendance/:id",
+    "file": "attendanceRoutes",
+    "raw": "/:id",
+    "testPath": "/api/attendance/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Attendance record not found\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/audit-logs",
+    "file": "auditLogRoutes",
+    "raw": "/",
+    "testPath": "/api/audit-logs",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":73601,\"user_id\":94,\"user_name\":null,\"user_role\":null,\"action\":\"update\",\"module\":\"unknown\",\"endpoint\":\"/api/assignments/999999999/status\",\"http_method\":\"PATCH\",\"request_data\":\"{\\\"params\\\":{\\\"id\\"
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/login",
+    "file": "authRoutes",
+    "raw": "/login",
+    "testPath": "/api/auth/login",
+    "code": "-",
+    "verdict": "SKIP"
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/register",
+    "file": "authRoutes",
+    "raw": "/register",
+    "testPath": "/api/auth/register",
+    "code": "-",
+    "verdict": "SKIP"
+  },
+  {
+    "method": "GET",
+    "path": "/api/auth/me",
+    "file": "authRoutes",
+    "raw": "/me",
+    "testPath": "/api/auth/me",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"id\":94,\"email\":\"admin@resort.com\",\"name\":\"Admin User\",\"role\":\"admin\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/banquet/config",
+    "file": "banquetRoutes",
+    "raw": "/config",
+    "testPath": "/api/banquet/config",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"pricingConfig\":{\"menuPackages\":[{\"id\":\"standard\",\"name\":\"Standard Celebration\",\"perGuest\":650,\"mealLabel\":\"Veg buffet + snacks\",\"description\":\"Budget-friendly family functions ke liye balanced buffe"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/banquet/config",
+    "file": "banquetRoutes",
+    "raw": "/config",
+    "testPath": "/api/banquet/config",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Banquet pricing config updated successfully\",\"pricingConfig\":{\"menuPackages\":[{\"id\":\"standard\",\"name\":\"Standard Celebration\",\"perGuest\":650,\"mealLabel\":\"Veg buffet + snacks\",\"description\":"
+  },
+  {
+    "method": "GET",
+    "path": "/api/banquet",
+    "file": "banquetRoutes",
+    "raw": "/",
+    "testPath": "/api/banquet",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"halls\":[{\"id\":79,\"name\":\"Grand Hall\",\"capacity\":200,\"ratePerHour\":\"500.00\",\"is_ac\":0,\"image\":null,\"status\":\"available\"}],\"bookings\":[{\"id\":60,\"hallId\":79,\"hallName\":\"Grand Hall\",\"customerName\":\"Osca"
+  },
+  {
+    "method": "GET",
+    "path": "/api/banquet/halls",
+    "file": "banquetRoutes",
+    "raw": "/halls",
+    "testPath": "/api/banquet/halls",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":79,\"name\":\"Grand Hall\",\"description\":null,\"capacityMin\":10,\"capacityMax\":200,\"ratePerHour\":\"500.00\",\"ratePerDay\":\"0.00\",\"isAc\":0,\"hasProjector\":0,\"hasSoundSystem\":0,\"hasStage\":0,\"hasDanceFloor\""
+  },
+  {
+    "method": "GET",
+    "path": "/api/banquet/bookings",
+    "file": "banquetRoutes",
+    "raw": "/bookings",
+    "testPath": "/api/banquet/bookings",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":60,\"hallId\":79,\"customerName\":\"Oscar QA Banquet\",\"phone\":\"9999999999\",\"guestEmail\":null,\"eventTitle\":\"QA Banquet 36\",\"eventType\":\"Wedding\",\"guests\":100,\"menuPackageId\":\"standard\",\"mealSection\":"
+  },
+  {
+    "method": "POST",
+    "path": "/api/banquet",
+    "file": "banquetRoutes",
+    "raw": "/",
+    "testPath": "/api/banquet",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Required fields missing\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/banquet/:id",
+    "file": "banquetRoutes",
+    "raw": "/:id",
+    "testPath": "/api/banquet/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Required fields missing\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/banquet/:id/cancel",
+    "file": "banquetRoutes",
+    "raw": "/:id/cancel",
+    "testPath": "/api/banquet/999999999/cancel",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Booking not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/banquet/:id/refund",
+    "file": "banquetRoutes",
+    "raw": "/:id/refund",
+    "testPath": "/api/banquet/999999999/refund",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Valid refundAmount is required\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/banquet/:id",
+    "file": "banquetRoutes",
+    "raw": "/:id",
+    "testPath": "/api/banquet/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Booking not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/banquet/:id/complete",
+    "file": "banquetRoutes",
+    "raw": "/:id/complete",
+    "testPath": "/api/banquet/999999999/complete",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Booking not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/banquet/:id/bill",
+    "file": "banquetRoutes",
+    "raw": "/:id/bill",
+    "testPath": "/api/banquet/999999999/bill",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"invoiceNo is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/banquet/halls",
+    "file": "banquetRoutes",
+    "raw": "/halls",
+    "testPath": "/api/banquet/halls",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"name is required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/banquet/halls/:id",
+    "file": "banquetRoutes",
+    "raw": "/halls/:id",
+    "testPath": "/api/banquet/halls/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"No fields to update\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/banquet/halls/:id",
+    "file": "banquetRoutes",
+    "raw": "/halls/:id",
+    "testPath": "/api/banquet/halls/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Hall not found\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/banquet/invoice/send-whatsapp/:bookingId",
+    "file": "banquetRoutes",
+    "raw": "/invoice/send-whatsapp/:bookingId",
+    "testPath": "/api/banquet/invoice/send-whatsapp/999999999",
+    "code": "-",
+    "verdict": "SKIP"
+  },
+  {
+    "method": "POST",
+    "path": "/api/hotel/guest",
+    "file": "bookingRoutes",
+    "raw": "/guest",
+    "testPath": "/api/hotel/guest",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"guestName, guest_name or phone is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/booking/guest",
+    "file": "bookingRoutes",
+    "raw": "/guest",
+    "testPath": "/api/booking/guest",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"guestName, guest_name or phone is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/hotel/other-booking/:id",
+    "file": "bookingRoutes",
+    "raw": "/other-booking/:id",
+    "testPath": "/api/hotel/other-booking/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Other Booking Saved\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/booking/other-booking/:id",
+    "file": "bookingRoutes",
+    "raw": "/other-booking/:id",
+    "testPath": "/api/booking/other-booking/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Other Booking Saved\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/hotel/reference/:id",
+    "file": "bookingRoutes",
+    "raw": "/reference/:id",
+    "testPath": "/api/hotel/reference/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Reference Saved\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/booking/reference/:id",
+    "file": "bookingRoutes",
+    "raw": "/reference/:id",
+    "testPath": "/api/booking/reference/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Reference Saved\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/hotel/company/:id",
+    "file": "bookingRoutes",
+    "raw": "/company/:id",
+    "testPath": "/api/hotel/company/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Company name is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/booking/company/:id",
+    "file": "bookingRoutes",
+    "raw": "/company/:id",
+    "testPath": "/api/booking/company/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Company name is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/hotel/pax/:id",
+    "file": "bookingRoutes",
+    "raw": "/pax/:id",
+    "testPath": "/api/hotel/pax/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Room number required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/booking/pax/:id",
+    "file": "bookingRoutes",
+    "raw": "/pax/:id",
+    "testPath": "/api/booking/pax/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Room number required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/hotel/room-tariff/:id",
+    "file": "bookingRoutes",
+    "raw": "/room-tariff/:id",
+    "testPath": "/api/hotel/room-tariff/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Room number required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/booking/room-tariff/:id",
+    "file": "bookingRoutes",
+    "raw": "/room-tariff/:id",
+    "testPath": "/api/booking/room-tariff/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Room number required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/hotel/advance/:id",
+    "file": "bookingRoutes",
+    "raw": "/advance/:id",
+    "testPath": "/api/hotel/advance/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Payment Added + History Saved\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/booking/advance/:id",
+    "file": "bookingRoutes",
+    "raw": "/advance/:id",
+    "testPath": "/api/booking/advance/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Payment Added + History Saved\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hotel/all-bookings",
+    "file": "bookingRoutes",
+    "raw": "/all-bookings",
+    "testPath": "/api/hotel/all-bookings",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"bookingId\":9101,\"bookingCode\":\"BK-20261017-73F5\",\"guest_name\":\"PW Guest 1792222695873\",\"mobile\":\"9093090930\",\"guest_email\":\"pw-guest-1792222695873@test.com\",\"check_in\":\"2026-10-18\",\"check_out\":\"202"
+  },
+  {
+    "method": "GET",
+    "path": "/api/booking/all-bookings",
+    "file": "bookingRoutes",
+    "raw": "/all-bookings",
+    "testPath": "/api/booking/all-bookings",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"bookingId\":9101,\"bookingCode\":\"BK-20261017-73F5\",\"guest_name\":\"PW Guest 1792222695873\",\"mobile\":\"9093090930\",\"guest_email\":\"pw-guest-1792222695873@test.com\",\"check_in\":\"2026-10-18\",\"check_out\":\"202"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hotel",
+    "file": "bookingRoutes",
+    "raw": "/",
+    "testPath": "/api/hotel",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"bookingId\":9101,\"bookingCode\":\"BK-20261017-73F5\",\"guest_name\":\"PW Guest 1792222695873\",\"mobile\":\"9093090930\",\"guest_email\":\"pw-guest-1792222695873@test.com\",\"check_in\":\"2026-10-18\",\"check_out\":\"202"
+  },
+  {
+    "method": "GET",
+    "path": "/api/booking",
+    "file": "bookingRoutes",
+    "raw": "/",
+    "testPath": "/api/booking",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"bookingId\":9101,\"bookingCode\":\"BK-20261017-73F5\",\"guest_name\":\"PW Guest 1792222695873\",\"mobile\":\"9093090930\",\"guest_email\":\"pw-guest-1792222695873@test.com\",\"check_in\":\"2026-10-18\",\"check_out\":\"202"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hotel/payment-history",
+    "file": "bookingRoutes",
+    "raw": "/payment-history",
+    "testPath": "/api/hotel/payment-history",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"bookingId\":9101,\"bookingCode\":\"BK-20261017-73F5\",\"guest_name\":\"PW Guest 1792222695873\",\"mobile\":\"9093090930\",\"guest_email\":\"pw-guest-1792222695873@test.com\",\"check_in\":\"2026-10-18\",\"check_out\":\"202"
+  },
+  {
+    "method": "GET",
+    "path": "/api/booking/payment-history",
+    "file": "bookingRoutes",
+    "raw": "/payment-history",
+    "testPath": "/api/booking/payment-history",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"bookingId\":9101,\"bookingCode\":\"BK-20261017-73F5\",\"guest_name\":\"PW Guest 1792222695873\",\"mobile\":\"9093090930\",\"guest_email\":\"pw-guest-1792222695873@test.com\",\"check_in\":\"2026-10-18\",\"check_out\":\"202"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hotel/room-tariff",
+    "file": "bookingRoutes",
+    "raw": "/room-tariff",
+    "testPath": "/api/hotel/room-tariff",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"bookingId\":9088,\"bookingCode\":\"BK-20261016-2FF4\",\"guest_name\":\"AG5 E2E Guest\",\"mobile\":\"9900002222\",\"guest_email\":\"ag5-e2e@test.com\",\"check_in\":\"2027-06-01\",\"check_out\":\"2027-06-03\",\"booking_status"
+  },
+  {
+    "method": "GET",
+    "path": "/api/booking/room-tariff",
+    "file": "bookingRoutes",
+    "raw": "/room-tariff",
+    "testPath": "/api/booking/room-tariff",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"bookingId\":9088,\"bookingCode\":\"BK-20261016-2FF4\",\"guest_name\":\"AG5 E2E Guest\",\"mobile\":\"9900002222\",\"guest_email\":\"ag5-e2e@test.com\",\"check_in\":\"2027-06-01\",\"check_out\":\"2027-06-03\",\"booking_status"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hotel/communication",
+    "file": "bookingRoutes",
+    "raw": "/communication",
+    "testPath": "/api/hotel/communication",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"bookingId\":9088,\"bookingCode\":\"BK-20261016-2FF4\",\"guest_name\":\"AG5 E2E Guest\",\"mobile\":\"9900002222\",\"guest_email\":\"ag5-e2e@test.com\",\"check_in\":\"2027-06-01\",\"check_out\":\"2027-06-03\",\"booking_status"
+  },
+  {
+    "method": "GET",
+    "path": "/api/booking/communication",
+    "file": "bookingRoutes",
+    "raw": "/communication",
+    "testPath": "/api/booking/communication",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"bookingId\":9088,\"bookingCode\":\"BK-20261016-2FF4\",\"guest_name\":\"AG5 E2E Guest\",\"mobile\":\"9900002222\",\"guest_email\":\"ag5-e2e@test.com\",\"check_in\":\"2027-06-01\",\"check_out\":\"2027-06-03\",\"booking_status"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hotel/booking/:id",
+    "file": "bookingRoutes",
+    "raw": "/booking/:id",
+    "testPath": "/api/hotel/booking/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "null"
+  },
+  {
+    "method": "GET",
+    "path": "/api/booking/booking/:id",
+    "file": "bookingRoutes",
+    "raw": "/booking/:id",
+    "testPath": "/api/booking/booking/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "null"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hotel/wizard/:id",
+    "file": "bookingRoutes",
+    "raw": "/wizard/:id",
+    "testPath": "/api/hotel/wizard/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"bookingId\":999999999,\"bookingCode\":\"\",\"guest\":{\"agentBooking\":false,\"bookingPoint\":\"\",\"mobile\":\"\",\"guestName\":\"\",\"guestEmail\":\"\",\"checkIn\":\"\",\"checkOut\":\"\",\"arrival\":\"12:00\",\"departure\":\"10:00\",\"boo"
+  },
+  {
+    "method": "GET",
+    "path": "/api/booking/wizard/:id",
+    "file": "bookingRoutes",
+    "raw": "/wizard/:id",
+    "testPath": "/api/booking/wizard/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"bookingId\":999999999,\"bookingCode\":\"\",\"guest\":{\"agentBooking\":false,\"bookingPoint\":\"\",\"mobile\":\"\",\"guestName\":\"\",\"guestEmail\":\"\",\"checkIn\":\"\",\"checkOut\":\"\",\"arrival\":\"12:00\",\"departure\":\"10:00\",\"boo"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hotel/rooms/setup",
+    "file": "bookingRoutes",
+    "raw": "/rooms/setup",
+    "testPath": "/api/hotel/rooms/setup",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":1,\"name\":\"Deluxe\",\"defaultPrice\":\"0.00\",\"unitLabel\":\"Room\",\"rooms\":[\"ANG500\",\"101\"],\"roomDetails\":[{\"roomNumber\":\"ANG500\",\"status\":\"occupied\",\"guest\":null,\"checkIn\":null,\"checkOut\":null},{\"room"
+  },
+  {
+    "method": "GET",
+    "path": "/api/booking/rooms/setup",
+    "file": "bookingRoutes",
+    "raw": "/rooms/setup",
+    "testPath": "/api/booking/rooms/setup",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":1,\"name\":\"Deluxe\",\"defaultPrice\":\"0.00\",\"unitLabel\":\"Room\",\"rooms\":[\"ANG500\",\"101\"],\"roomDetails\":[{\"roomNumber\":\"ANG500\",\"status\":\"occupied\",\"guest\":null,\"checkIn\":null,\"checkOut\":null},{\"room"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/hotel/booking/:id",
+    "file": "bookingRoutes",
+    "raw": "/booking/:id",
+    "testPath": "/api/hotel/booking/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Updated Successfully\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/booking/booking/:id",
+    "file": "bookingRoutes",
+    "raw": "/booking/:id",
+    "testPath": "/api/booking/booking/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Updated Successfully\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/hotel/full-booking/:id",
+    "file": "bookingRoutes",
+    "raw": "/full-booking/:id",
+    "testPath": "/api/hotel/full-booking/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Full Booking Updated\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/booking/full-booking/:id",
+    "file": "bookingRoutes",
+    "raw": "/full-booking/:id",
+    "testPath": "/api/booking/full-booking/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Full Booking Updated\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/hotel/check-in/:id",
+    "file": "bookingRoutes",
+    "raw": "/check-in/:id",
+    "testPath": "/api/hotel/check-in/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Booking not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/booking/check-in/:id",
+    "file": "bookingRoutes",
+    "raw": "/check-in/:id",
+    "testPath": "/api/booking/check-in/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Booking not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/hotel/check-out/:id",
+    "file": "bookingRoutes",
+    "raw": "/check-out/:id",
+    "testPath": "/api/hotel/check-out/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Booking not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/booking/check-out/:id",
+    "file": "bookingRoutes",
+    "raw": "/check-out/:id",
+    "testPath": "/api/booking/check-out/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Booking not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/hotel/cancel/:id",
+    "file": "bookingRoutes",
+    "raw": "/cancel/:id",
+    "testPath": "/api/hotel/cancel/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Booking not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/booking/cancel/:id",
+    "file": "bookingRoutes",
+    "raw": "/cancel/:id",
+    "testPath": "/api/booking/cancel/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Booking not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/hotel/rooms/category/:id/price",
+    "file": "bookingRoutes",
+    "raw": "/rooms/category/:id/price",
+    "testPath": "/api/hotel/rooms/category/999999999/price",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"defaultPrice is required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/booking/rooms/category/:id/price",
+    "file": "bookingRoutes",
+    "raw": "/rooms/category/:id/price",
+    "testPath": "/api/booking/rooms/category/999999999/price",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"defaultPrice is required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/hotel/rooms/state/:roomNumber",
+    "file": "bookingRoutes",
+    "raw": "/rooms/state/:roomNumber",
+    "testPath": "/api/hotel/rooms/state/999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"status is required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/booking/rooms/state/:roomNumber",
+    "file": "bookingRoutes",
+    "raw": "/rooms/state/:roomNumber",
+    "testPath": "/api/booking/rooms/state/999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"status is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/hotel/rooms/validate-availability",
+    "file": "bookingRoutes",
+    "raw": "/rooms/validate-availability",
+    "testPath": "/api/hotel/rooms/validate-availability",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"available\":true,\"conflicts\":[]}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/booking/rooms/validate-availability",
+    "file": "bookingRoutes",
+    "raw": "/rooms/validate-availability",
+    "testPath": "/api/booking/rooms/validate-availability",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"available\":true,\"conflicts\":[]}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hotel/full-booking/:id",
+    "file": "bookingRoutes",
+    "raw": "/full-booking/:id",
+    "testPath": "/api/hotel/full-booking/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"guestCapacity\":\"0 (0 Adults + 0 Children)\",\"nights\":1,\"rooms\":[],\"totalAmount\":0}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/booking/full-booking/:id",
+    "file": "bookingRoutes",
+    "raw": "/full-booking/:id",
+    "testPath": "/api/booking/full-booking/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"guestCapacity\":\"0 (0 Adults + 0 Children)\",\"nights\":1,\"rooms\":[],\"totalAmount\":0}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hotel/booking-history",
+    "file": "bookingRoutes",
+    "raw": "/booking-history",
+    "testPath": "/api/hotel/booking-history",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"bookingId\":9088,\"bookingCode\":\"BK-20261016-2FF4\",\"guest_name\":\"AG5 E2E Guest\",\"mobile\":\"9900002222\",\"guest_email\":\"ag5-e2e@test.com\",\"check_in\":\"2027-06-01\",\"check_out\":\"2027-06-03\",\"booking_status"
+  },
+  {
+    "method": "GET",
+    "path": "/api/booking/booking-history",
+    "file": "bookingRoutes",
+    "raw": "/booking-history",
+    "testPath": "/api/booking/booking-history",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"bookingId\":9088,\"bookingCode\":\"BK-20261016-2FF4\",\"guest_name\":\"AG5 E2E Guest\",\"mobile\":\"9900002222\",\"guest_email\":\"ag5-e2e@test.com\",\"check_in\":\"2027-06-01\",\"check_out\":\"2027-06-03\",\"booking_status"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/hotel/rooms/:roomNumber",
+    "file": "bookingRoutes",
+    "raw": "/rooms/:roomNumber",
+    "testPath": "/api/hotel/rooms/999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Room not found in inventory\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/booking/rooms/:roomNumber",
+    "file": "bookingRoutes",
+    "raw": "/rooms/:roomNumber",
+    "testPath": "/api/booking/rooms/999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Room not found in inventory\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/hotel/rooms",
+    "file": "bookingRoutes",
+    "raw": "/rooms",
+    "testPath": "/api/hotel/rooms",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"roomNumber is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/booking/rooms",
+    "file": "bookingRoutes",
+    "raw": "/rooms",
+    "testPath": "/api/booking/rooms",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"roomNumber is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/hotel/refund/:id",
+    "file": "bookingRoutes",
+    "raw": "/refund/:id",
+    "testPath": "/api/hotel/refund/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Refund Done\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/booking/refund/:id",
+    "file": "bookingRoutes",
+    "raw": "/refund/:id",
+    "testPath": "/api/booking/refund/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Refund Done\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hotel/payment-history/:id",
+    "file": "bookingRoutes",
+    "raw": "/payment-history/:id",
+    "testPath": "/api/hotel/payment-history/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":505,\"amount\":\"0.00\",\"discount_amount\":0,\"payment_mode\":\"cash\",\"created_at\":\"2026-10-18T07:37:02.000Z\",\"guest_name\":\"\",\"rooms\":null},{\"id\":504,\"amount\":\"0.00\",\"discount_amount\":0,\"payment_mode\":"
+  },
+  {
+    "method": "GET",
+    "path": "/api/booking/payment-history/:id",
+    "file": "bookingRoutes",
+    "raw": "/payment-history/:id",
+    "testPath": "/api/booking/payment-history/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":505,\"amount\":\"0.00\",\"discount_amount\":0,\"payment_mode\":\"cash\",\"created_at\":\"2026-10-18T07:37:02.000Z\",\"guest_name\":\"\",\"rooms\":null},{\"id\":504,\"amount\":\"0.00\",\"discount_amount\":0,\"payment_mode\":"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hotel/folio/:bookingId",
+    "file": "bookingRoutes",
+    "raw": "/folio/:bookingId",
+    "testPath": "/api/hotel/folio/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/booking/folio/:bookingId",
+    "file": "bookingRoutes",
+    "raw": "/folio/:bookingId",
+    "testPath": "/api/booking/folio/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/hotel/folio/:bookingId",
+    "file": "bookingRoutes",
+    "raw": "/folio/:bookingId",
+    "testPath": "/api/hotel/folio/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"error\":\"description and amount are required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/booking/folio/:bookingId",
+    "file": "bookingRoutes",
+    "raw": "/folio/:bookingId",
+    "testPath": "/api/booking/folio/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"error\":\"description and amount are required\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/hotel/folio/entry/:entryId",
+    "file": "bookingRoutes",
+    "raw": "/folio/entry/:entryId",
+    "testPath": "/api/hotel/folio/entry/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Folio entry deleted\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/booking/folio/entry/:entryId",
+    "file": "bookingRoutes",
+    "raw": "/folio/entry/:entryId",
+    "testPath": "/api/booking/folio/entry/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Folio entry deleted\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hotel/folio/:bookingId/totals",
+    "file": "bookingRoutes",
+    "raw": "/folio/:bookingId/totals",
+    "testPath": "/api/hotel/folio/999999999/totals",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"bookingId\":999999999,\"folioTable\":null,\"charges\":0,\"tax\":0,\"discounts\":0,\"refunds\":0,\"payments\":0,\"roomRent\":0,\"netAmount\":0,\"netBalance\":0,\"status\":\"settled\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/booking/folio/:bookingId/totals",
+    "file": "bookingRoutes",
+    "raw": "/folio/:bookingId/totals",
+    "testPath": "/api/booking/folio/999999999/totals",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"bookingId\":999999999,\"folioTable\":null,\"charges\":0,\"tax\":0,\"discounts\":0,\"refunds\":0,\"payments\":0,\"roomRent\":0,\"netAmount\":0,\"netBalance\":0,\"status\":\"settled\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hotel/guest-profile",
+    "file": "bookingRoutes",
+    "raw": "/guest-profile",
+    "testPath": "/api/hotel/guest-profile",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"error\":\"Query parameter 'q' or 'bookingId' is required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/booking/guest-profile",
+    "file": "bookingRoutes",
+    "raw": "/guest-profile",
+    "testPath": "/api/booking/guest-profile",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"error\":\"Query parameter 'q' or 'bookingId' is required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hotel/guests/search",
+    "file": "bookingRoutes",
+    "raw": "/guests/search",
+    "testPath": "/api/hotel/guests/search",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/booking/guests/search",
+    "file": "bookingRoutes",
+    "raw": "/guests/search",
+    "testPath": "/api/booking/guests/search",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hotel/guest-documents/:bookingId",
+    "file": "bookingRoutes",
+    "raw": "/guest-documents/:bookingId",
+    "testPath": "/api/hotel/guest-documents/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/booking/guest-documents/:bookingId",
+    "file": "bookingRoutes",
+    "raw": "/guest-documents/:bookingId",
+    "testPath": "/api/booking/guest-documents/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/hotel/guest-documents/:bookingId",
+    "file": "bookingRoutes",
+    "raw": "/guest-documents/:bookingId",
+    "testPath": "/api/hotel/guest-documents/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Document image is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/booking/guest-documents/:bookingId",
+    "file": "bookingRoutes",
+    "raw": "/guest-documents/:bookingId",
+    "testPath": "/api/booking/guest-documents/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Document image is required\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/hotel/guest-documents/:bookingId/:documentId",
+    "file": "bookingRoutes",
+    "raw": "/guest-documents/:bookingId/:documentId",
+    "testPath": "/api/hotel/guest-documents/999999999/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Guest document not found\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/booking/guest-documents/:bookingId/:documentId",
+    "file": "bookingRoutes",
+    "raw": "/guest-documents/:bookingId/:documentId",
+    "testPath": "/api/booking/guest-documents/999999999/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Guest document not found\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/hotel/invoice/pdf",
+    "file": "bookingRoutes",
+    "raw": "/invoice/pdf",
+    "testPath": "/api/hotel/invoice/pdf",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"error\":\"Valid booking ID is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/booking/invoice/pdf",
+    "file": "bookingRoutes",
+    "raw": "/invoice/pdf",
+    "testPath": "/api/booking/invoice/pdf",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"error\":\"Valid booking ID is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/hotel/group-booking",
+    "file": "bookingRoutes",
+    "raw": "/group-booking",
+    "testPath": "/api/hotel/group-booking",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"error\":\"guestName and mobile are required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/booking/group-booking",
+    "file": "bookingRoutes",
+    "raw": "/group-booking",
+    "testPath": "/api/booking/group-booking",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"error\":\"guestName and mobile are required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/hotel/notify/:bookingId",
+    "file": "bookingRoutes",
+    "raw": "/notify/:bookingId",
+    "testPath": "/api/hotel/notify/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Notification sent\",\"bookingId\":\"999999999\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/booking/notify/:bookingId",
+    "file": "bookingRoutes",
+    "raw": "/notify/:bookingId",
+    "testPath": "/api/booking/notify/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Notification sent\",\"bookingId\":\"999999999\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/chef",
+    "file": "chefRoutes",
+    "raw": "/",
+    "testPath": "/api/chef",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":79,\"table_number\":\"WP-1792302917733\",\"waiter_name\":\"Write Probe\",\"entity_type\":\"Table\",\"items\":[{\"name\":\"Write Probe Dish\",\"qty\":2,\"rate\":100}],\"status\":\"Ready\",\"token_status\":\"Active\",\"kot_no\""
+  },
+  {
+    "method": "GET",
+    "path": "/api/chef/orders",
+    "file": "chefRoutes",
+    "raw": "/orders",
+    "testPath": "/api/chef/orders",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":79,\"table_number\":\"WP-1792302917733\",\"waiter_name\":\"Write Probe\",\"entity_type\":\"Table\",\"items\":[{\"name\":\"Write Probe Dish\",\"qty\":2,\"rate\":100}],\"status\":\"Ready\",\"token_status\":\"Active\",\"kot_no\""
+  },
+  {
+    "method": "PUT",
+    "path": "/api/chef/orders/:id/status",
+    "file": "chefRoutes",
+    "raw": "/orders/:id/status",
+    "testPath": "/api/chef/orders/999999999/status",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Kitchen order not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/chef/orders/:id/cancel",
+    "file": "chefRoutes",
+    "raw": "/orders/:id/cancel",
+    "testPath": "/api/chef/orders/999999999/cancel",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Kitchen order not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/chef/orders/:id/save",
+    "file": "chefRoutes",
+    "raw": "/orders/:id/save",
+    "testPath": "/api/chef/orders/999999999/save",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Kitchen order not found\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/chef/orders/:id",
+    "file": "chefRoutes",
+    "raw": "/orders/:id",
+    "testPath": "/api/chef/orders/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Kitchen order not found\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/chef/notifications",
+    "file": "chefRoutes",
+    "raw": "/notifications",
+    "testPath": "/api/chef/notifications",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":374,\"user_id\":null,\"user_role\":\"housekeeping\",\"type\":\"assignment_new\",\"title\":\"Assigned Task assigned · Room ANG500\",\"message\":\"Write probe cleaningRoom ANG500. Priority: normal.\",\"data\":\"{\\\"as"
+  },
+  {
+    "method": "POST",
+    "path": "/api/chef/notifications/:id/read",
+    "file": "chefRoutes",
+    "raw": "/notifications/:id/read",
+    "testPath": "/api/chef/notifications/999999999/read",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/chef/notifications/mark-all-read",
+    "file": "chefRoutes",
+    "raw": "/notifications/mark-all-read",
+    "testPath": "/api/chef/notifications/mark-all-read",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/chef/notifications",
+    "file": "chefRoutes",
+    "raw": "/notifications",
+    "testPath": "/api/chef/notifications",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true,\"id\":377}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/chef/notifications/:id",
+    "file": "chefRoutes",
+    "raw": "/notifications/:id",
+    "testPath": "/api/chef/notifications/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/dashboard",
+    "file": "dashboardRoutes",
+    "raw": "/",
+    "testPath": "/api/dashboard",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"totalRooms\":3,\"occupiedRooms\":2,\"todayRevenue\":4710,\"todayCheckins\":0,\"expectedArrivals\":8,\"expectedCheckouts\":0,\"totalRevenueGenerated\":4155,\"expectedArrivalDetails\":[{\"id\":9101,\"bookingId\":9101,\"b"
+  },
+  {
+    "method": "GET",
+    "path": "/api/dashboard/metrics",
+    "file": "dashboardRoutes",
+    "raw": "/metrics",
+    "testPath": "/api/dashboard/metrics",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"totalRooms\":3,\"occupiedRooms\":2,\"todayRevenue\":4710,\"todayCheckins\":0,\"expectedArrivals\":8,\"expectedCheckouts\":0,\"totalRevenueGenerated\":4155,\"expectedArrivalDetails\":[{\"id\":9101,\"bookingId\":9101,\"b"
+  },
+  {
+    "method": "GET",
+    "path": "/api/dashboard/charts",
+    "file": "dashboardRoutes",
+    "raw": "/charts",
+    "testPath": "/api/dashboard/charts",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"monthlyRevenue\":[{\"key\":\"2026-05\",\"name\":\"May\",\"Online\":0,\"Offline\":0},{\"key\":\"2026-06\",\"name\":\"Jun\",\"Online\":0,\"Offline\":0},{\"key\":\"2026-07\",\"name\":\"Jul\",\"Online\":0,\"Offline\":0},{\"key\":\"2026-08\",\"n"
+  },
+  {
+    "method": "GET",
+    "path": "/api/web/dining/config",
+    "file": "diningRoutes",
+    "raw": "/config",
+    "testPath": "/api/web/dining/config",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true,\"data\":{\"tables\":[{\"id\":40,\"tableNumber\":\"WP-1792170165038\",\"floorName\":null,\"sectionName\":null,\"seatCount\":4,\"status\":\"available\",\"statusColor\":null},{\"id\":42,\"tableNumber\":\"WP-179218"
+  },
+  {
+    "method": "GET",
+    "path": "/api/dining/config",
+    "file": "diningRoutes",
+    "raw": "/config",
+    "testPath": "/api/dining/config",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true,\"data\":{\"tables\":[{\"id\":40,\"tableNumber\":\"WP-1792170165038\",\"floorName\":null,\"sectionName\":null,\"seatCount\":4,\"status\":\"available\",\"statusColor\":null},{\"id\":42,\"tableNumber\":\"WP-179218"
+  },
+  {
+    "method": "GET",
+    "path": "/api/web/dining/availability",
+    "file": "diningRoutes",
+    "raw": "/availability",
+    "testPath": "/api/web/dining/availability",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true,\"data\":{\"date\":\"2026-10-18\",\"guestCount\":1,\"tables\":[{\"id\":40,\"tableNumber\":\"WP-1792170165038\",\"floorName\":null,\"sectionName\":null,\"seatCount\":4,\"status\":\"available\",\"statusColor\":null"
+  },
+  {
+    "method": "GET",
+    "path": "/api/dining/availability",
+    "file": "diningRoutes",
+    "raw": "/availability",
+    "testPath": "/api/dining/availability",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true,\"data\":{\"date\":\"2026-10-18\",\"guestCount\":1,\"tables\":[{\"id\":40,\"tableNumber\":\"WP-1792170165038\",\"floorName\":null,\"sectionName\":null,\"seatCount\":4,\"status\":\"available\",\"statusColor\":null"
+  },
+  {
+    "method": "POST",
+    "path": "/api/web/dining/reservations",
+    "file": "diningRoutes",
+    "raw": "/reservations",
+    "testPath": "/api/web/dining/reservations",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"error\":\"customerName, mobile, reservationDate, and timeSlot are required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/dining/reservations",
+    "file": "diningRoutes",
+    "raw": "/reservations",
+    "testPath": "/api/dining/reservations",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"error\":\"customerName, mobile, reservationDate, and timeSlot are required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/web/dining/reservations/:code",
+    "file": "diningRoutes",
+    "raw": "/reservations/:code",
+    "testPath": "/api/web/dining/reservations/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true,\"data\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/dining/reservations/:code",
+    "file": "diningRoutes",
+    "raw": "/reservations/:code",
+    "testPath": "/api/dining/reservations/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true,\"data\":null}"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/web/dining/reservations/:code/cancel",
+    "file": "diningRoutes",
+    "raw": "/reservations/:code/cancel",
+    "testPath": "/api/web/dining/reservations/999999999/cancel",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true,\"message\":\"Reservation already cancelled\"}"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/dining/reservations/:code/cancel",
+    "file": "diningRoutes",
+    "raw": "/reservations/:code/cancel",
+    "testPath": "/api/dining/reservations/999999999/cancel",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true,\"message\":\"Reservation already cancelled\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/employees/departments",
+    "file": "employeeRoutes",
+    "raw": "/departments",
+    "testPath": "/api/employees/departments",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":1,\"name\":\"Front Office\"},{\"id\":2,\"name\":\"Housekeeping\"},{\"id\":3,\"name\":\"Kitchen\"},{\"id\":4,\"name\":\"Management\"}]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/employees/designations",
+    "file": "employeeRoutes",
+    "raw": "/designations",
+    "testPath": "/api/employees/designations",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":6,\"name\":\"Accounts Officer\",\"department_id\":null,\"department_name\":null},{\"id\":5,\"name\":\"Chef\",\"department_id\":null,\"department_name\":null},{\"id\":1,\"name\":\"Front Office Manager\",\"department_id\""
+  },
+  {
+    "method": "GET",
+    "path": "/api/employees/stats",
+    "file": "employeeRoutes",
+    "raw": "/stats",
+    "testPath": "/api/employees/stats",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"total\":29,\"date\":null,\"present\":0,\"absent\":0,\"late\":0,\"on_leave\":0,\"half_day\":0,\"totalSalary\":0}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/employees/attendance/employees",
+    "file": "employeeRoutes",
+    "raw": "/attendance/employees",
+    "testPath": "/api/employees/attendance/employees",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"employee_id\":144,\"employee_code\":\"EMP-94310\",\"first_name\":\"A'\",\"last_name\":null,\"designation\":null,\"department\":null,\"date_of_joining\":null,\"date_of_leaving\":null,\"employee_phone\":null,\"employee_ad"
+  },
+  {
+    "method": "GET",
+    "path": "/api/employees/employees",
+    "file": "employeeRoutes",
+    "raw": "/employees",
+    "testPath": "/api/employees/employees",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"employee_id\":144,\"employee_code\":\"EMP-94310\",\"first_name\":\"A'\",\"last_name\":null,\"designation\":null,\"department\":null,\"date_of_joining\":null,\"date_of_leaving\":null,\"employee_phone\":null,\"employee_ad"
+  },
+  {
+    "method": "GET",
+    "path": "/api/employees",
+    "file": "employeeRoutes",
+    "raw": "/",
+    "testPath": "/api/employees",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"employee_id\":144,\"employee_code\":\"EMP-94310\",\"first_name\":\"A'\",\"last_name\":null,\"designation\":null,\"department\":null,\"date_of_joining\":null,\"date_of_leaving\":null,\"employee_phone\":null,\"employee_ad"
+  },
+  {
+    "method": "POST",
+    "path": "/api/employees",
+    "file": "employeeRoutes",
+    "raw": "/",
+    "testPath": "/api/employees",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Employee name is required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/employees/:id",
+    "file": "employeeRoutes",
+    "raw": "/:id",
+    "testPath": "/api/employees/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Employee not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/employees/:id",
+    "file": "employeeRoutes",
+    "raw": "/:id",
+    "testPath": "/api/employees/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Employee not found\"}"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/employees/:id",
+    "file": "employeeRoutes",
+    "raw": "/:id",
+    "testPath": "/api/employees/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Employee not found\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/employees/:id",
+    "file": "employeeRoutes",
+    "raw": "/:id",
+    "testPath": "/api/employees/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Employee not found\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/housekeeping",
+    "file": "housekeepingRoutes",
+    "raw": "/",
+    "testPath": "/api/housekeeping",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":141,\"roomNo\":\"ANG500\",\"type\":\"Accommodation\",\"building\":\"\",\"floor\":\"\",\"section\":\"\",\"guestStatus\":\"\",\"roomType\":\"\",\"status\":\"Dirty\",\"assignee\":\"No Housekeeper\",\"priority\":\"Normal\",\"notes\":\"\",\"cl"
+  },
+  {
+    "method": "GET",
+    "path": "/api/housekeeping/logs",
+    "file": "housekeepingRoutes",
+    "raw": "/logs",
+    "testPath": "/api/housekeeping/logs",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":180,\"room_id\":null,\"roomNo\":\"ANG500\",\"assignment_id\":null,\"assignee\":\"No Housekeeper\",\"guest_status\":\"Dirty\",\"oldStatus\":\"Dirty\",\"final_status\":\"Dirty\",\"newStatus\":\"Dirty\",\"verified_by_user_id\""
+  },
+  {
+    "method": "GET",
+    "path": "/api/housekeeping/notifications",
+    "file": "housekeepingRoutes",
+    "raw": "/notifications",
+    "testPath": "/api/housekeeping/notifications",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":20,\"roomId\":null,\"roomNo\":\"ANG500\",\"assignedTo\":null,\"receptionist\":\"Admin User\",\"message\":\"Write probe message\",\"taskLabel\":\"Room Cleaning\",\"dueAt\":null,\"status\":\"New\",\"completedAt\":null,\"sent"
+  },
+  {
+    "method": "POST",
+    "path": "/api/housekeeping",
+    "file": "housekeepingRoutes",
+    "raw": "/",
+    "testPath": "/api/housekeeping",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"roomNo is required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/housekeeping/:id",
+    "file": "housekeepingRoutes",
+    "raw": "/:id",
+    "testPath": "/api/housekeeping/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Room updated\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/housekeeping/status/:id",
+    "file": "housekeepingRoutes",
+    "raw": "/status/:id",
+    "testPath": "/api/housekeeping/status/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"status is required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/housekeeping/assignee/:id",
+    "file": "housekeepingRoutes",
+    "raw": "/assignee/:id",
+    "testPath": "/api/housekeeping/assignee/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"assignee is required\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/housekeeping/:id",
+    "file": "housekeepingRoutes",
+    "raw": "/:id",
+    "testPath": "/api/housekeeping/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Room deleted\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/housekeeping/parameters",
+    "file": "housekeepingRoutes",
+    "raw": "/parameters",
+    "testPath": "/api/housekeeping/parameters",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"id\":1,\"cleaning_time_minutes\":30,\"max_rooms_per_housekeeper\":10,\"shift_start_time\":\"08:00\",\"shift_end_time\":\"20:00\",\"auto_release_enabled\":1,\"inspection_required\":1,\"default_assignee\":\"No Housekeepe"
+  },
+  {
+    "method": "POST",
+    "path": "/api/housekeeping/parameters",
+    "file": "housekeepingRoutes",
+    "raw": "/parameters",
+    "testPath": "/api/housekeeping/parameters",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Parameters saved\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/housekeeping/message",
+    "file": "housekeepingRoutes",
+    "raw": "/message",
+    "testPath": "/api/housekeeping/message",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"roomNo or roomId is required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/housekeeping/notifications/:id/complete",
+    "file": "housekeepingRoutes",
+    "raw": "/notifications/:id/complete",
+    "testPath": "/api/housekeeping/notifications/999999999/complete",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Notification not found\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/housekeeping/amenities",
+    "file": "housekeepingRoutes",
+    "raw": "/amenities",
+    "testPath": "/api/housekeeping/amenities",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":175,\"room_id\":null,\"room_no\":\"ANG500\",\"category\":\"General\",\"item_name\":\"Item\",\"quantity\":1,\"unit_cost\":\"0.00\",\"total_cost\":\"0.00\",\"notes\":null,\"logged_by\":\"Staff\",\"created_at\":\"2026-10-18T05:55"
+  },
+  {
+    "method": "POST",
+    "path": "/api/housekeeping/amenities",
+    "file": "housekeepingRoutes",
+    "raw": "/amenities",
+    "testPath": "/api/housekeeping/amenities",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Amenity logged\",\"id\":176}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/housekeeping/amenities/:id",
+    "file": "housekeepingRoutes",
+    "raw": "/amenities/:id",
+    "testPath": "/api/housekeeping/amenities/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Deleted\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/housekeeping/inspections",
+    "file": "housekeepingRoutes",
+    "raw": "/inspections",
+    "testPath": "/api/housekeeping/inspections",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":1,\"room_id\":null,\"room_no\":\"101\",\"inspector_name\":\"Test Inspector\",\"priority\":\"Normal\",\"checklist_json\":null,\"score\":0,\"notes\":\"test\",\"created_at\":\"2026-10-06T06:58:21.000Z\"}]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/housekeeping/inspections",
+    "file": "housekeepingRoutes",
+    "raw": "/inspections",
+    "testPath": "/api/housekeeping/inspections",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"inspector_name is required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/housekeeping/inspections/:id",
+    "file": "housekeepingRoutes",
+    "raw": "/inspections/:id",
+    "testPath": "/api/housekeeping/inspections/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Not found\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/housekeeping/lost-found",
+    "file": "housekeepingRoutes",
+    "raw": "/lost-found",
+    "testPath": "/api/housekeeping/lost-found",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/housekeeping/lost-found",
+    "file": "housekeepingRoutes",
+    "raw": "/lost-found",
+    "testPath": "/api/housekeeping/lost-found",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"found_by is required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/housekeeping/lost-found/:id",
+    "file": "housekeepingRoutes",
+    "raw": "/lost-found/:id",
+    "testPath": "/api/housekeeping/lost-found/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Updated\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/housekeeping/lost-found/:id",
+    "file": "housekeepingRoutes",
+    "raw": "/lost-found/:id",
+    "testPath": "/api/housekeeping/lost-found/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Deleted\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/housekeeping/roster",
+    "file": "housekeepingRoutes",
+    "raw": "/roster",
+    "testPath": "/api/housekeeping/roster",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/housekeeping/roster",
+    "file": "housekeepingRoutes",
+    "raw": "/roster",
+    "testPath": "/api/housekeeping/roster",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"No entries provided\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/housekeeping/costing",
+    "file": "housekeepingRoutes",
+    "raw": "/costing",
+    "testPath": "/api/housekeeping/costing",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":105,\"room_id\":null,\"room_no\":null,\"staff_cost\":\"0.00\",\"linen_cost\":\"0.00\",\"toiletrie_cost\":\"0.00\",\"misc_cost\":\"0.00\",\"total_cost\":\"0.00\",\"logged_by\":\"Staff\",\"created_at\":\"2026-10-18T05:50:15.00"
+  },
+  {
+    "method": "POST",
+    "path": "/api/housekeeping/costing",
+    "file": "housekeepingRoutes",
+    "raw": "/costing",
+    "testPath": "/api/housekeeping/costing",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Cost logged\",\"id\":106}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/housekeeping/checkout-report",
+    "file": "housekeepingRoutes",
+    "raw": "/checkout-report",
+    "testPath": "/api/housekeeping/checkout-report",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/housekeeping/completed-cleaning",
+    "file": "housekeepingRoutes",
+    "raw": "/completed-cleaning",
+    "testPath": "/api/housekeeping/completed-cleaning",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/housekeeping/completed-cleaning",
+    "file": "housekeepingRoutes",
+    "raw": "/completed-cleaning",
+    "testPath": "/api/housekeeping/completed-cleaning",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"roomNo is required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory-masters/sections",
+    "file": "inventoryMastersRoutes",
+    "raw": "/sections",
+    "testPath": "/api/inventory-masters/sections",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"key\":\"units\",\"label\":\"Units\",\"table\":\"inventory_units\",\"count\":0},{\"key\":\"vendors\",\"label\":\"Vendors\",\"table\":\"inventory_vendors\",\"count\":0},{\"key\":\"locations\",\"label\":\"Locations\",\"table\":\"inventory"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory-masters/:sectionKey",
+    "file": "inventoryMastersRoutes",
+    "raw": "/:sectionKey",
+    "testPath": "/api/inventory-masters/units",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory-masters/:sectionKey/:id",
+    "file": "inventoryMastersRoutes",
+    "raw": "/:sectionKey/:id",
+    "testPath": "/api/inventory-masters/units/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Record not found.\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/inventory-masters/:sectionKey",
+    "file": "inventoryMastersRoutes",
+    "raw": "/:sectionKey",
+    "testPath": "/api/inventory-masters/units",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"name is required.\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/inventory-masters/:sectionKey/:id",
+    "file": "inventoryMastersRoutes",
+    "raw": "/:sectionKey/:id",
+    "testPath": "/api/inventory-masters/units/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Nothing to update.\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/inventory-masters/:sectionKey/:id",
+    "file": "inventoryMastersRoutes",
+    "raw": "/:sectionKey/:id",
+    "testPath": "/api/inventory-masters/units/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Record deleted.\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory",
+    "file": "inventoryRoutes",
+    "raw": "/",
+    "testPath": "/api/inventory",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":900028,\"name\":\"ProbeItem1792047776\",\"category\":\"Probe\",\"subcategory\":null,\"stock\":\"4.00\",\"unit\":\"pcs\",\"price\":\"10.00\",\"reorderPoint\":\"10.00\",\"expiry\":null,\"branch\":null,\"isLowStock\":1}]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/items",
+    "file": "inventoryRoutes",
+    "raw": "/items",
+    "testPath": "/api/inventory/items",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":900028,\"name\":\"ProbeItem1792047776\",\"category\":\"Probe\",\"subcategory\":null,\"stock\":\"4.00\",\"unit\":\"pcs\",\"price\":\"10.00\",\"reorderPoint\":\"10.00\",\"expiry\":null,\"branch\":null,\"isLowStock\":1}]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/vendors",
+    "file": "inventoryRoutes",
+    "raw": "/vendors",
+    "testPath": "/api/inventory/vendors",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/menu-list",
+    "file": "inventoryRoutes",
+    "raw": "/menu-list",
+    "testPath": "/api/inventory/menu-list",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":900028,\"name\":\"ProbeItem1792047776\",\"category\":\"Probe\",\"subcategory\":null,\"stock\":\"4.00\",\"unit\":\"pcs\",\"price\":\"10.00\",\"reorderPoint\":\"10.00\",\"expiry\":null,\"branch\":null,\"isLowStock\":1}]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/menu-items",
+    "file": "inventoryRoutes",
+    "raw": "/menu-items",
+    "testPath": "/api/inventory/menu-items",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":900028,\"name\":\"ProbeItem1792047776\",\"category\":\"Probe\",\"subcategory\":null,\"stock\":\"4.00\",\"unit\":\"pcs\",\"price\":\"10.00\",\"reorderPoint\":\"10.00\",\"expiry\":null,\"branch\":null,\"isLowStock\":1}]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/reports",
+    "file": "inventoryRoutes",
+    "raw": "/reports",
+    "testPath": "/api/inventory/reports",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":20,\"itemId\":900075,\"itemName\":\"WriteProbeItem 1792302918479\",\"referenceType\":\"chef_issue\",\"referenceId\":20,\"direction\":\"OUT\",\"quantity\":\"1.00\",\"unit\":\"pcs\",\"vendorName\":null,\"locationName\":\"Wri"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/alerts/low-stock",
+    "file": "inventoryRoutes",
+    "raw": "/alerts/low-stock",
+    "testPath": "/api/inventory/alerts/low-stock",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":900028,\"name\":\"ProbeItem1792047776\",\"category\":\"Probe\",\"stock\":\"4.00\",\"unit\":\"pcs\",\"reorderPoint\":\"10.00\",\"branch\":null}]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/alerts/expiring",
+    "file": "inventoryRoutes",
+    "raw": "/alerts/expiring",
+    "testPath": "/api/inventory/alerts/expiring",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/waste",
+    "file": "inventoryRoutes",
+    "raw": "/waste",
+    "testPath": "/api/inventory/waste",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":61,\"itemId\":900075,\"itemName\":\"WriteProbeItem 1792302918479\",\"quantity\":\"2.00\",\"unit\":\"pcs\",\"reason\":\"write probe\",\"store\":null,\"remarks\":null,\"date\":null,\"createdBy\":\"system\",\"createdAt\":\"2026"
+  },
+  {
+    "method": "POST",
+    "path": "/api/inventory/waste",
+    "file": "inventoryRoutes",
+    "raw": "/waste",
+    "testPath": "/api/inventory/waste",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"itemName and quantity > 0 are required.\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/inventory/waste/:id",
+    "file": "inventoryRoutes",
+    "raw": "/waste/:id",
+    "testPath": "/api/inventory/waste/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Nothing to update.\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/inventory/waste/:id",
+    "file": "inventoryRoutes",
+    "raw": "/waste/:id",
+    "testPath": "/api/inventory/waste/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Failed to delete waste log.\",\"error\":{\"statusCode\":404}}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/purchase-orders",
+    "file": "inventoryRoutes",
+    "raw": "/purchase-orders",
+    "testPath": "/api/inventory/purchase-orders",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":69,\"poNumber\":\"PO-WP-1792302918479\",\"vendor\":\"Write Probe Vendor\",\"itemName\":\"WriteProbeItem 1792302918479\",\"quantity\":\"5.00\",\"unit\":null,\"rate\":\"25.00\",\"expectedDate\":null,\"status\":\"Draft\",\"cr"
+  },
+  {
+    "method": "POST",
+    "path": "/api/inventory/purchase-orders",
+    "file": "inventoryRoutes",
+    "raw": "/purchase-orders",
+    "testPath": "/api/inventory/purchase-orders",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"poNumber, vendor, itemName and quantity are required.\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/inventory/purchase-orders/:id",
+    "file": "inventoryRoutes",
+    "raw": "/purchase-orders/:id",
+    "testPath": "/api/inventory/purchase-orders/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Nothing to update.\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/inventory/purchase-orders/:id",
+    "file": "inventoryRoutes",
+    "raw": "/purchase-orders/:id",
+    "testPath": "/api/inventory/purchase-orders/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Purchase order deleted.\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/vendor-inwards",
+    "file": "inventoryRoutes",
+    "raw": "/vendor-inwards",
+    "testPath": "/api/inventory/vendor-inwards",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/inventory/vendor-inwards",
+    "file": "inventoryRoutes",
+    "raw": "/vendor-inwards",
+    "testPath": "/api/inventory/vendor-inwards",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"itemName and quantityReceived > 0 are required.\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/inventory/vendor-inwards/:id",
+    "file": "inventoryRoutes",
+    "raw": "/vendor-inwards/:id",
+    "testPath": "/api/inventory/vendor-inwards/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Nothing to update.\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/inventory/vendor-inwards/:id",
+    "file": "inventoryRoutes",
+    "raw": "/vendor-inwards/:id",
+    "testPath": "/api/inventory/vendor-inwards/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Failed to delete vendor inward.\",\"error\":{\"statusCode\":404}}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/vendor-payments",
+    "file": "inventoryRoutes",
+    "raw": "/vendor-payments",
+    "testPath": "/api/inventory/vendor-payments",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/inventory/vendor-payments",
+    "file": "inventoryRoutes",
+    "raw": "/vendor-payments",
+    "testPath": "/api/inventory/vendor-payments",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"vendorName and amount are required.\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/inventory/vendor-payments/:id",
+    "file": "inventoryRoutes",
+    "raw": "/vendor-payments/:id",
+    "testPath": "/api/inventory/vendor-payments/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Nothing to update.\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/inventory/vendor-payments/:id",
+    "file": "inventoryRoutes",
+    "raw": "/vendor-payments/:id",
+    "testPath": "/api/inventory/vendor-payments/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Vendor payment deleted.\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/stock-ledger",
+    "file": "inventoryRoutes",
+    "raw": "/stock-ledger",
+    "testPath": "/api/inventory/stock-ledger",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":20,\"itemId\":900075,\"itemName\":\"WriteProbeItem 1792302918479\",\"referenceType\":\"chef_issue\",\"referenceId\":20,\"direction\":\"OUT\",\"quantity\":\"1.00\",\"unit\":\"pcs\",\"vendorName\":null,\"locationName\":\"Wri"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/reports/stock-flow",
+    "file": "inventoryRoutes",
+    "raw": "/reports/stock-flow",
+    "testPath": "/api/inventory/reports/stock-flow",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"filters\":{\"dateFrom\":null,\"dateTo\":null},\"summary\":{\"opening\":0,\"received\":0,\"used\":0,\"remaining\":0,\"amount\":0},\"rows\":[{\"category\":\"\",\"vendor\":null,\"openingQty\":0,\"receivedQty\":0,\"usedQty\":0,\"remai"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/vendor-insights",
+    "file": "inventoryRoutes",
+    "raw": "/vendor-insights",
+    "testPath": "/api/inventory/vendor-insights",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"summary\":{\"totalVendors\":0,\"totalReceivedQty\":0,\"totalReceivedValue\":0,\"totalPaidAmount\":0,\"totalOutstandingAmount\":0},\"vendors\":[]}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/inventory/audit",
+    "file": "inventoryRoutes",
+    "raw": "/audit",
+    "testPath": "/api/inventory/audit",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"No audit entries provided.\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/audit/report",
+    "file": "inventoryRoutes",
+    "raw": "/audit/report",
+    "testPath": "/api/inventory/audit/report",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/transfers",
+    "file": "inventoryRoutes",
+    "raw": "/transfers",
+    "testPath": "/api/inventory/transfers",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":76,\"itemId\":null,\"itemName\":\"WriteProbeItem 1792302918479\",\"fromStore\":\"Write Probe A\",\"toStore\":\"Write Probe B\",\"quantity\":\"1.00\",\"unit\":\"pcs\",\"approvedBy\":null,\"date\":null,\"notes\":null},{\"id\""
+  },
+  {
+    "method": "POST",
+    "path": "/api/inventory/transfers",
+    "file": "inventoryRoutes",
+    "raw": "/transfers",
+    "testPath": "/api/inventory/transfers",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"itemName, fromStore, toStore and quantity > 0 are required.\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/inventory/transfers/:id",
+    "file": "inventoryRoutes",
+    "raw": "/transfers/:id",
+    "testPath": "/api/inventory/transfers/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Nothing to update.\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/inventory/transfers/:id",
+    "file": "inventoryRoutes",
+    "raw": "/transfers/:id",
+    "testPath": "/api/inventory/transfers/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Failed to delete transfer.\",\"error\":{\"statusCode\":404}}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/chef-issues",
+    "file": "inventoryRoutes",
+    "raw": "/chef-issues",
+    "testPath": "/api/inventory/chef-issues",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":20,\"itemId\":900075,\"itemName\":\"WriteProbeItem 1792302918479\",\"quantityIssued\":\"1.00\",\"quantityReturned\":\"0.00\",\"unit\":\"pcs\",\"chefName\":\"Write Probe Chef\",\"chefId\":null,\"purpose\":null,\"status\":\""
+  },
+  {
+    "method": "POST",
+    "path": "/api/inventory/chef-issues",
+    "file": "inventoryRoutes",
+    "raw": "/chef-issues",
+    "testPath": "/api/inventory/chef-issues",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"itemName and quantityIssued > 0 are required.\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/inventory/chef-issues/:id/return",
+    "file": "inventoryRoutes",
+    "raw": "/chef-issues/:id/return",
+    "testPath": "/api/inventory/chef-issues/999999999/return",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"quantityReturned > 0 is required.\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/chef-issues/:id",
+    "file": "inventoryRoutes",
+    "raw": "/chef-issues/:id",
+    "testPath": "/api/inventory/chef-issues/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Chef issue record not found.\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/setup/categories",
+    "file": "inventoryRoutes",
+    "raw": "/setup/categories",
+    "testPath": "/api/inventory/setup/categories",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/setup/vendors",
+    "file": "inventoryRoutes",
+    "raw": "/setup/vendors",
+    "testPath": "/api/inventory/setup/vendors",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/setup/stores",
+    "file": "inventoryRoutes",
+    "raw": "/setup/stores",
+    "testPath": "/api/inventory/setup/stores",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/stats",
+    "file": "inventoryRoutes",
+    "raw": "/stats",
+    "testPath": "/api/inventory/stats",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"totalItems\":0,\"lowStockCount\":0,\"totalValue\":0}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/purchases",
+    "file": "inventoryRoutes",
+    "raw": "/purchases",
+    "testPath": "/api/inventory/purchases",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/inventory/purchases",
+    "file": "inventoryRoutes",
+    "raw": "/purchases",
+    "testPath": "/api/inventory/purchases",
+    "code": 501,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Not implemented yet\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/stock",
+    "file": "inventoryRoutes",
+    "raw": "/stock",
+    "testPath": "/api/inventory/stock",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"stockId\":1,\"id\":1,\"itemId\":1,\"itemName\":\"Test Item\",\"category\":null,\"quantity\":50,\"stock\":50,\"reorderLevel\":5,\"expiryDate\":null,\"store\":null,\"unit\":null,\"price\":0,\"type\":\"raw\"},{\"stockId\":3,\"id\":1,"
+  },
+  {
+    "method": "POST",
+    "path": "/api/inventory/stock",
+    "file": "inventoryRoutes",
+    "raw": "/stock",
+    "testPath": "/api/inventory/stock",
+    "code": 501,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Not implemented yet\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/inventory/stock-action",
+    "file": "inventoryRoutes",
+    "raw": "/stock-action",
+    "testPath": "/api/inventory/stock-action",
+    "code": 501,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Not implemented yet\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/reports/vendor-spend",
+    "file": "inventoryRoutes",
+    "raw": "/reports/vendor-spend",
+    "testPath": "/api/inventory/reports/vendor-spend",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/reports/stock-value",
+    "file": "inventoryRoutes",
+    "raw": "/reports/stock-value",
+    "testPath": "/api/inventory/reports/stock-value",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/reports/expiry-batches",
+    "file": "inventoryRoutes",
+    "raw": "/reports/expiry-batches",
+    "testPath": "/api/inventory/reports/expiry-batches",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/reports/consumption",
+    "file": "inventoryRoutes",
+    "raw": "/reports/consumption",
+    "testPath": "/api/inventory/reports/consumption",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/reports/audit-trail",
+    "file": "inventoryRoutes",
+    "raw": "/reports/audit-trail",
+    "testPath": "/api/inventory/reports/audit-trail",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/inventory/:id",
+    "file": "inventoryRoutes",
+    "raw": "/:id",
+    "testPath": "/api/inventory/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Item not found.\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/inventory",
+    "file": "inventoryRoutes",
+    "raw": "/",
+    "testPath": "/api/inventory",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Name is required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/inventory/:id",
+    "file": "inventoryRoutes",
+    "raw": "/:id",
+    "testPath": "/api/inventory/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Nothing to update.\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/inventory/:id",
+    "file": "inventoryRoutes",
+    "raw": "/:id",
+    "testPath": "/api/inventory/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Item deleted successfully.\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/kitchen/order",
+    "file": "kitchenRoutes",
+    "raw": "/order",
+    "testPath": "/api/kitchen/order",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Table reference is required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/kitchen",
+    "file": "kitchenRoutes",
+    "raw": "/",
+    "testPath": "/api/kitchen",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":79,\"table_number\":\"WP-1792302917733\",\"waiter_name\":\"Write Probe\",\"entity_type\":\"Table\",\"items\":[{\"name\":\"Write Probe Dish\",\"qty\":2,\"rate\":100}],\"status\":\"Ready\",\"token_status\":\"Active\",\"kot_no\""
+  },
+  {
+    "method": "GET",
+    "path": "/api/kitchen/orders",
+    "file": "kitchenRoutes",
+    "raw": "/orders",
+    "testPath": "/api/kitchen/orders",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":79,\"table_number\":\"WP-1792302917733\",\"waiter_name\":\"Write Probe\",\"entity_type\":\"Table\",\"items\":[{\"name\":\"Write Probe Dish\",\"qty\":2,\"rate\":100}],\"status\":\"Ready\",\"token_status\":\"Active\",\"kot_no\""
+  },
+  {
+    "method": "PUT",
+    "path": "/api/kitchen/orders/:id",
+    "file": "kitchenRoutes",
+    "raw": "/orders/:id",
+    "testPath": "/api/kitchen/orders/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Kitchen order not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/kitchen/orders/:id/save",
+    "file": "kitchenRoutes",
+    "raw": "/orders/:id/save",
+    "testPath": "/api/kitchen/orders/999999999/save",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Kitchen order not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/kitchen/orders/:id/cancel",
+    "file": "kitchenRoutes",
+    "raw": "/orders/:id/cancel",
+    "testPath": "/api/kitchen/orders/999999999/cancel",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Kitchen order not found\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/kitchen/orders/:id",
+    "file": "kitchenRoutes",
+    "raw": "/orders/:id",
+    "testPath": "/api/kitchen/orders/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Kitchen order not found\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/menu-recipes/menu-items",
+    "file": "menuRecipeRoutes",
+    "raw": "/menu-items",
+    "testPath": "/api/menu-recipes/menu-items",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":1,\"name\":\"Groceries\",\"parent_id\":null,\"description\":null,\"is_active\":1,\"created_at\":\"2026-10-06T09:48:36.000Z\"}]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/menu-recipes/inventory-items",
+    "file": "menuRecipeRoutes",
+    "raw": "/inventory-items",
+    "testPath": "/api/menu-recipes/inventory-items",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":1,\"name\":\"Groceries\",\"parent_id\":null,\"description\":null,\"is_active\":1,\"created_at\":\"2026-10-06T09:48:36.000Z\"}]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/menu-recipes/recipes",
+    "file": "menuRecipeRoutes",
+    "raw": "/recipes",
+    "testPath": "/api/menu-recipes/recipes",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/menu-recipes/menu/:menuItemId",
+    "file": "menuRecipeRoutes",
+    "raw": "/menu/:menuItemId",
+    "testPath": "/api/menu-recipes/menu/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/menu-recipes/menu/:menuItemId",
+    "file": "menuRecipeRoutes",
+    "raw": "/menu/:menuItemId",
+    "testPath": "/api/menu-recipes/menu/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"At least one valid ingredient row is required.\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/menu-recipes/recipes/:recipeRowId",
+    "file": "menuRecipeRoutes",
+    "raw": "/recipes/:recipeRowId",
+    "testPath": "/api/menu-recipes/recipes/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"A valid recipe row payload is required.\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/menu-recipes/recipes/:recipeRowId",
+    "file": "menuRecipeRoutes",
+    "raw": "/recipes/:recipeRowId",
+    "testPath": "/api/menu-recipes/recipes/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Recipe row deleted.\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/menu-recipes/preview-consumption",
+    "file": "menuRecipeRoutes",
+    "raw": "/preview-consumption",
+    "testPath": "/api/menu-recipes/preview-consumption",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"menuItemId and orderQuantity are required.\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/menu-recipes/apply-consumption",
+    "file": "menuRecipeRoutes",
+    "raw": "/apply-consumption",
+    "testPath": "/api/menu-recipes/apply-consumption",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"menuItemId and orderQuantity are required.\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/menu-recipes/consumption-log",
+    "file": "menuRecipeRoutes",
+    "raw": "/consumption-log",
+    "testPath": "/api/menu-recipes/consumption-log",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/notifications",
+    "file": "notificationRoutes",
+    "raw": "/",
+    "testPath": "/api/notifications",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":377,\"user_id\":null,\"user_role\":null,\"type\":\"general\",\"title\":\"\",\"message\":\"\",\"data\":null,\"is_read\":0,\"read_at\":null,\"created_at\":\"2026-10-18T07:37:02.000Z\",\"updated_at\":\"2026-10-18T07:37:02.000"
+  },
+  {
+    "method": "GET",
+    "path": "/api/notification",
+    "file": "notificationRoutes",
+    "raw": "/",
+    "testPath": "/api/notification",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":377,\"user_id\":null,\"user_role\":null,\"type\":\"general\",\"title\":\"\",\"message\":\"\",\"data\":null,\"is_read\":0,\"read_at\":null,\"created_at\":\"2026-10-18T07:37:02.000Z\",\"updated_at\":\"2026-10-18T07:37:02.000"
+  },
+  {
+    "method": "POST",
+    "path": "/api/notifications/:id/read",
+    "file": "notificationRoutes",
+    "raw": "/:id/read",
+    "testPath": "/api/notifications/999999999/read",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/notification/:id/read",
+    "file": "notificationRoutes",
+    "raw": "/:id/read",
+    "testPath": "/api/notification/999999999/read",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/notifications/mark-all-read",
+    "file": "notificationRoutes",
+    "raw": "/mark-all-read",
+    "testPath": "/api/notifications/mark-all-read",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/notification/mark-all-read",
+    "file": "notificationRoutes",
+    "raw": "/mark-all-read",
+    "testPath": "/api/notification/mark-all-read",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/notifications",
+    "file": "notificationRoutes",
+    "raw": "/",
+    "testPath": "/api/notifications",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true,\"id\":378}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/notification",
+    "file": "notificationRoutes",
+    "raw": "/",
+    "testPath": "/api/notification",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true,\"id\":379}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/notifications/:id",
+    "file": "notificationRoutes",
+    "raw": "/:id",
+    "testPath": "/api/notifications/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/notification/:id",
+    "file": "notificationRoutes",
+    "raw": "/:id",
+    "testPath": "/api/notification/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"success\":true}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/payment",
+    "file": "paymentRoutes",
+    "raw": "/",
+    "testPath": "/api/payment",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"table, total, and method are required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payment",
+    "file": "paymentRoutes",
+    "raw": "/",
+    "testPath": "/api/payment",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":504,\"booking_id\":999999999,\"bill_id\":null,\"invoice_id\":null,\"banquet_booking_id\":null,\"amount\":\"0.00\",\"payment_method_id\":2,\"payment_type\":\"refund\",\"reference_no\":null,\"transaction_details\":nul"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/payments",
+    "file": "payrollRoutes",
+    "raw": "/payments",
+    "testPath": "/api/payroll/payments",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":31,\"employee_id\":144,\"month\":\"2026-08-31T18:30:00.000Z\",\"basic_salary\":\"50000.00\",\"allowances\":\"0.00\",\"deductions\":\"0.00\",\"net_salary\":\"50000.00\",\"paid_amount\":\"0.00\",\"payment_date\":null,\"payme"
+  },
+  {
+    "method": "POST",
+    "path": "/api/payroll/payments",
+    "file": "payrollRoutes",
+    "raw": "/payments",
+    "testPath": "/api/payroll/payments",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"month (YYYY-MM) is required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/payments/:id",
+    "file": "payrollRoutes",
+    "raw": "/payments/:id",
+    "testPath": "/api/payroll/payments/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Salary payment not found\"}"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/payroll/payments/:id",
+    "file": "payrollRoutes",
+    "raw": "/payments/:id",
+    "testPath": "/api/payroll/payments/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Salary payment not found\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/payroll/payments/:id/mark-paid",
+    "file": "payrollRoutes",
+    "raw": "/payments/:id/mark-paid",
+    "testPath": "/api/payroll/payments/999999999/mark-paid",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Salary payment not found\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/estimate/:employeeId",
+    "file": "payrollRoutes",
+    "raw": "/estimate/:employeeId",
+    "testPath": "/api/payroll/estimate/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Employee not found\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/print/queue",
+    "file": "printRoutes",
+    "raw": "/queue",
+    "testPath": "/api/print/queue",
+    "code": "-",
+    "verdict": "SKIP"
+  },
+  {
+    "method": "POST",
+    "path": "/api/print/reprint",
+    "file": "printRoutes",
+    "raw": "/reprint",
+    "testPath": "/api/print/reprint",
+    "code": "-",
+    "verdict": "SKIP"
+  },
+  {
+    "method": "GET",
+    "path": "/api/print/history",
+    "file": "printRoutes",
+    "raw": "/history",
+    "testPath": "/api/print/history",
+    "code": "-",
+    "verdict": "SKIP"
+  },
+  {
+    "method": "GET",
+    "path": "/api/print/status",
+    "file": "printRoutes",
+    "raw": "/status",
+    "testPath": "/api/print/status",
+    "code": "-",
+    "verdict": "SKIP"
+  },
+  {
+    "method": "GET",
+    "path": "/api/print/queue",
+    "file": "printRoutes",
+    "raw": "/queue",
+    "testPath": "/api/print/queue",
+    "code": "-",
+    "verdict": "SKIP"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/print/queue/:jobId",
+    "file": "printRoutes",
+    "raw": "/queue/:jobId",
+    "testPath": "/api/print/queue/999999999",
+    "code": "-",
+    "verdict": "SKIP"
+  },
+  {
+    "method": "GET",
+    "path": "/api/print/types",
+    "file": "printRoutes",
+    "raw": "/types",
+    "testPath": "/api/print/types",
+    "code": "-",
+    "verdict": "SKIP"
+  },
+  {
+    "method": "POST",
+    "path": "/api/print/test",
+    "file": "printRoutes",
+    "raw": "/test",
+    "testPath": "/api/print/test",
+    "code": "-",
+    "verdict": "SKIP"
+  },
+  {
+    "method": "GET",
+    "path": "/api/report/daywise",
+    "file": "reportRoutes",
+    "raw": "/daywise",
+    "testPath": "/api/report/daywise",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/report/items",
+    "file": "reportRoutes",
+    "raw": "/items",
+    "testPath": "/api/report/items",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"item_name\":\"DW Probe Dish\",\"quantity\":\"1\"},{\"item_name\":\"Fresh Test DW\",\"quantity\":\"2\"},{\"item_name\":\"Ravioli\",\"quantity\":\"3\"},{\"item_name\":\"Test Dish DW\",\"quantity\":\"6\"}]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/reports",
+    "file": "reportsRoutes",
+    "raw": "/",
+    "testPath": "/api/reports",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"totalRooms\":0,\"hotelBookings\":98,\"accountsTransactions\":21,\"banquetBookings\":2,\"restaurantBills\":0,\"attendanceRecords\":19}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/reports/summary",
+    "file": "reportsRoutes",
+    "raw": "/summary",
+    "testPath": "/api/reports/summary",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"totalRooms\":0,\"hotelBookings\":98,\"accountsTransactions\":21,\"banquetBookings\":2,\"restaurantBills\":0,\"attendanceRecords\":19}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/reports/data",
+    "file": "reportsRoutes",
+    "raw": "/data",
+    "testPath": "/api/reports/data",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Report type required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/restaurant/tables",
+    "file": "restaurantRoutes",
+    "raw": "/tables",
+    "testPath": "/api/restaurant/tables",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Table number required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/restaurant/tables",
+    "file": "restaurantRoutes",
+    "raw": "/tables",
+    "testPath": "/api/restaurant/tables",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":40,\"number\":\"WP-1792170165038\",\"floorName\":\"\",\"sectionName\":\"\",\"seatCount\":4,\"statusColor\":\"\",\"status\":\"available\"},{\"id\":42,\"number\":\"WP-1792180087599\",\"floorName\":\"\",\"sectionName\":\"\",\"seatCou"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/restaurant/tables/:id",
+    "file": "restaurantRoutes",
+    "raw": "/tables/:id",
+    "testPath": "/api/restaurant/tables/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Updated\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/restaurant/tables/:id",
+    "file": "restaurantRoutes",
+    "raw": "/tables/:id",
+    "testPath": "/api/restaurant/tables/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Table not found\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/restaurant/waiter-performance",
+    "file": "restaurantRoutes",
+    "raw": "/waiter-performance",
+    "testPath": "/api/restaurant/waiter-performance",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"waiterName\":\"Waiter\",\"billsHandled\":17,\"salesTotal\":\"80.00\",\"avgBillValue\":\"4.705882\"}]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/restaurant/menu",
+    "file": "restaurantRoutes",
+    "raw": "/menu",
+    "testPath": "/api/restaurant/menu",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":5,\"category_id\":2,\"name\":\"Paneer Tikka\",\"description\":\"Grilled cottage cheese\",\"price\":\"250.00\",\"tax_percent\":\"5.00\",\"food_type\":\"Veg\",\"availability_status\":\"Available\",\"status\":\"available\",\"im"
+  },
+  {
+    "method": "POST",
+    "path": "/api/restaurant/menu",
+    "file": "restaurantRoutes",
+    "raw": "/menu",
+    "testPath": "/api/restaurant/menu",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Name and price required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/restaurant/menu/:id",
+    "file": "restaurantRoutes",
+    "raw": "/menu/:id",
+    "testPath": "/api/restaurant/menu/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Name and price required\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/restaurant/menu/:id",
+    "file": "restaurantRoutes",
+    "raw": "/menu/:id",
+    "testPath": "/api/restaurant/menu/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Menu item deleted\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/restaurant/split-bills",
+    "file": "restaurantRoutes",
+    "raw": "/split-bills",
+    "testPath": "/api/restaurant/split-bills",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Missing split bill fields\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/restaurant/item-action-requests",
+    "file": "restaurantRoutes",
+    "raw": "/item-action-requests",
+    "testPath": "/api/restaurant/item-action-requests",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/restaurant/item-action-requests",
+    "file": "restaurantRoutes",
+    "raw": "/item-action-requests",
+    "testPath": "/api/restaurant/item-action-requests",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Missing action request fields\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/restaurant/item-action-requests/:id/review",
+    "file": "restaurantRoutes",
+    "raw": "/item-action-requests/:id/review",
+    "testPath": "/api/restaurant/item-action-requests/999999999/review",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Status is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/restaurant/order/add",
+    "file": "restaurantRoutes",
+    "raw": "/order/add",
+    "testPath": "/api/restaurant/order/add",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"tableNumber and item required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/restaurant/order",
+    "file": "restaurantRoutes",
+    "raw": "/order",
+    "testPath": "/api/restaurant/order",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":7,\"table_number\":\"9\",\"waiterName\":\"Waiter\",\"status\":\"pending\",\"created_at\":\"2026-10-16T19:17:34.000Z\",\"itemCount\":1,\"totalAmount\":\"250.00\"},{\"id\":6,\"table_number\":\"77\",\"waiterName\":\"Waiter\",\"st"
+  },
+  {
+    "method": "GET",
+    "path": "/api/restaurant/order/:tableNumber",
+    "file": "restaurantRoutes",
+    "raw": "/order/:tableNumber",
+    "testPath": "/api/restaurant/order/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/restaurant/order/:orderId",
+    "file": "restaurantRoutes",
+    "raw": "/order/:orderId",
+    "testPath": "/api/restaurant/order/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Order not found\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/restaurant/order/:orderId",
+    "file": "restaurantRoutes",
+    "raw": "/order/:orderId",
+    "testPath": "/api/restaurant/order/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Order not found\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/restaurant/order-items/:orderId",
+    "file": "restaurantRoutes",
+    "raw": "/order-items/:orderId",
+    "testPath": "/api/restaurant/order-items/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/restaurant/order/:tableNumber/pay",
+    "file": "restaurantRoutes",
+    "raw": "/order/:tableNumber/pay",
+    "testPath": "/api/restaurant/order/999999999/pay",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Order already settled\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/restaurant",
+    "file": "restaurantRoutes",
+    "raw": "/",
+    "testPath": "/api/restaurant",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":135,\"table_number\":\"WP-1792302917733\",\"tokenId\":null,\"entity_type\":\"Table\",\"waiter_name\":\"Waiter\",\"customer_name\":null,\"phone\":null,\"subtotal\":\"0.00\",\"service_charge\":\"0.00\",\"gst\":\"0.00\",\"total"
+  },
+  {
+    "method": "GET",
+    "path": "/api/restaurant/payment",
+    "file": "restaurantRoutes",
+    "raw": "/payment",
+    "testPath": "/api/restaurant/payment",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":135,\"table_number\":\"WP-1792302917733\",\"tokenId\":null,\"entity_type\":\"Table\",\"waiter_name\":\"Waiter\",\"customer_name\":null,\"phone\":null,\"subtotal\":\"0.00\",\"service_charge\":\"0.00\",\"gst\":\"0.00\",\"total"
+  },
+  {
+    "method": "GET",
+    "path": "/api/restaurant/payment-bills",
+    "file": "restaurantRoutes",
+    "raw": "/payment-bills",
+    "testPath": "/api/restaurant/payment-bills",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":135,\"table_number\":\"WP-1792302917733\",\"tokenId\":null,\"entity_type\":\"Table\",\"waiter_name\":\"Waiter\",\"customer_name\":null,\"phone\":null,\"subtotal\":\"0.00\",\"service_charge\":\"0.00\",\"gst\":\"0.00\",\"total"
+  },
+  {
+    "method": "GET",
+    "path": "/api/restaurant/room-items",
+    "file": "restaurantRoutes",
+    "raw": "/room-items",
+    "testPath": "/api/restaurant/room-items",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":7,\"table_number\":\"9\",\"waiterName\":\"Waiter\",\"status\":\"pending\",\"created_at\":\"2026-10-16T19:17:34.000Z\",\"itemCount\":1,\"totalAmount\":\"250.00\"},{\"id\":6,\"table_number\":\"77\",\"waiterName\":\"Waiter\",\"st"
+  },
+  {
+    "method": "GET",
+    "path": "/api/restaurant/bill",
+    "file": "restaurantRoutes",
+    "raw": "/bill",
+    "testPath": "/api/restaurant/bill",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":135,\"table_number\":\"WP-1792302917733\",\"tokenId\":null,\"entity_type\":\"Table\",\"waiter_name\":\"Waiter\",\"customer_name\":null,\"phone\":null,\"subtotal\":\"0.00\",\"service_charge\":\"0.00\",\"gst\":\"0.00\",\"total"
+  },
+  {
+    "method": "GET",
+    "path": "/api/restaurant/split-bills",
+    "file": "restaurantRoutes",
+    "raw": "/split-bills",
+    "testPath": "/api/restaurant/split-bills",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":135,\"table_number\":\"WP-1792302917733\",\"tokenId\":null,\"entity_type\":\"Table\",\"waiter_name\":\"Waiter\",\"customer_name\":null,\"phone\":null,\"subtotal\":\"0.00\",\"service_charge\":\"0.00\",\"gst\":\"0.00\",\"total"
+  },
+  {
+    "method": "POST",
+    "path": "/api/restaurant/bill",
+    "file": "restaurantRoutes",
+    "raw": "/bill",
+    "testPath": "/api/restaurant/bill",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"table or tableNumber is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/restaurant/bill/:id/charge-to-room",
+    "file": "restaurantRoutes",
+    "raw": "/bill/:id/charge-to-room",
+    "testPath": "/api/restaurant/bill/999999999/charge-to-room",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"roomNumber or bookingId is required to charge bill to room\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/restaurant/bill/charge-to-room",
+    "file": "restaurantRoutes",
+    "raw": "/bill/charge-to-room",
+    "testPath": "/api/restaurant/bill/charge-to-room",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"billId or roomNumber is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/restaurant/bill/:id/pay",
+    "file": "restaurantRoutes",
+    "raw": "/bill/:id/pay",
+    "testPath": "/api/restaurant/bill/999999999/pay",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Bill not found\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/restaurant/bill/pay",
+    "file": "restaurantRoutes",
+    "raw": "/bill/pay",
+    "testPath": "/api/restaurant/bill/pay",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"billId is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/restaurant/split-bills/:id/charge-to-room",
+    "file": "restaurantRoutes",
+    "raw": "/split-bills/:id/charge-to-room",
+    "testPath": "/api/restaurant/split-bills/999999999/charge-to-room",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"roomNumber or bookingId is required to charge bill to room\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/restaurant/split-bills/charge-to-room",
+    "file": "restaurantRoutes",
+    "raw": "/split-bills/charge-to-room",
+    "testPath": "/api/restaurant/split-bills/charge-to-room",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"billId or roomNumber is required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/restaurant/bills",
+    "file": "restaurantRoutes",
+    "raw": "/bills",
+    "testPath": "/api/restaurant/bills",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":135,\"table_number\":\"WP-1792302917733\",\"tokenId\":null,\"entity_type\":\"Table\",\"waiter_name\":\"Waiter\",\"customer_name\":null,\"phone\":null,\"subtotal\":\"0.00\",\"service_charge\":\"0.00\",\"gst\":\"0.00\",\"total"
+  },
+  {
+    "method": "POST",
+    "path": "/api/restaurant/invoice/send-whatsapp/:billId",
+    "file": "restaurantRoutes",
+    "raw": "/invoice/send-whatsapp/:billId",
+    "testPath": "/api/restaurant/invoice/send-whatsapp/999999999",
+    "code": "-",
+    "verdict": "SKIP"
+  },
+  {
+    "method": "GET",
+    "path": "/api/roles/permissions",
+    "file": "roleRoutes",
+    "raw": "/permissions",
+    "testPath": "/api/roles/permissions",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/roles",
+    "file": "roleRoutes",
+    "raw": "/",
+    "testPath": "/api/roles",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":1,\"name\":\"admin\",\"display_name\":\"Administrator\",\"description\":\"Administrator\",\"is_system\":0,\"created_at\":\"2026-09-12T18:48:17.000Z\",\"permission_count\":0},{\"id\":2,\"name\":\"manager\",\"display_name\""
+  },
+  {
+    "method": "POST",
+    "path": "/api/roles",
+    "file": "roleRoutes",
+    "raw": "/",
+    "testPath": "/api/roles",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Role name is required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/roles/:id",
+    "file": "roleRoutes",
+    "raw": "/:id",
+    "testPath": "/api/roles/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Role not found\"}"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/roles/:id",
+    "file": "roleRoutes",
+    "raw": "/:id",
+    "testPath": "/api/roles/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Role not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/roles/:id",
+    "file": "roleRoutes",
+    "raw": "/:id",
+    "testPath": "/api/roles/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Role not found\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/roles/:id",
+    "file": "roleRoutes",
+    "raw": "/:id",
+    "testPath": "/api/roles/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Role not found\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/roles/:id/permissions",
+    "file": "roleRoutes",
+    "raw": "/:id/permissions",
+    "testPath": "/api/roles/999999999/permissions",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"roleId\":999999999,\"permissionIds\":[]}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/roles/:id/permissions",
+    "file": "roleRoutes",
+    "raw": "/:id/permissions",
+    "testPath": "/api/roles/999999999/permissions",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"permissionIds array is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/room-service-delivery/assign-waiter",
+    "file": "roomServiceDeliveryRoutes",
+    "raw": "/assign-waiter",
+    "testPath": "/api/room-service-delivery/assign-waiter",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"roomNumber and waiterName required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/room-service-delivery/waiter-queue",
+    "file": "roomServiceDeliveryRoutes",
+    "raw": "/waiter-queue",
+    "testPath": "/api/room-service-delivery/waiter-queue",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"waiterName query param required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/room-service-delivery/mark-delivered/:assignmentId",
+    "file": "roomServiceDeliveryRoutes",
+    "raw": "/mark-delivered/:assignmentId",
+    "testPath": "/api/room-service-delivery/mark-delivered/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Assignment not found\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/room-service-delivery/cancel",
+    "file": "roomServiceDeliveryRoutes",
+    "raw": "/cancel",
+    "testPath": "/api/room-service-delivery/cancel",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"roomNumber required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/room-service-delivery/ready-room-orders",
+    "file": "roomServiceDeliveryRoutes",
+    "raw": "/ready-room-orders",
+    "testPath": "/api/room-service-delivery/ready-room-orders",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/room-service-delivery/cancellation-log/:kitchenOrderId",
+    "file": "roomServiceDeliveryRoutes",
+    "raw": "/cancellation-log/:kitchenOrderId",
+    "testPath": "/api/room-service-delivery/cancellation-log/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/room-service/rooms",
+    "file": "roomServiceRoutes",
+    "raw": "/rooms",
+    "testPath": "/api/room-service/rooms",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Room number required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/roomservice/rooms",
+    "file": "roomServiceRoutes",
+    "raw": "/rooms",
+    "testPath": "/api/roomservice/rooms",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Room number required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/room-service/rooms",
+    "file": "roomServiceRoutes",
+    "raw": "/rooms",
+    "testPath": "/api/room-service/rooms",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":9004,\"number\":\"ANG500\",\"status\":\"occupied\"},{\"id\":9003,\"number\":\"T101\",\"status\":\"available\"},{\"id\":1,\"number\":\"101\",\"status\":\"occupied\"}]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/roomservice/rooms",
+    "file": "roomServiceRoutes",
+    "raw": "/rooms",
+    "testPath": "/api/roomservice/rooms",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":9004,\"number\":\"ANG500\",\"status\":\"occupied\"},{\"id\":9003,\"number\":\"T101\",\"status\":\"available\"},{\"id\":1,\"number\":\"101\",\"status\":\"occupied\"}]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/room-service/menu",
+    "file": "roomServiceRoutes",
+    "raw": "/menu",
+    "testPath": "/api/room-service/menu",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Name and price required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/roomservice/menu",
+    "file": "roomServiceRoutes",
+    "raw": "/menu",
+    "testPath": "/api/roomservice/menu",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Name and price required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/room-service/menu",
+    "file": "roomServiceRoutes",
+    "raw": "/menu",
+    "testPath": "/api/room-service/menu",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/roomservice/menu",
+    "file": "roomServiceRoutes",
+    "raw": "/menu",
+    "testPath": "/api/roomservice/menu",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/room-service/order/add",
+    "file": "roomServiceRoutes",
+    "raw": "/order/add",
+    "testPath": "/api/room-service/order/add",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"roomNumber is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/roomservice/order/add",
+    "file": "roomServiceRoutes",
+    "raw": "/order/add",
+    "testPath": "/api/roomservice/order/add",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"roomNumber is required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/room-service/order/:roomNumber",
+    "file": "roomServiceRoutes",
+    "raw": "/order/:roomNumber",
+    "testPath": "/api/room-service/order/999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": ""
+  },
+  {
+    "method": "GET",
+    "path": "/api/roomservice/order/:roomNumber",
+    "file": "roomServiceRoutes",
+    "raw": "/order/:roomNumber",
+    "testPath": "/api/roomservice/order/999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": ""
+  },
+  {
+    "method": "PUT",
+    "path": "/api/room-service/order/:roomNumber/pay",
+    "file": "roomServiceRoutes",
+    "raw": "/order/:roomNumber/pay",
+    "testPath": "/api/room-service/order/999999/pay",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"No pending room order found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/roomservice/order/:roomNumber/pay",
+    "file": "roomServiceRoutes",
+    "raw": "/order/:roomNumber/pay",
+    "testPath": "/api/roomservice/order/999999/pay",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"No pending room order found\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/room-service/order-items/:orderId",
+    "file": "roomServiceRoutes",
+    "raw": "/order-items/:orderId",
+    "testPath": "/api/room-service/order-items/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/roomservice/order-items/:orderId",
+    "file": "roomServiceRoutes",
+    "raw": "/order-items/:orderId",
+    "testPath": "/api/roomservice/order-items/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/room-service/bill",
+    "file": "roomServiceRoutes",
+    "raw": "/bill",
+    "testPath": "/api/room-service/bill",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"roomNumber is required\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/roomservice/bill",
+    "file": "roomServiceRoutes",
+    "raw": "/bill",
+    "testPath": "/api/roomservice/bill",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"roomNumber is required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/room-service/bill/:roomNumber",
+    "file": "roomServiceRoutes",
+    "raw": "/bill/:roomNumber",
+    "testPath": "/api/room-service/bill/999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"No pending order\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/roomservice/bill/:roomNumber",
+    "file": "roomServiceRoutes",
+    "raw": "/bill/:roomNumber",
+    "testPath": "/api/roomservice/bill/999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"No pending order\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/room-service/order/:orderId/status",
+    "file": "roomServiceRoutes",
+    "raw": "/order/:orderId/status",
+    "testPath": "/api/room-service/order/999999999/status",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"status must be one of pending, preparing, served, paid\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/roomservice/order/:orderId/status",
+    "file": "roomServiceRoutes",
+    "raw": "/order/:orderId/status",
+    "testPath": "/api/roomservice/order/999999999/status",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"status must be one of pending, preparing, served, paid\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/salary/employees",
+    "file": "salaryRoutes",
+    "raw": "/employees",
+    "testPath": "/api/salary/employees",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"employee_id\":144,\"employee_code\":\"EMP-94310\",\"first_name\":\"A'\",\"last_name\":null,\"designation\":null,\"department\":null,\"date_of_joining\":null,\"date_of_leaving\":null,\"employee_phone\":null,\"employee_ad"
+  },
+  {
+    "method": "GET",
+    "path": "/api/salary/me",
+    "file": "salaryRoutes",
+    "raw": "/me",
+    "testPath": "/api/salary/me",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"id\":94,\"full_name\":\"Admin User\",\"email\":\"admin@resort.com\",\"phone\":\"\",\"user_status\":\"active\",\"role\":\"admin\",\"employee_id\":null,\"employee_code\":null,\"base_salary\":null,\"is_active\":null,\"designation\":"
+  },
+  {
+    "method": "GET",
+    "path": "/api/salary/me/attendance",
+    "file": "salaryRoutes",
+    "raw": "/me/attendance",
+    "testPath": "/api/salary/me/attendance",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"employee\":{\"id\":94,\"employeeId\":null,\"employeeCode\":null,\"salary\":0,\"designation\":null},\"month\":\"2026-10\",\"attendanceRecords\":[],\"totalPaid\":0}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/salary/:userId",
+    "file": "salaryRoutes",
+    "raw": "/:userId",
+    "testPath": "/api/salary/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"userId and salary required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/salary",
+    "file": "salaryRoutes",
+    "raw": "/",
+    "testPath": "/api/salary",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":151,\"full_name\":\"A' B' C' D' E\",\"email\":\"hag47split-1792700000001@test.com\",\"phone\":null,\"user_status\":\"inactive\",\"role\":\"manager\",\"employee_id\":144,\"employee_code\":\"EMP-94310\",\"base_salary\":\"0"
+  },
+  {
+    "method": "GET",
+    "path": "/api/salary/:userId",
+    "file": "salaryRoutes",
+    "raw": "/:userId",
+    "testPath": "/api/salary/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"User not found\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/salary/:userId/recalculate",
+    "file": "salaryRoutes",
+    "raw": "/:userId/recalculate",
+    "testPath": "/api/salary/999999999/recalculate",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Employee not found\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/settings",
+    "file": "settingsRoutes",
+    "raw": "/",
+    "testPath": "/api/settings",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"adminWhatsappNumber\":\"9522239777\",\"adminWhatsappUsername\":\"ankit\",\"smsEnabled\":false,\"businessName\":\"Maa Baglamukhi Resort\",\"businessContact\":\"\",\"updatedAt\":null}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/settings",
+    "file": "settingsRoutes",
+    "raw": "/",
+    "testPath": "/api/settings",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Settings updated\",\"settings\":{\"adminWhatsappNumber\":\"9522239777\",\"adminWhatsappUsername\":\"ankit\",\"smsEnabled\":false,\"businessName\":\"Maa Baglamukhi Resort\",\"businessContact\":\"\",\"updatedAt\":"
+  },
+  {
+    "method": "POST",
+    "path": "/api/token/create",
+    "file": "tokenRoutes",
+    "raw": "/create",
+    "testPath": "/api/token/create",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Table required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/token/table/:table",
+    "file": "tokenRoutes",
+    "raw": "/table/:table",
+    "testPath": "/api/token/table/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/token/item",
+    "file": "tokenRoutes",
+    "raw": "/item",
+    "testPath": "/api/token/item",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"tokenId is required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/token/items/:tokenId",
+    "file": "tokenRoutes",
+    "raw": "/items/:tokenId",
+    "testPath": "/api/token/items/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[]"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/token/item",
+    "file": "tokenRoutes",
+    "raw": "/item",
+    "testPath": "/api/token/item",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Token item not found\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/token/item/:id",
+    "file": "tokenRoutes",
+    "raw": "/item/:id",
+    "testPath": "/api/token/item/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Token item not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/token/close/:table",
+    "file": "tokenRoutes",
+    "raw": "/close/:table",
+    "testPath": "/api/token/close/999999999",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Token closed\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/users/me",
+    "file": "userRoutes",
+    "raw": "/me",
+    "testPath": "/api/users/me",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "{\"id\":94,\"name\":\"Admin User\",\"email\":\"admin@resort.com\",\"role\":\"1\",\"phone\":null,\"avatarUrl\":null}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/users/me",
+    "file": "userRoutes",
+    "raw": "/me",
+    "testPath": "/api/users/me",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"name and email required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/users/me/phone",
+    "file": "userRoutes",
+    "raw": "/me/phone",
+    "testPath": "/api/users/me/phone",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Please provide a valid phone number\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/users/change-password",
+    "file": "userRoutes",
+    "raw": "/change-password",
+    "testPath": "/api/users/change-password",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"email, currentPassword, newPassword required\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/users/me/avatar",
+    "file": "userRoutes",
+    "raw": "/me/avatar",
+    "testPath": "/api/users/me/avatar",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"No avatar file uploaded (field name: avatar)\"}"
+  },
+  {
+    "method": "POST",
+    "path": "/api/users",
+    "file": "userRoutes",
+    "raw": "/",
+    "testPath": "/api/users",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"name, email, password and role required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/users",
+    "file": "userRoutes",
+    "raw": "/",
+    "testPath": "/api/users",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":2,\"name\":\"Rajesh Manager\",\"email\":\"manager@resort.com\",\"phone\":\"\",\"avatar_url\":null,\"status\":\"active\",\"last_login_at\":null,\"created_at\":\"2026-09-12T04:25:44.000Z\",\"updated_at\":\"2026-09-12T04:25"
+  },
+  {
+    "method": "GET",
+    "path": "/api/users/:id",
+    "file": "userRoutes",
+    "raw": "/:id",
+    "testPath": "/api/users/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"User not found\"}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/users/:id",
+    "file": "userRoutes",
+    "raw": "/:id",
+    "testPath": "/api/users/999999999",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"User not found\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/users/:id",
+    "file": "userRoutes",
+    "raw": "/:id",
+    "testPath": "/api/users/999999999",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"message\":\"name, email and role required\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/waiter/orders/ready",
+    "file": "waiterRoutes",
+    "raw": "/orders/ready",
+    "testPath": "/api/waiter/orders/ready",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":45,\"tableNumber\":\"WP-1792180087599\",\"table\":\"WP-1792180087599\",\"tokenId\":45,\"waiter\":\"Write Probe\",\"entityType\":\"Table\",\"items\":[{\"name\":\"Write Probe Dish\",\"qty\":2,\"rate\":100}],\"orderStatus\":\"R"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/waiter/orders/:id/pickup",
+    "file": "waiterRoutes",
+    "raw": "/orders/:id/pickup",
+    "testPath": "/api/waiter/orders/999999999/pickup",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Kitchen order not found\"}"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/waiter/orders/:id/served",
+    "file": "waiterRoutes",
+    "raw": "/orders/:id/served",
+    "testPath": "/api/waiter/orders/999999999/served",
+    "code": 404,
+    "verdict": "PASS",
+    "body": "{\"message\":\"Kitchen order not found\"}"
+  },
+  {
+    "method": "GET",
+    "path": "/api/waiter/live-board",
+    "file": "waiterRoutes",
+    "raw": "/live-board",
+    "testPath": "/api/waiter/live-board",
+    "code": 200,
+    "verdict": "PASS",
+    "body": "[{\"id\":79,\"tableNumber\":\"WP-1792302917733\",\"table\":\"WP-1792302917733\",\"tokenId\":79,\"waiter\":\"Write Probe\",\"entityType\":\"Table\",\"items\":[{\"name\":\"Write Probe Dish\",\"qty\":2,\"rate\":100}],\"orderStatus\":\"R"
+  },
+  {
+    "method": "POST",
+    "path": "/api/waiter/release-lock",
+    "file": "waiterRoutes",
+    "raw": "/release-lock",
+    "testPath": "/api/waiter/release-lock",
+    "code": 400,
+    "verdict": "PASS",
+    "body": "{\"success\":false,\"message\":\"Provide tableNumber, tokenId, or orderId to release the lock.\"}"
+  }
+]
