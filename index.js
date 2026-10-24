@@ -17,7 +17,16 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-initializeDatabase().then(() => {
+initializeDatabase().then(async () => {
+  // Best-effort self-repair of missing columns/tables. Stock-MySQL compatible,
+  // probes information_schema so it's a no-op on a healthy DB.
+  try {
+    const { runSelfRepair } = require("./fix-schema");
+    await runSelfRepair((line) => console.log(line));
+  } catch (err) {
+    console.error("[fix-schema] self-repair skipped:", err.message);
+  }
+
   try {
     const { printQueue } = require("./src/services/PrintQueue");
     printQueue.start();
