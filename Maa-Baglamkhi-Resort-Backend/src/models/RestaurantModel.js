@@ -122,14 +122,14 @@ const ensureSchema = async () => {
       await run(`
         CREATE TABLE IF NOT EXISTS orders (
           id INT AUTO_INCREMENT PRIMARY KEY,
-          tableNumber VARCHAR(50) NOT NULL,
+          table_number VARCHAR(50) NOT NULL,
           waiter_name VARCHAR(191) DEFAULT NULL,
           status VARCHAR(30) NOT NULL DEFAULT 'pending',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
 
-      await ensureColumn("orders", "waiter_name", "VARCHAR(191) DEFAULT NULL AFTER tableNumber");
+      await ensureColumn("orders", "waiter_name", "VARCHAR(191) DEFAULT NULL AFTER table_number");
       await ensureIndex("orders", "idx_orders_waiter_name", "INDEX idx_orders_waiter_name (waiter_name)");
 
       await run(`
@@ -145,81 +145,51 @@ const ensureSchema = async () => {
         )
       `);
 
+      // bills is created snake_case to match the v4 live schema; CREATE only
+      // fires on a brand-new database, the ensureColumn list below is a no-op
+      // against any schema the migration has already shaped.
       await run(`
         CREATE TABLE IF NOT EXISTS bills (
           id INT AUTO_INCREMENT PRIMARY KEY,
-          tableNumber VARCHAR(50) NOT NULL,
-          entityType VARCHAR(30) DEFAULT 'Table',
-          customerName VARCHAR(191) DEFAULT NULL,
+          table_number VARCHAR(50) NOT NULL,
+          entity_type VARCHAR(30) DEFAULT 'Table',
+          customer_name VARCHAR(191) DEFAULT NULL,
           phone VARCHAR(30) DEFAULT NULL,
           subtotal DECIMAL(10,2) NOT NULL DEFAULT 0,
-          gst DECIMAL(10,2) NOT NULL DEFAULT 0,
+          tax_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
           total DECIMAL(10,2) NOT NULL DEFAULT 0,
-          paymentMethod VARCHAR(50) DEFAULT NULL,
-          invoiceStatus VARCHAR(50) DEFAULT 'Saved',
+          payment_method VARCHAR(50) DEFAULT NULL,
+          payment_status VARCHAR(50) DEFAULT 'unpaid',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
 
-      await ensureColumn("bills", "customerName", "VARCHAR(191) DEFAULT NULL AFTER tableNumber");
-      await ensureColumn("bills", "token_id", "INT DEFAULT NULL AFTER tableNumber");
-      await ensureColumn("bills", "entityType", "VARCHAR(30) DEFAULT 'Table' AFTER tableNumber");
-      await ensureColumn("bills", "phone", "VARCHAR(30) DEFAULT NULL AFTER customerName");
-      await ensureColumn("bills", "invoiceStatus", "VARCHAR(50) DEFAULT 'Saved' AFTER paymentMethod");
-      await ensureColumn("bills", "waiter_name", "VARCHAR(191) DEFAULT NULL AFTER entityType");
-      await ensureColumn("bills", "split_no", "INT DEFAULT NULL AFTER invoiceStatus");
+      await ensureColumn("bills", "customer_name", "VARCHAR(191) DEFAULT NULL AFTER table_number");
+      await ensureColumn("bills", "token_id", "INT DEFAULT NULL AFTER table_number");
+      await ensureColumn("bills", "entity_type", "VARCHAR(30) DEFAULT 'Table' AFTER table_number");
+      await ensureColumn("bills", "phone", "VARCHAR(30) DEFAULT NULL AFTER customer_name");
+      await ensureColumn("bills", "payment_status", "VARCHAR(50) DEFAULT 'unpaid' AFTER payment_method");
+      await ensureColumn("bills", "waiter_name", "VARCHAR(191) DEFAULT NULL AFTER entity_type");
+      await ensureColumn("bills", "split_no", "INT DEFAULT NULL AFTER payment_status");
       await ensureColumn("bills", "split_count", "INT DEFAULT NULL AFTER split_no");
-      await ensureColumn("bills", "discountAmount", "DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER total");
+      await ensureColumn("bills", "discount_amount", "DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER total");
       await ensureColumn("bills", "paid_at", "DATETIME DEFAULT NULL AFTER split_count");
-      await ensureColumn("bills", "payment_id", "INT DEFAULT NULL AFTER paid_at");
-      await ensureColumn("bills", "account_transaction_id", "INT DEFAULT NULL AFTER payment_id");
-      await ensureColumn("bills", "posted_to_room", "TINYINT(1) NOT NULL DEFAULT 0 AFTER account_transaction_id");
-      await ensureColumn("bills", "posted_room_number", "VARCHAR(50) DEFAULT NULL AFTER posted_to_room");
-      await ensureColumn("bills", "room_booking_id", "INT DEFAULT NULL AFTER posted_room_number");
-      await ensureColumn("bills", "room_booking_code", "VARCHAR(80) DEFAULT NULL AFTER room_booking_id");
-      await ensureColumn("bills", "folio_entry_id", "INT DEFAULT NULL AFTER room_booking_code");
-      await ensureColumn("bills", "source_table_number", "VARCHAR(50) DEFAULT NULL AFTER folio_entry_id");
-      await ensureColumn("bills", "posted_at", "DATETIME DEFAULT NULL AFTER source_table_number");
-      await ensureIndex("bills", "uniq_bills_token_id", "UNIQUE KEY uniq_bills_token_id (token_id)");
+      await ensureColumn("bills", "service_charge", "DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER subtotal");
 
+      // restaurant_bills is a minimal legacy shadow table on the live schema
+      // (id, table_number, subtotal, tax_amount, total, status, created_at);
+      // the v4 sync below only mirrors those columns.
       await run(`
         CREATE TABLE IF NOT EXISTS restaurant_bills (
           id INT AUTO_INCREMENT PRIMARY KEY,
-          modern_bill_id INT DEFAULT NULL,
-          tableNumber VARCHAR(50) DEFAULT NULL,
-          tokenId INT DEFAULT NULL,
-          entityType VARCHAR(30) DEFAULT 'Table',
-          waiter_name VARCHAR(191) DEFAULT NULL,
-          customerName VARCHAR(191) DEFAULT NULL,
-          phone VARCHAR(30) DEFAULT NULL,
+          table_number VARCHAR(50) DEFAULT NULL,
           subtotal DECIMAL(10,2) DEFAULT 0,
-          gst DECIMAL(10,2) DEFAULT 0,
-          discount DECIMAL(10,2) DEFAULT 0,
+          tax_amount DECIMAL(10,2) DEFAULT 0,
           total DECIMAL(10,2) DEFAULT 0,
-          paymentMethod VARCHAR(50) DEFAULT NULL,
-          invoiceStatus VARCHAR(30) DEFAULT 'unpaid',
-          paid_at DATETIME DEFAULT NULL,
-          payment_id INT DEFAULT NULL,
-          account_transaction_id INT DEFAULT NULL,
+          status VARCHAR(30) DEFAULT 'unpaid',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
-
-      await ensureColumn("restaurant_bills", "modern_bill_id", "INT DEFAULT NULL AFTER id");
-      await ensureColumn("restaurant_bills", "waiter_name", "VARCHAR(191) DEFAULT NULL AFTER entityType");
-      await ensureColumn("restaurant_bills", "customerName", "VARCHAR(191) DEFAULT NULL AFTER waiter_name");
-      await ensureColumn("restaurant_bills", "phone", "VARCHAR(30) DEFAULT NULL AFTER customerName");
-      await ensureColumn("restaurant_bills", "paid_at", "DATETIME DEFAULT NULL AFTER invoiceStatus");
-      await ensureColumn("restaurant_bills", "payment_id", "INT DEFAULT NULL AFTER paid_at");
-      await ensureColumn("restaurant_bills", "account_transaction_id", "INT DEFAULT NULL AFTER payment_id");
-      await ensureColumn("restaurant_bills", "posted_to_room", "TINYINT(1) NOT NULL DEFAULT 0 AFTER account_transaction_id");
-      await ensureColumn("restaurant_bills", "posted_room_number", "VARCHAR(50) DEFAULT NULL AFTER posted_to_room");
-      await ensureColumn("restaurant_bills", "room_booking_id", "INT DEFAULT NULL AFTER posted_room_number");
-      await ensureColumn("restaurant_bills", "room_booking_code", "VARCHAR(80) DEFAULT NULL AFTER room_booking_id");
-      await ensureColumn("restaurant_bills", "folio_entry_id", "INT DEFAULT NULL AFTER room_booking_code");
-      await ensureColumn("restaurant_bills", "source_table_number", "VARCHAR(50) DEFAULT NULL AFTER folio_entry_id");
-      await ensureColumn("restaurant_bills", "posted_at", "DATETIME DEFAULT NULL AFTER source_table_number");
-      await ensureIndex("restaurant_bills", "uniq_restaurant_bills_modern_bill_id", "UNIQUE KEY uniq_restaurant_bills_modern_bill_id (modern_bill_id)");
 
       await run(`
         CREATE TABLE IF NOT EXISTS restaurant_item_action_requests (
@@ -259,14 +229,11 @@ const ensureSchema = async () => {
       await run(`
         UPDATE orders o
         LEFT JOIN tokens t
-          ON t.tableNumber = o.tableNumber
+          ON t.table_number = o.table_number
          AND t.status = 'active'
-        SET o.waiter_name = COALESCE(NULLIF(o.waiter_name, ''), t.waiter)
+        SET o.waiter_name = COALESCE(NULLIF(o.waiter_name, ''), t.waiter_name)
         WHERE o.waiter_name IS NULL OR o.waiter_name = ''
       `);
-
-      // ── Add serviceCharge column to bills if missing ─────────────────────
-      await ensureColumn("bills", "serviceCharge", "DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER subtotal");
 
       schemaReady = true;
       console.log("[RestaurantModel] Schema bootstrap complete.");
@@ -278,99 +245,12 @@ const ensureSchema = async () => {
   await bootstrapInFlight;
 };
 
-// One-time migration: sync legacy restaurant_bills rows from bills.
-// Safe to call independently — does NOT re-run if already synced.
+// One-time legacy bill sync. The v4 restaurant_bills table is a minimal
+// shadow (id, table_number, subtotal, tax_amount, total, status, created_at)
+// with no link back to bills, so there is no keyed sync to run.
 const bootstrapLegacyBills = async () => {
   await ensureSchema();
   if (!schemaReady) return;
-
-  console.log("[RestaurantModel] Running legacy bill sync...");
-  try {
-    await run(`
-      UPDATE restaurant_bills rb
-      INNER JOIN bills b ON b.id = rb.modern_bill_id
-      SET
-        rb.tableNumber = b.tableNumber,
-        rb.tokenId = b.token_id,
-        rb.entityType = b.entityType,
-        rb.waiter_name = b.waiter_name,
-        rb.customerName = b.customerName,
-        rb.phone = b.phone,
-        rb.subtotal = b.subtotal,
-        rb.serviceCharge = COALESCE(b.serviceCharge, 0),
-        rb.gst = b.gst,
-        rb.discount = COALESCE(b.discountAmount, 0),
-        rb.total = b.total,
-        rb.paymentMethod = b.paymentMethod,
-        rb.invoiceStatus = b.invoiceStatus,
-        rb.paid_at = b.paid_at,
-        rb.payment_id = b.payment_id,
-        rb.account_transaction_id = b.account_transaction_id,
-        rb.posted_to_room = COALESCE(b.posted_to_room, 0),
-        rb.posted_room_number = b.posted_room_number,
-        rb.room_booking_id = b.room_booking_id,
-        rb.room_booking_code = b.room_booking_code,
-        rb.folio_entry_id = b.folio_entry_id,
-        rb.source_table_number = b.source_table_number,
-        rb.posted_at = b.posted_at
-    `);
-
-    const [unlinkedBills] = await run(`
-      SELECT b.id
-      FROM bills b
-      LEFT JOIN restaurant_bills rb ON rb.modern_bill_id = b.id
-      WHERE rb.id IS NULL
-      ORDER BY b.created_at ASC, b.id ASC
-    `);
-
-    for (const billRow of unlinkedBills) {
-      await syncLegacyRestaurantBill(connection, billRow.id);
-    }
-
-    await run(`
-      UPDATE restaurant_bills rb
-      LEFT JOIN bills bt ON bt.token_id = rb.tokenId
-      LEFT JOIN bills bb ON bb.tableNumber = rb.tableNumber AND bb.entityType = rb.entityType
-      SET
-        rb.tableNumber = COALESCE(rb.tableNumber, bt.tableNumber, bb.tableNumber),
-        rb.waiter_name = COALESCE(rb.waiter_name, bt.waiter_name, bb.waiter_name),
-        rb.customerName = COALESCE(rb.customerName, bt.customerName, bb.customerName),
-        rb.phone = COALESCE(rb.phone, bt.phone, bb.phone),
-        rb.paymentMethod = COALESCE(rb.paymentMethod, bt.paymentMethod, bb.paymentMethod),
-        rb.invoiceStatus = COALESCE(NULLIF(rb.invoiceStatus, 'unpaid'), bt.invoiceStatus, bb.invoiceStatus, rb.invoiceStatus),
-        rb.paid_at = COALESCE(rb.paid_at, bt.paid_at, bb.paid_at),
-        rb.payment_id = COALESCE(rb.payment_id, bt.payment_id, bb.payment_id),
-        rb.account_transaction_id = COALESCE(rb.account_transaction_id, bt.account_transaction_id, bb.account_transaction_id),
-        rb.posted_to_room = COALESCE(rb.posted_to_room, bt.posted_to_room, bb.posted_to_room, rb.posted_to_room),
-        rb.posted_room_number = COALESCE(rb.posted_room_number, bt.posted_room_number, bb.posted_room_number),
-        rb.room_booking_id = COALESCE(rb.room_booking_id, bt.room_booking_id, bb.room_booking_id),
-        rb.room_booking_code = COALESCE(rb.room_booking_code, bt.room_booking_code, bb.room_booking_code),
-        rb.folio_entry_id = COALESCE(rb.folio_entry_id, bt.folio_entry_id, bb.folio_entry_id),
-        rb.source_table_number = COALESCE(rb.source_table_number, bt.source_table_number, bb.source_table_number),
-        rb.posted_at = COALESCE(rb.posted_at, bt.posted_at, bb.posted_at),
-        rb.subtotal = CASE
-          WHEN COALESCE(rb.subtotal, 0) = 0 THEN COALESCE(bt.subtotal, bb.subtotal, rb.subtotal)
-          ELSE rb.subtotal
-        END,
-        rb.gst = CASE
-          WHEN COALESCE(rb.gst, 0) = 0 THEN COALESCE(bt.gst, bb.gst, rb.gst)
-          ELSE rb.gst
-        END,
-        rb.discount = CASE
-          WHEN COALESCE(rb.discount, 0) = 0 THEN COALESCE(bt.discountAmount, bb.discountAmount, rb.discount)
-          ELSE rb.discount
-        END,
-        rb.total = CASE
-          WHEN COALESCE(rb.total, 0) = 0 THEN COALESCE(bt.total, bb.total, rb.total)
-          ELSE rb.total
-        END
-      WHERE rb.modern_bill_id IS NULL
-    `);
-
-    console.log("[RestaurantModel] Legacy bill sync complete.");
-  } catch (err) {
-    console.error("[RestaurantModel] Legacy bill sync failed:", err.message);
-  }
 };
 
 
@@ -545,12 +425,12 @@ exports.getMenuItems = (filters, callback) => {
 /* ================= ORDERS ================= */
 
 exports.createOrder = (tableNumber, callback) => {
-  db.query("INSERT INTO orders (tableNumber) VALUES (?)", [tableNumber], callback);
+  db.query("INSERT INTO orders (table_number) VALUES (?)", [tableNumber], callback);
 };
 
 exports.getPendingOrder = (tableNumber, callback) => {
   const sql =
-    "SELECT * FROM orders WHERE tableNumber=? AND status='pending'";
+    "SELECT * FROM orders WHERE table_number=? AND status='pending'";
 
   db.query(sql, [tableNumber], (err, rows) => {
     callback(err, rows[0]);
@@ -599,32 +479,26 @@ exports.getBills = (callback) => {
     `
       SELECT
         b.id,
-        b.tableNumber,
-        b.token_id AS tokenId,
+        b.table_number,
+        b.token_id,
         t.token_code AS tokenCode,
-        b.entityType,
+        b.entity_type,
         b.waiter_name,
-        b.customerName,
+        b.customer_name,
         b.phone,
         b.subtotal,
-        b.serviceCharge,
-        b.gst,
+        b.service_charge,
+        b.tax_amount AS gst,
         b.total,
-        b.discountAmount,
-        b.paymentMethod,
-        b.invoiceStatus,
+        b.discount_amount,
+        b.payment_method,
+        b.payment_status,
         b.split_no,
         b.split_count,
         b.paid_at,
-        b.payment_id,
-        b.account_transaction_id,
-        b.posted_to_room AS postedToRoom,
-        b.posted_room_number AS postedRoomNumber,
-        b.room_booking_id AS roomBookingId,
-        b.room_booking_code AS roomBookingCode,
-        b.folio_entry_id AS folioEntryId,
-        b.source_table_number AS sourceTableNumber,
-        b.posted_at AS postedAt,
+        b.room_booking_id,
+        b.room_booking_code,
+        b.folio_entry_id,
         b.created_at
       FROM bills b
       LEFT JOIN tokens t ON t.id = b.token_id
@@ -636,7 +510,7 @@ exports.getBills = (callback) => {
 };
 
 exports.markOrderPaid = (orderId, callback) => {
-  db.query("UPDATE orders SET status='paid' WHERE id=?", [orderId], callback);
+  db.query("UPDATE orders SET status='completed' WHERE id=?", [orderId], callback);
 };
 
 exports.getBillById = (billId, callback) => {
@@ -644,31 +518,26 @@ exports.getBillById = (billId, callback) => {
     `
       SELECT
         b.id,
-        b.tableNumber,
-        b.token_id AS tokenId,
+        b.table_number,
+        b.token_id,
         t.token_code AS tokenCode,
-        b.entityType,
+        b.entity_type,
         b.waiter_name,
-        b.customerName,
+        b.customer_name,
         b.phone,
         b.subtotal,
-        b.serviceCharge,
-        b.gst,
+        b.service_charge,
+        b.tax_amount AS gst,
         b.total,
-        b.discountAmount,
-        b.paymentMethod,
-        b.invoiceStatus,
+        b.discount_amount,
+        b.payment_method,
+        b.payment_status,
         b.split_no,
         b.split_count,
         b.paid_at,
-        b.paid_at AS paidAt,
-        b.posted_to_room AS postedToRoom,
-        b.posted_room_number AS postedRoomNumber,
-        b.room_booking_id AS roomBookingId,
-        b.room_booking_code AS roomBookingCode,
-        b.folio_entry_id AS folioEntryId,
-        b.source_table_number AS sourceTableNumber,
-        b.posted_at AS postedAt,
+        b.room_booking_id,
+        b.room_booking_code,
+        b.folio_entry_id,
         b.created_at
       FROM bills b
       LEFT JOIN tokens t ON t.id = b.token_id
@@ -761,15 +630,26 @@ const buildResolvedWaiterName = (data) =>
   String(data.waiterName || "").trim() ||
   (String(data.entityType || "Table").toLowerCase() === "room" ? "Room Service" : "Waiter");
 
-const isSettledInvoiceStatus = (value) => {
+const isSettledPaymentStatus = (value) => {
   const normalized = normalizeInvoiceStatus(value);
-  return normalized === "paid" || normalized === "posted to room";
+  return normalized === "paid";
+};
+
+const normalizePaymentMethodForBills = (value) => {
+  const allowed = new Set(["cash", "card", "upi", "wallet", "net_banking", "credit", "other"]);
+  const s = String(value || "").toLowerCase().trim();
+  if (!s) return null;
+  return allowed.has(s) ? s : "other";
+};
+
+const normalizePaymentStatusForBills = (value) => {
+  const s = String(value || "unpaid").toLowerCase().trim();
+  const allowed = new Set(["unpaid", "partial", "paid", "refunded", "cancelled"]);
+  return allowed.has(s) ? s : "unpaid";
 };
 
 const findReusableOpenBill = async (conn, data) => {
-  const normalizedStatus = String(data.invoiceStatus || "Saved").toLowerCase();
-  const canReuseOpenBill = normalizedStatus !== "paid";
-  if (!canReuseOpenBill) return null;
+  if (normalizePaymentStatusForBills(data.invoiceStatus || data.paymentStatus) === "paid") return null;
 
   if (data.tokenId) {
     const [rows] = await conn.query(
@@ -777,9 +657,8 @@ const findReusableOpenBill = async (conn, data) => {
         SELECT id
         FROM bills
         WHERE token_id=?
-          AND entityType=?
-          AND COALESCE(invoiceStatus, 'Saved') NOT IN ('Paid', 'Posted To Room')
-          AND account_transaction_id IS NULL
+          AND entity_type=?
+          AND LOWER(COALESCE(payment_status, 'unpaid')) <> 'paid'
         ORDER BY id DESC
         LIMIT 1
       `,
@@ -793,10 +672,9 @@ const findReusableOpenBill = async (conn, data) => {
     `
       SELECT id
       FROM bills
-      WHERE tableNumber=?
-        AND entityType=?
-        AND COALESCE(invoiceStatus, 'Saved') NOT IN ('Paid', 'Posted To Room')
-        AND account_transaction_id IS NULL
+      WHERE table_number=?
+        AND entity_type=?
+        AND LOWER(COALESCE(payment_status, 'unpaid')) <> 'paid'
       ORDER BY id DESC
       LIMIT 1
     `,
@@ -806,49 +684,9 @@ const findReusableOpenBill = async (conn, data) => {
   return rows[0] || null;
 };
 
-const findReusableLegacyBillRow = async (conn, billRow) => {
-  const tokenId = Number(billRow?.tokenId || 0) || null;
-  const entityType = billRow?.entityType || "Table";
-  const tableNumber = billRow?.tableNumber || null;
-
-  const [legacyRows] = await conn.query(
-    `
-      SELECT
-        id,
-        tableNumber,
-        tokenId,
-        entityType,
-        waiter_name,
-        customerName,
-        phone,
-        subtotal,
-        gst,
-        discount,
-        total,
-        paymentMethod,
-        invoiceStatus,
-        paid_at,
-        payment_id,
-        account_transaction_id,
-        created_at
-      FROM restaurant_bills
-      WHERE modern_bill_id IS NULL
-        AND (
-          (? IS NOT NULL AND tokenId = ? AND COALESCE(entityType, 'Table') = ?)
-          OR
-          (? IS NOT NULL AND tableNumber = ? AND COALESCE(entityType, 'Table') = ?)
-        )
-      ORDER BY created_at DESC, id DESC
-    `,
-    [tokenId, tokenId, entityType, tableNumber, tableNumber, entityType],
-  );
-
-  const candidates = Array.isArray(legacyRows)
-    ? legacyRows.filter((row) => scoreLegacyBillCandidate(billRow, row) > 0)
-    : [];
-
-  return pickBestLegacyBillCandidate(billRow, candidates);
-};
+// The v4 restaurant_bills table is a minimal shadow with no link back to
+// bills, so there are no reusable legacy rows to match.
+const findReusableLegacyBillRow = async () => null;
 
 const syncLegacyRestaurantBill = async (conn, modernBillId) => {
   if (!modernBillId) return;
@@ -856,29 +694,11 @@ const syncLegacyRestaurantBill = async (conn, modernBillId) => {
   const [billRows] = await conn.query(
     `
       SELECT
-        id,
-        tableNumber,
-        token_id AS tokenId,
-        entityType,
-        waiter_name,
-        customerName,
-        phone,
+        table_number,
         subtotal,
-        gst,
-        discountAmount,
+        tax_amount,
         total,
-        paymentMethod,
-        invoiceStatus,
-        paid_at,
-        payment_id,
-        account_transaction_id,
-        posted_to_room AS postedToRoom,
-        posted_room_number AS postedRoomNumber,
-        room_booking_id AS roomBookingId,
-        room_booking_code AS roomBookingCode,
-        folio_entry_id AS folioEntryId,
-        source_table_number AS sourceTableNumber,
-        posted_at AS postedAt,
+        payment_status,
         created_at
       FROM bills
       WHERE id = ?
@@ -890,158 +710,40 @@ const syncLegacyRestaurantBill = async (conn, modernBillId) => {
   const billRow = billRows?.[0];
   if (!billRow) return;
 
-  const payload = [
-    billRow.tableNumber || null,
-    billRow.tokenId ? Number(billRow.tokenId) : null,
-    billRow.entityType || "Table",
-    billRow.waiter_name || null,
-    billRow.customerName || null,
-    billRow.phone || null,
-    Number(billRow.subtotal || 0),
-    Number(billRow.gst || 0),
-    Number(billRow.discountAmount || 0),
-    Number(billRow.total || 0),
-    billRow.paymentMethod || null,
-    billRow.invoiceStatus || "Saved",
-    billRow.paid_at || null,
-    billRow.payment_id || null,
-    billRow.account_transaction_id || null,
-    Number(billRow.postedToRoom || 0),
-    billRow.postedRoomNumber || null,
-    billRow.roomBookingId || null,
-    billRow.roomBookingCode || null,
-    billRow.folioEntryId || null,
-    billRow.sourceTableNumber || null,
-    billRow.postedAt || null,
-    billRow.created_at || null,
-    Number(modernBillId),
-  ];
-
-  const [legacyRows] = await conn.query("SELECT id FROM restaurant_bills WHERE modern_bill_id = ? LIMIT 1", [modernBillId]);
-
-  if (legacyRows?.[0]?.id) {
-    await conn.query(
-      `
-        UPDATE restaurant_bills
-        SET
-          tableNumber = ?,
-          tokenId = ?,
-          entityType = ?,
-          waiter_name = ?,
-          customerName = ?,
-          phone = ?,
-          subtotal = ?,
-          gst = ?,
-          discount = ?,
-          total = ?,
-          paymentMethod = ?,
-          invoiceStatus = ?,
-          paid_at = ?,
-          payment_id = ?,
-          account_transaction_id = ?,
-          posted_to_room = ?,
-          posted_room_number = ?,
-          room_booking_id = ?,
-          room_booking_code = ?,
-          folio_entry_id = ?,
-          source_table_number = ?,
-          posted_at = ?,
-          created_at = ?
-        WHERE modern_bill_id = ?
-      `,
-      payload,
-    );
-    return;
-  }
-
-  const reusableLegacyRow = await findReusableLegacyBillRow(conn, billRow);
-  if (reusableLegacyRow?.id) {
-    await conn.query(
-      `
-        UPDATE restaurant_bills
-        SET
-          modern_bill_id = ?,
-          tableNumber = ?,
-          tokenId = ?,
-          entityType = ?,
-          waiter_name = ?,
-          customerName = ?,
-          phone = ?,
-          subtotal = ?,
-          gst = ?,
-          discount = ?,
-          total = ?,
-          paymentMethod = ?,
-          invoiceStatus = ?,
-          paid_at = ?,
-          payment_id = ?,
-          account_transaction_id = ?,
-          posted_to_room = ?,
-          posted_room_number = ?,
-          room_booking_id = ?,
-          room_booking_code = ?,
-          folio_entry_id = ?,
-          source_table_number = ?,
-          posted_at = ?,
-          created_at = ?
-        WHERE id = ?
-          AND modern_bill_id IS NULL
-      `,
-      [Number(modernBillId), ...payload.slice(0, -1), reusableLegacyRow.id],
-    );
-    return;
-  }
-
   await conn.query(
     `
-      INSERT INTO restaurant_bills (
-        tableNumber,
-        tokenId,
-        entityType,
-        waiter_name,
-        customerName,
-        phone,
-        subtotal,
-        gst,
-        discount,
-        total,
-        paymentMethod,
-        invoiceStatus,
-        paid_at,
-        payment_id,
-        account_transaction_id,
-        posted_to_room,
-        posted_room_number,
-        room_booking_id,
-        room_booking_code,
-        folio_entry_id,
-        source_table_number,
-        posted_at,
-        created_at,
-        modern_bill_id
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO restaurant_bills (table_number, subtotal, tax_amount, total, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
     `,
-    payload,
+    [
+      billRow.table_number || null,
+      Number(billRow.subtotal || 0),
+      Number(billRow.tax_amount || 0),
+      Number(billRow.total || 0),
+      billRow.payment_status || "unpaid",
+      billRow.created_at || null,
+    ],
   );
 };
 
 const createBillRecord = async (conn, data, options = {}) => {
   const reusableBill = options.forceNew ? null : await findReusableOpenBill(conn, data);
+  const paymentMethod = normalizePaymentMethodForBills(data.paymentMethod);
+  const paymentStatus = normalizePaymentStatusForBills(data.invoiceStatus || data.paymentStatus);
   if (reusableBill?.id) {
     await conn.query(
       `
         UPDATE bills
         SET token_id=?,
             waiter_name=?,
-            customerName=?,
+            customer_name=?,
             phone=?,
             subtotal=?,
-            gst=?,
+            tax_amount=?,
             total=?,
-            discountAmount=?,
-            paymentMethod=?,
-            invoiceStatus=?,
+            discount_amount=?,
+            payment_method=?,
+            payment_status=?,
             split_no=?,
             split_count=?
         WHERE id=?
@@ -1055,8 +757,8 @@ const createBillRecord = async (conn, data, options = {}) => {
         Number(data.gst || 0),
         Number(data.total || 0),
         Number(data.discountAmount || 0),
-        data.paymentMethod || null,
-        data.invoiceStatus || "Saved",
+        paymentMethod,
+        paymentStatus,
         data.splitNo || null,
         data.splitCount || null,
         reusableBill.id,
@@ -1073,18 +775,16 @@ const createBillRecord = async (conn, data, options = {}) => {
   }
 
   // Release token_id from any settled bill that would block the INSERT
-  // (the bills table has a UNIQUE KEY on token_id, so a paid/closed bill
-  // still holding the same token_id would cause a duplicate-key error).
   if (data.tokenId) {
     await conn.query(
-      `UPDATE bills SET token_id = NULL WHERE token_id = ? AND COALESCE(invoiceStatus, 'Saved') IN ('Paid', 'Posted To Room')`,
+      `UPDATE bills SET token_id = NULL WHERE token_id = ? AND LOWER(COALESCE(payment_status, 'unpaid')) = 'paid'`,
       [Number(data.tokenId)],
     );
   }
 
   const sql = `
     INSERT INTO bills
-    (tableNumber, token_id, entityType, waiter_name, customerName, phone, subtotal, serviceCharge, gst, total, discountAmount, paymentMethod, invoiceStatus, split_no, split_count)
+    (table_number, token_id, entity_type, waiter_name, customer_name, phone, subtotal, service_charge, tax_amount, total, discount_amount, payment_method, payment_status, split_no, split_count)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `;
 
@@ -1100,8 +800,8 @@ const createBillRecord = async (conn, data, options = {}) => {
     Number(data.gst || 0),
     Number(data.total || 0),
     Number(data.discountAmount || 0),
-    data.paymentMethod || null,
-    data.invoiceStatus || "Saved",
+    paymentMethod,
+    paymentStatus,
     data.splitNo || null,
     data.splitCount || null,
   ]);
@@ -1147,7 +847,7 @@ const processBillPayment = async (data) => {
           WHERE (
             (? IS NOT NULL AND token_id = ?)
             OR
-            (? IS NOT NULL AND tableNumber = ? AND entityType = ?)
+            (? IS NOT NULL AND table_number = ? AND entity_type = ?)
           )
           ORDER BY id DESC
           LIMIT 1
@@ -1171,7 +871,7 @@ const processBillPayment = async (data) => {
         throw error;
       }
 
-      if (isSettledInvoiceStatus(billRow.invoiceStatus) || billRow.account_transaction_id) {
+      if (isSettledPaymentStatus(billRow.payment_status)) {
         const error = new Error("Bill already paid");
         error.statusCode = 409;
         throw error;
@@ -1180,25 +880,27 @@ const processBillPayment = async (data) => {
       await conn.query(
         `
           UPDATE bills
-          SET customerName=?,
+          SET customer_name=?,
               phone=?,
               subtotal=?,
-              serviceCharge=?,
-              gst=?,
+              service_charge=?,
+              tax_amount=?,
               total=?,
-              discountAmount=?,
-              paymentMethod=?
+              discount_amount=?,
+              payment_method=?,
+              paid_amount=COALESCE(paid_amount,0)+?
           WHERE id=?
         `,
         [
-          data.customerName || billRow.customerName || null,
+          data.customerName || billRow.customer_name || null,
           data.phone || billRow.phone || null,
           Number(data.subtotal ?? billRow.subtotal ?? 0),
-          Number(data.serviceCharge ?? billRow.serviceCharge ?? 0),
-          Number(data.gst ?? billRow.gst ?? 0),
+          Number(data.serviceCharge ?? billRow.service_charge ?? 0),
+          Number(data.gst ?? billRow.tax_amount ?? 0),
           Number(data.total ?? billRow.total ?? 0),
-          Number(data.discountAmount ?? billRow.discountAmount ?? 0),
-          data.paymentMethod || billRow.paymentMethod || null,
+          Number(data.discountAmount ?? billRow.discount_amount ?? 0),
+          normalizePaymentMethodForBills(data.paymentMethod || billRow.payment_method),
+          Number(billRow.total ?? 0),
           billId,
         ],
       );
@@ -1213,9 +915,6 @@ const processBillPayment = async (data) => {
         paymentMethod: data.paymentMethod,
         invoiceStatus: "Paid",
       }, { forceNew: true });
-
-      const [createdBills] = await conn.query("SELECT * FROM bills WHERE id=? LIMIT 1", [billId]);
-      billRow = createdBills[0];
     }
 
     const [paymentTables] = await conn.query("SHOW TABLES LIKE ?", [paymentsTableName]);
@@ -1225,22 +924,42 @@ const processBillPayment = async (data) => {
       throw error;
     }
 
+    const resolveMethodId = async (label) => {
+      const value = normalizePaymentMethodForBills(label) || String(label || "").trim();
+      if (!value) return null;
+      try {
+        const [rows] = await conn.query("SELECT id FROM payment_methods WHERE LOWER(name) = LOWER(?) LIMIT 1", [value]);
+        if (rows && rows[0]) return rows[0].id;
+        const code = value.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 30) || "other";
+        const [result] = await conn.query(
+          "INSERT INTO payment_methods (name, code, is_active) VALUES (?, ?, 1)",
+          [value, code],
+        );
+        if (result?.insertId) return result.insertId;
+      } catch {
+        /* unique-name race: fall through */
+      }
+      const [retry] = await conn.query("SELECT id FROM payment_methods ORDER BY id ASC LIMIT 1");
+      return retry?.[0]?.id || null;
+    };
+
+    const paymentMethodLabel = normalizePaymentMethodForBills(data.paymentMethod || billRow.payment_method);
     const [paymentResult] = await conn.query(
       `
-        INSERT INTO ${paymentsTableName} (tableNumber, total, paymentMethod)
-        VALUES (?, ?, ?)
+        INSERT INTO ${paymentsTableName} (bill_id, amount, payment_method_id, payment_type, status, created_at)
+        VALUES (?, ?, ?, 'payment', 'completed', NOW())
       `,
       [
-        billRow.tableNumber || data.table || null,
+        Number(billId),
         Number(billRow.total || data.total || 0),
-        data.paymentMethod || billRow.paymentMethod || null,
+        await resolveMethodId(paymentMethodLabel || "cash"),
       ],
     );
 
     const transactionDate = new Date().toISOString().slice(0, 10);
     const entityLabel =
-      String(billRow.entityType || data.entityType || "Table").toLowerCase() === "room" ? "Room" : "Table";
-    const entityRef = billRow.tableNumber || data.table || "--";
+      String(billRow.entity_type || data.entityType || "Table").toLowerCase() === "room" ? "Room" : "Table";
+    const entityRef = billRow.table_number || data.table || "--";
     const description = `Restaurant bill payment - ${entityLabel} ${entityRef} - Bill #${billId}`;
 
     const [accountResult] = await conn.query(
@@ -1248,31 +967,30 @@ const processBillPayment = async (data) => {
         INSERT INTO accounts_transactions (date, type, description, amount, payment_mode)
         VALUES (?, 'Income', ?, ?, ?)
       `,
-      [transactionDate, description, Number(billRow.total || data.total || 0), data.paymentMethod || "Cash"],
+      [transactionDate, description, Number(billRow.total || data.total || 0), paymentMethodLabel || "cash"],
     );
 
     await conn.query(
       `
         UPDATE bills
-        SET invoiceStatus='Paid',
-            paymentMethod=?,
-            paid_at=NOW(),
-            payment_id=?,
-            account_transaction_id=?
+        SET payment_status='paid',
+            payment_method=?,
+            paid_amount=COALESCE(paid_amount,0)+?,
+            paid_at=NOW()
         WHERE id=?
       `,
-      [data.paymentMethod || billRow.paymentMethod || null, paymentResult.insertId, accountResult.insertId, billId],
+      [paymentMethodLabel, Number(billRow.total || data.total || 0), billId],
     );
 
-    if (billRow.tableNumber) {
+    if (billRow.table_number) {
       await conn.query(
-        "UPDATE tokens SET status='closed' WHERE tableNumber=? AND status='active'",
-        [billRow.tableNumber],
+        "UPDATE tokens SET status='completed' WHERE table_number=? AND status='active'",
+        [billRow.table_number],
       );
 
       await conn.query(
-        "UPDATE orders SET status='paid' WHERE tableNumber=? AND status='pending'",
-        [billRow.tableNumber],
+        "UPDATE orders SET status='completed' WHERE table_number=? AND status='pending'",
+        [billRow.table_number],
       );
     }
 
@@ -1377,7 +1095,7 @@ const chargeBillToRoom = async (data) => {
       log("looking up existing bill", { billId });
       const [existingBills] = await conn.query("SELECT * FROM bills WHERE id = ? LIMIT 1 FOR UPDATE", [billId]);
       billRow = existingBills?.[0] || null;
-      log("existing bill lookup done", { found: !!billRow, invoiceStatus: billRow?.invoiceStatus });
+      log("existing bill lookup done", { found: !!billRow, payment_status: billRow?.payment_status });
     }
 
     if (!billRow) {
@@ -1394,7 +1112,7 @@ const chargeBillToRoom = async (data) => {
         total: Number(data.total || 0),
         discountAmount: Number(data.discountAmount || 0),
         paymentMethod: null,
-        invoiceStatus: "Generated",
+        invoiceStatus: "unpaid",
         splitCount: data.splitCount || null,
       });
 
@@ -1409,19 +1127,13 @@ const chargeBillToRoom = async (data) => {
       throw error;
     }
 
-    if (isSettledInvoiceStatus(billRow.invoiceStatus) || billRow.account_transaction_id) {
+    if (isSettledPaymentStatus(billRow.payment_status) || billRow.folio_entry_id) {
       const error = new Error("This bill is already settled and cannot be posted to room.");
       error.statusCode = 409;
       throw error;
     }
 
-    if (Number(billRow.posted_to_room || 0) || billRow.folio_entry_id) {
-      const error = new Error("This bill has already been posted to a room folio.");
-      error.statusCode = 409;
-      throw error;
-    }
-
-    const sourceTableNumber = String(data.sourceTableNumber || billRow.source_table_number || billRow.tableNumber || "").trim();
+    const sourceTableNumber = String(data.sourceTableNumber || billRow.table_number || "").trim();
     const targetRoomNumber = String(data.roomNumber || "").trim();
     log("looking up booking", { targetRoomNumber, bookingId: data?.bookingId });
     const booking = await getRoomChargeableBooking(conn, targetRoomNumber, data.bookingId || null);
@@ -1433,9 +1145,9 @@ const chargeBillToRoom = async (data) => {
       throw error;
     }
 
-    const customerName = String(data.customerName || booking.guestName || billRow.customerName || "").trim();
+    const customerName = String(data.customerName || booking.guestName || billRow.customer_name || "").trim();
     const phone = String(data.phone || booking.mobile || billRow.phone || "").trim();
-    const description = `Restaurant charge from Table ${sourceTableNumber || billRow.tableNumber || "--"} | Bill #${billId}`;
+    const description = `Restaurant charge from Table ${sourceTableNumber || "--"} | Bill #${billId}`;
     const entryDate = new Date().toISOString().slice(0, 10);
 
     log("inserting folio entry", { bookingId: booking.bookingId, amount: Number(data.total ?? billRow.total ?? 0) });
@@ -1459,45 +1171,39 @@ const chargeBillToRoom = async (data) => {
       `
         UPDATE bills
         SET
-          customerName = ?,
+          customer_name = ?,
           phone = ?,
           total = ?,
-          discountAmount = ?,
-          paymentMethod = ?,
-          invoiceStatus = 'Posted To Room',
-          posted_to_room = 1,
-          posted_room_number = ?,
+          discount_amount = ?,
+          payment_method = 'credit',
+          payment_status = 'paid',
           room_booking_id = ?,
           room_booking_code = ?,
           folio_entry_id = ?,
-          source_table_number = ?,
-          posted_at = NOW()
+          paid_at = NOW()
         WHERE id = ?
       `,
       [
         customerName || null,
         phone || null,
         Number(data.total ?? billRow.total ?? 0),
-        Number(data.discountAmount ?? billRow.discountAmount ?? 0),
-        "Charge To Room",
-        booking.roomNumber,
+        Number(data.discountAmount ?? billRow.discount_amount ?? 0),
         Number(booking.bookingId),
         booking.bookingCode || null,
         folioResult.insertId,
-        sourceTableNumber || null,
         billId,
       ],
     );
-    log("bill updated to Posted To Room");
+    log("bill updated to posted-to-room");
 
-    if (billRow.tableNumber) {
+    if (billRow.table_number) {
       await conn.query(
-        "UPDATE tokens SET status='closed' WHERE tableNumber=? AND status='active'",
-        [billRow.tableNumber],
+        "UPDATE tokens SET status='completed' WHERE table_number=? AND status='active'",
+        [billRow.table_number],
       );
       await conn.query(
-        "UPDATE orders SET status='paid' WHERE tableNumber=? AND status='pending'",
-        [billRow.tableNumber],
+        "UPDATE orders SET status='completed' WHERE table_number=? AND status='pending'",
+        [billRow.table_number],
       );
     }
 
