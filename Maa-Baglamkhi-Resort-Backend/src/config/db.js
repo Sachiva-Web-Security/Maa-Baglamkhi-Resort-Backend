@@ -32,43 +32,38 @@ const pool = mysql.createPool({
  *   INSERT -> [ResultSetHeader, null]
  *   execute -> [ResultSetHeader, null] same for reads and writes
  *
- * The promise is resolved unwrapped: a write hands back the bare
- * ResultSetHeader ({ fieldCount, affectedRows, insertId, info, ... }), a read
- * keeps its [rows, fields] tuple. The split is on the value at index 0, never
- * on length and never on the SQL text - a header is an object carrying
- * affectedRows, a read is an array of row objects, so a SELECT of exactly two
- * rows and a SHOW statement with two result sets still keep their tuple.
+ * promise form always resolves to the raw [result, fields] tuple:
  *
- * Unwrapping is what makes a created id round-trip. The repo reads insertId two
- * ways: `const [header] = await db.query(...)` then `header.insertId` and bare
- * `result = await db.query(...)` then `result.insertId` (notificationController,
- * BanquetModel, InventoryModel, ...). On a tuple only the first reaches the id;
- * the bare form got undefined. Unwrapped, both land on the same header, so the
- * comma in the destructured form is a vestige that changes nothing.
+ *   SELECT -> [rows, fields]
+ *   INSERT -> [ResultSetHeader, fields]
+ *   execute -> the tuple, same for reads and writes
  *
- * Reads are never unwrapped, so every SELECT keeps the tuple shape each call
- * site destructures.
+ * That single shape covers every call style in this repo:
+ *   const [rows]   = await db.query(SELECT) -> rows[]
+ *   const [header] = await db.query(INSERT) -> header.insertId
+ *   db.query(sql, params, (err, rows) => ...) -> rows = the SELECT row array,
+ *     or the INSERT ResultSetHeader
+ *   db.execute(...) -> the tuple, as with query()
+ *
+ * The callback argument gets result[0]: the row array on a read, the
+ * ResultSetHeader on a write. No unwrapping, so the shape never branches on
+ * row count, fields, or the SQL text.
  */
-const isHeader = (result) =>
-  Array.isArray(result) && !!result[0] && typeof result[0] === "object" && "affectedRows" in result[0];
-
-const unwrap = (result) => (isHeader(result) ? result[0] : result);
-
-// The promise above is already unwrapped: a write is a bare ResultSetHeader, a
-// read is the [rows, fields] tuple.  The callback API hands back rows in
-// arg1, so pass result[0] for a read (the row array) and result for a write.
-// Every model in this repo written in the callback style does
-//   db.query(sql, params, (err, rows) => resolve(rows))
-// and expects `rows` to be the bare row array, not the tuple.
-const withCallback = (promise, callback) => {
-  promise.then((result) => {
-    const isRead = Array.isArray(result) && result.length >= 2;
-    callback(null, isRead ? result[0] : result, isRead ? result[1] : result);
-  }, (err) => callback(err));
-};
 
 const originalQuery = pool.query.bind(pool);
 const originalExecute = pool.execute.bind(pool);
+
+// Passes the promise form through to the callback form: the callback gets
+// result[0] — the row array on a read, the ResultSetHeader on a write.
+const withCallback = (promise, callback) => {
+  promise.then(
+    (result) => {
+      const rows = Array.isArray(result) ? result[0] : result;
+      callback(null, rows, rows);
+    },
+    (err) => callback(err),
+  );
+};
 
 pool.query = function (sql, params, callback) {
   if (typeof params === "function") {
@@ -76,7 +71,7 @@ pool.query = function (sql, params, callback) {
     params = undefined;
   }
 
-  const promise = unwrap(params === undefined ? originalQuery(sql) : originalQuery(sql, params));
+  const promise = params === undefined ? originalQuery(sql) : originalQuery(sql, params);
 
   if (typeof callback === "function") {
     withCallback(promise, callback);
@@ -91,7 +86,7 @@ pool.execute = function (sql, params, callback) {
     params = undefined;
   }
 
-  const promise = unwrap(params === undefined ? originalExecute(sql) : originalExecute(sql, params));
+  const promise = params === undefined ? originalExecute(sql) : originalExecute(sql, params);
 
   if (typeof callback === "function") {
     withCallback(promise, callback);
@@ -112,7 +107,7 @@ pool.getConnection = async (...args) => {
       params = undefined;
     }
     const promise =
-      unwrap(params === undefined ? originalConnectionQuery(sql) : originalConnectionQuery(sql, params));
+      params === undefined ? originalConnectionQuery(sql) : originalConnectionQuery(sql, params);
     if (typeof callback === "function") {
       withCallback(promise, callback);
     }
@@ -126,7 +121,7 @@ pool.getConnection = async (...args) => {
       params = undefined;
     }
     const promise =
-      unwrap(params === undefined ? originalConnectionExecute(sql) : originalConnectionExecute(sql, params));
+      params === undefined ? originalConnectionExecute(sql) : originalConnectionExecute(sql, params);
     if (typeof callback === "function") {
       withCallback(promise, callback);
     }
