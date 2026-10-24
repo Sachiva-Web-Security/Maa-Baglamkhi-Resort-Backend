@@ -253,7 +253,7 @@ const LiveBoard = () => {
                       <FaUtensils className="text-emerald-600" />
                     )}
                     <span className="text-lg font-black text-slate-900">
-                      {order.entityType} {order.tableNumber}
+                      {order.entityType} {order.tableNumber || order.table}
                     </span>
                   </div>
                   <span className={`rounded-full border px-3 py-1 text-xs font-bold ${getStatusColor(order.orderStatus)}`}>
