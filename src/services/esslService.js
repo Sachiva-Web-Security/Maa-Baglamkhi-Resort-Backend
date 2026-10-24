@@ -456,7 +456,9 @@ const poll = async () => {
 
     let events = [];
 
-    if (usingTcp && cfg.protocol === "zk") {
+    const isZkProto = cfg.protocol === "zk";
+
+    if (usingTcp && isZkProto) {
       /* ── ZKTeco packet protocol (GETDATA + CKOUT) ───────────── */
       // GETDATA: request log dump. startTs/endTs are YYYYMMDDHHMMSS numbers.
       const now = new Date();
@@ -471,20 +473,22 @@ const poll = async () => {
 
     } else {
       /* ── Legacy Telnet / eSSL01 text command set ────────────── */
-      // Login (required before GETLOG on most eSSL models)
-      const loginResp = await sendFor(activeHandle, cfg, `LOGIN ${cfg.user} ${cfg.pass}`, LOGIN_TIMEOUT_MS);
-      if (loginResp && /ERROR/i.test(loginResp)) {
-        lastError = `eSSL login failed: ${loginResp}`;
+      // Telnet devices (port 23) need a newline after each command.
+      // The LOGIN response confirms the admin credentials are correct.
+      const loginResp = await sendFor(activeHandle, cfg, `LOGIN ${cfg.user} ${cfg.pass}\n`, LOGIN_TIMEOUT_MS);
+      if (loginResp && /ERROR|FAILED/i.test(loginResp)) {
+        lastError = `eSSL login failed: ${loginResp.trim()}`;
         pollInFlight = false;
+        stopPort();
         return;
       }
 
-      const blob = await sendFor(activeHandle, cfg, "GETLOG", GETLOG_TIMEOUT_MS);
+      const blob = await sendFor(activeHandle, cfg, "GETLOG\n", GETLOG_TIMEOUT_MS);
       events = parseEsslLogs(blob);
 
       // Clear the terminal log buffer only after every record is safely in
       // the DB, so a crash between GETLOG and CLRLOG just re-imports.
-      await sendFor(activeHandle, cfg, "CLRLOG", LOGIN_TIMEOUT_MS);
+      await sendFor(activeHandle, cfg, "CLRLOG\n", LOGIN_TIMEOUT_MS);
     }
 
     let imported = 0;
