@@ -2046,9 +2046,14 @@ const getPaymentGatewaySettingById = async (req, res) => {
 const readPaymentSettingBody = (body = {}) => {
   const providerName = String(body.providerName || "").trim();
   const name = String(body.paymentMode || providerName || "").trim();
+  // The frontend keeps the QR as a data-URL in a JSON body (the chunked
+  // multipart transport 500s in busboy 1.6.0), so a picked file arrives
+  // pre-encoded here; fall back to whatever the form typed into the URL box.
+  const qrSource = String(body.qrImageBase64 || body.qrImageUrl || "").trim();
+  const qrImage = qrSource.startsWith("data:image/") ? qrSource : String(body.qrImageUrl || "").trim();
   // Multer multipart fields arrive as strings; a bare false becomes "false" and
-// would otherwise silently activate the row.
-const flag = body.isActive === undefined ? null : (body.isActive === true || String(body.isActive) === "1" || body.isActive === "true") ? 1 : 0;
+  // would otherwise silently activate the row.
+  const flag = body.isActive === undefined ? null : (body.isActive === true || String(body.isActive) === "1" || body.isActive === "true") ? 1 : 0;
   return {
     name,
     provider_name: providerName || null,
@@ -2056,7 +2061,7 @@ const flag = body.isActive === undefined ? null : (body.isActive === true || Str
     upi_id: String(body.upiId || "").trim() || null,
     account_holder_name: String(body.accountHolderName || "").trim() || null,
     bank_name: String(body.bankName || "").trim() || null,
-    qr_image_url: String(body.qrImageUrl || "").trim() || null,
+    qr_image_url: qrImage || null,
     notes: String(body.notes || "").trim() || null,
     is_active: flag,
   };

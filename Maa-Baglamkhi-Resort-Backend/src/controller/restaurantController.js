@@ -597,6 +597,16 @@ const mapInvoiceStatusToPaymentStatus = (status) => {
   return "unpaid";
 };
 
+// bills.payment_method is an enum; an unknown value throws "Data truncated"
+// and surfaces as a raw 500. Map to "other" instead of rejecting, matching the
+// column default's tolerance.
+const normalizePaymentMethod = (value) => {
+  const allowed = new Set(["cash", "card", "upi", "wallet", "net_banking", "credit", "other"]);
+  const s = String(value || "").toLowerCase().trim();
+  if (!s) return null;
+  return allowed.has(s) ? s : "other";
+};
+
 const createRestaurantBill = async (data) => {
   const conn = await db.getConnection();
   try {
@@ -630,8 +640,8 @@ const createRestaurantBill = async (data) => {
           Number(data.gst || 0),
           Number(data.total || 0),
           Number(data.discountAmount || 0),
-          data.paymentMethod || null,
-          mapInvoiceStatusToPaymentStatus(data.paymentStatus || data.invoiceStatus || "Saved"),
+          data.paymentMethod ? normalizePaymentMethod(data.paymentMethod) : null,
+          mapInvoiceStatusToPaymentStatus(data.paymentStatus || data.invoiceStatus || "unpaid"),
           data.splitNo || null,
           data.splitCount || null,
           reusableBill.id,
@@ -650,7 +660,7 @@ const createRestaurantBill = async (data) => {
     // Release token_id from any settled bill that would block the INSERT
     if (data.tokenId) {
       await conn.query(
-        `UPDATE bills SET token_id = NULL WHERE token_id = ? AND COALESCE(payment_status, 'unpaid') IN ('paid', 'Posted To Room')`,
+        `UPDATE bills SET token_id = NULL WHERE token_id = ? AND LOWER(COALESCE(payment_status, 'unpaid')) IN ('paid', 'posted to room')`,
         [Number(data.tokenId)],
       );
     }
@@ -673,8 +683,8 @@ const createRestaurantBill = async (data) => {
       Number(data.gst || 0),
       Number(data.total || 0),
       Number(data.discountAmount || 0),
-      data.paymentMethod || null,
-      mapInvoiceStatusToPaymentStatus(data.invoiceStatus || "Saved"),
+      data.paymentMethod ? normalizePaymentMethod(data.paymentMethod) : null,
+      mapInvoiceStatusToPaymentStatus(data.invoiceStatus || "unpaid"),
       data.splitNo || null,
       data.splitCount || null,
     ]);
@@ -695,11 +705,6 @@ const buildResolvedWaiterName = (data) =>
   String(data.waiterName || "").trim() ||
   (String(data.entityType || "Table").toLowerCase() === "room" ? "Room Service" : "Waiter");
 
-const isSettledInvoiceStatus = (value) => {
-  const normalized = String(value || "Saved").toLowerCase();
-  return normalized === "paid" || normalized === "posted to room";
-};
-
 const findReusableOpenBill = async (conn, data) => {
   const normalizedStatus = String(data.invoiceStatus || "Saved").toLowerCase();
   const canReuseOpenBill = normalizedStatus !== "paid";
@@ -712,7 +717,7 @@ const findReusableOpenBill = async (conn, data) => {
         FROM bills
         WHERE token_id=?
           AND entity_type=?
-          AND payment_status NOT IN ('paid', 'Posted To Room')
+          AND LOWER(COALESCE(payment_status, 'unpaid')) NOT IN ('paid')
         ORDER BY id DESC
         LIMIT 1
       `,
@@ -728,7 +733,7 @@ const findReusableOpenBill = async (conn, data) => {
       FROM bills
       WHERE table_number=?
         AND entity_type=?
-        AND payment_status NOT IN ('paid', 'Posted To Room')
+        AND LOWER(COALESCE(payment_status, 'unpaid')) NOT IN ('paid')
       ORDER BY id DESC
       LIMIT 1
     `,
@@ -840,16 +845,6 @@ const processBillPayment = async (data) => {
         throw error;
       }
 
-      if (isSettledInvoiceStatus(billRow.invoiceStatus)) {
-        const error = new Error("Bill already paid");
-        error.statusCode = 409;
-        throw error;
-      }
-
-      // bills.payment_status is the only live status column here (it is the
-      // column that drives which bills get collected). The guard above checks
-      // billRow.invoiceStatus, which bills does not have, so it never fired and
-      // every re-submit accumulated another total on top of paid_amount.
       const currentStatus = String(billRow.payment_status || "").toLowerCase();
       if (currentStatus === "paid" || currentStatus === "posted to room") {
         const error = new Error("Bill already paid");
@@ -878,7 +873,7 @@ const processBillPayment = async (data) => {
           Number(data.gst ?? billRow.tax_amount ?? 0),
           Number(data.total ?? billRow.total ?? 0),
           Number(data.discountAmount ?? billRow.discount_amount ?? 0),
-          data.paymentMethod || billRow.payment_method || null,
+          normalizePaymentMethod(data.paymentMethod || billRow.payment_method || null),
           billId,
         ],
       );
@@ -934,7 +929,7 @@ const processBillPayment = async (data) => {
             paid_at=NOW()
         WHERE id=?
       `,
-      [data.paymentMethod || billRow.payment_method || null, Number(billRow.total || data.total || 0), billId],
+      [normalizePaymentMethod(data.paymentMethod || billRow.payment_method || null), Number(billRow.total || data.total || 0), billId],
     );
 
     if (billRow.tableNumber) {
@@ -1125,7 +1120,7 @@ const chargeBillToRoom = async (data) => {
       [
         Number(billId),
         Number(billRow.total || data.total || 0),
-        await resolvePaymentMethodId(data.paymentMethod || billRow.paymentMethod || "Cash"),
+        await resolvePaymentMethodId(normalizePaymentMethod(data.paymentMethod || billRow.paymentMethod || "Cash")),
         data.user?.id || billRow.created_by || null,
       ],
     );
@@ -1156,7 +1151,7 @@ const chargeBillToRoom = async (data) => {
         WHERE id=?
       `,
       [
-        data.paymentMethod || billRow.paymentMethod || "Credit",
+        normalizePaymentMethod(data.paymentMethod || billRow.paymentMethod || "Credit"),
         resolvedBookingId,
         bookingCode,
         folioEntryId,

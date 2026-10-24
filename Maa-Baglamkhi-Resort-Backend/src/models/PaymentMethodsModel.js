@@ -30,6 +30,9 @@ class PaymentMethods {
         'ALTER TABLE `payment_methods` ADD COLUMN `bank_name` VARCHAR(255)',
         'ALTER TABLE `payment_methods` ADD COLUMN `qr_image_url` TEXT',
         'ALTER TABLE `payment_methods` ADD COLUMN `notes` TEXT',
+        // A picked QR now rides in the JSON body as a data URL; B64TEXT is
+        // about 44 bytes over 64KB so base64-encoded images fit headroom.
+        "ALTER TABLE `payment_methods` MODIFY COLUMN `qr_image_url` B64TEXT",
       ]
       for (const sql of additions) {
         try {
