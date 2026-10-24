@@ -57,8 +57,8 @@ class AuditLogs {
     return rows
   }
 
-  async findAll(...args) {
-    const [rows] = await this.pool.execute("SELECT * FROM \`audit_logs\` ORDER BY \`created_at\` DESC", args)
+  async findAll(limit) {
+    const [rows] = await this.pool.execute("SELECT * FROM \`audit_logs\` ORDER BY \`created_at\` DESC LIMIT ?", [limit])
     return rows
   }
 }

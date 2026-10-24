@@ -97,6 +97,9 @@ router.get("/halls", async (req, res) => {
 });
 router.get("/bookings", async (req, res) => {
   try {
+    // HAG-38: cap the unbounded list so it returns under the 6 s budget.
+    // Callers can pass ?limit= (max 500, default 200) for a narrower window.
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 500);
     const [rows] = await db.query(
       `SELECT id, hall_id AS hallId, customer_name AS customerName, phone,
               email AS guestEmail, event_title AS eventTitle, event_type AS eventType,
@@ -109,7 +112,8 @@ router.get("/bookings", async (req, res) => {
               discount, gst_percent AS gstPercent, subtotal AS subtotalAmount,
               gst_amount AS gstAmount, total AS grandTotal, advance, balance AS balanceDue,
               status, invoice_no AS invoiceNo, created_by AS createdBy, created_at AS createdAt
-       FROM banquet_bookings ORDER BY id DESC`
+       FROM banquet_bookings ORDER BY id DESC LIMIT ?`,
+      [limit]
     );
     res.json(rows);
   } catch (err) {

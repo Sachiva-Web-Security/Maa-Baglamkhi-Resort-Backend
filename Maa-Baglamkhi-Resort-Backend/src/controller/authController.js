@@ -3,9 +3,6 @@ const jwt = require("jsonwebtoken");
 const db = require("../config/db");
 const UsersModel = require("../models/UsersModel");
 const { getJwtSecret } = require("../config/security");
-
-const JWT_SECRET = getJwtSecret();
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 const ALLOW_REGISTER = String(process.env.ALLOW_REGISTER || "").toLowerCase() === "true";
 
 const LOGIN_EMAIL_ALIASES = {
@@ -86,6 +83,8 @@ exports.login = async (req, res) => {
       },
     });
 
+    // Lazy: read at sign time, not module load, so requiring this module
+    // before dotenv/.env is loaded does not crash app.js (HAG-56).
     const token = jwt.sign(
       {
         id: user.id,
@@ -93,8 +92,8 @@ exports.login = async (req, res) => {
         name: user.name,
         role: user.role_name,
       },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN },
+      getJwtSecret(),
+      { expiresIn: process.env.JWT_EXPIRES_IN || "7d" },
     );
 
     const cookieMaxAgeMs = 7 * 24 * 60 * 60 * 1000;

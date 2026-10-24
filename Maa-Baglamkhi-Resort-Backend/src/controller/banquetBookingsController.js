@@ -193,6 +193,7 @@ const getBanquetDashboard = async (req, res) => {
       FROM banquet_bookings b
       JOIN banquet_halls h ON b.hall_id = h.id
       ORDER BY b.id DESC
+      LIMIT 500
     `);
 
     const formattedBookings = bookings.map((b) => {
