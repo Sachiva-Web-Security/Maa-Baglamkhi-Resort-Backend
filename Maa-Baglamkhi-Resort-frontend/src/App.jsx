@@ -78,6 +78,7 @@ import CollectionReport from "./pages/reports/CollectionReport";
 import DaywiseCollection from "./pages/reports/DaywiseCollection";
 import IncomeExpenditure from "./pages/reports/IncomeExpenditure";
 import SalesReport from "./pages/reports/SalesReport";
+import ReportsSuite from "./pages/reports/ReportsSuite";
 
 function isValidSession(data) {
   return Boolean(
@@ -336,6 +337,7 @@ function AppRoutes({ isAuthenticated, setIsAuthenticated, protect }) {
           <Route path="/print" element={protect(<PrintManagement />, ["admin"])} />
           <Route path="/invoice/:customerId" element={protect(<CustomerInvoicePage />, ROLES.ALL)} />
 
+          <Route path="/reports/suite" element={protect(<ReportsSuite />, ROLES.REPORTS)} />
           <Route path="/reports/sales" element={protect(<SalesReport />, ROLES.REPORTS)} />
           <Route
             path="/reports/income-exp"

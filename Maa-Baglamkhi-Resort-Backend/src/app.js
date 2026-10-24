@@ -100,6 +100,7 @@ app.use("/api/banquet", require("./routes/banquetRoutes"));
 app.use("/api/attendance", require("./routes/attendanceRoutes"));
 app.use("/api/reports", require("./routes/reportsRoutes"));
 app.use("/api/report", require("./routes/reportRoutes"));
+app.use("/api/reports-suite", require("./routes/reportsSuiteRoutes"));
 app.use("/api/assignments", require("./routes/assignmentRoute"));
 app.use("/api/dashboard", require("./routes/dashboardRoutes"));
 app.use("/api/token", require("./routes/tokenRoutes"));
