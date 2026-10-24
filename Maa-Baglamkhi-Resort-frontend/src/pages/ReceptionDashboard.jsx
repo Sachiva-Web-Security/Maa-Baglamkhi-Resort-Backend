@@ -140,7 +140,7 @@ const ReceptionDashboard = () => {
       })
       .slice(0, 8)
       .map((item, index) => ({
-        id: item.id || item.bookingId || index,
+        id: item.bookingId || item.id || index,
         guest: item.guestName || item.guest_name || item.name || "Guest",
         room: item.roomNumber || item.roomNo || item.rooms || "--",
         arrival: item.checkIn || item.check_in || "--",
