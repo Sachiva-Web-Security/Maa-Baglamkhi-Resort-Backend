@@ -36,7 +36,8 @@ const LOGIN_TIMEOUT_MS = 4000;
 const GETLOG_TIMEOUT_MS = 15000;
 const BLOB_MAX_CHARS = 250000;
 
-let port = null;
+let port = null;        // serial handle
+let socket = null;      // TCP handle
 let timer = null;
 let stopping = false;
 let pollInFlight = false;
@@ -52,7 +53,10 @@ const getEsslConfig = async () => {
   const fallback = {
     enabled: String(process.env.ESSL_ENABLED || "true").toLowerCase() === "true",
     deviceType: process.env.ESSL_DEVICE_TYPE || "eSSL01",
+    connection: process.env.ESSL_CONNECTION || "COM", // "COM" | "TCP"
     portName: process.env.ESSL_COMPORT || "",
+    host: process.env.ESSL_HOST || "",
+    tcpPort: Number(process.env.ESSL_TCP_PORT) || 4350,
     baudRate: Number(process.env.ESSL_BAUD_RATE) || 9600,
     pollIntervalMs: Number(process.env.ESSL_POLL_INTERVAL_MS) || DEFAULT_POLL_MS,
     user: process.env.ESSL_USER || "00000",
@@ -73,10 +77,15 @@ const getEsslConfig = async () => {
     }
     value = value || {};
 
+    const connection = value.connection === "TCP" ? "TCP" : "COM";
+
     return {
       enabled: value.enabled !== undefined ? Boolean(value.enabled) : fallback.enabled,
       deviceType: value.deviceType || fallback.deviceType,
-      portName: value.portName || fallback.portName,
+      connection,
+      portName: connection === "TCP" ? "" : value.portName || fallback.portName,
+      host: value.host || fallback.host,
+      tcpPort: Number(value.tcpPort) > 0 ? Number(value.tcpPort) : fallback.tcpPort,
       baudRate: Number(value.baudRate) > 0 ? Number(value.baudRate) : fallback.baudRate,
       pollIntervalMs:
         Number(value.pollIntervalMs) > 1000 ? Number(value.pollIntervalMs) : fallback.pollIntervalMs,
@@ -141,6 +150,62 @@ const sendCommand = (p, command, timeoutMs) =>
         settled = true;
         p.removeListener("data", onData);
         p.flush(() => {});
+        resolve(buffer);
+      }, timeoutMs);
+    });
+  });
+
+/* ------------------------------------------------------------------ */
+/* Low-level TCP/IP exchange (eSSL devices that sit on the LAN)
+/*
+/* The same ESSL01 command set works over a socket as it does over a
+/* COM port — LOGIN / GETLOG / CLRLOG — so the parser and upsert logic
+/* is shared; only the transport differs.
+/* ------------------------------------------------------------------ */
+
+const openTcp = async (cfg) => {
+  const net = require("net");
+  return new Promise((resolve, reject) => {
+    const socket = net.connect({ host: cfg.host, port: cfg.tcpPort });
+    socket.setTimeout(LOGIN_TIMEOUT_MS + 1000, () => {
+      socket.destroy();
+      reject(new Error(`TCP connection to ${cfg.host}:${cfg.tcpPort} timed out`));
+    });
+    socket.on("connect", () => {
+      socket.setTimeout(0); // connection established — clear the connect timeout
+      resolve(socket);
+    });
+    socket.on("error", (err) => reject(err));
+  });
+};
+
+const sendCommandTcp = (socket, command, timeoutMs) =>
+  new Promise((resolve, reject) => {
+    let buffer = "";
+    let settled = false;
+    const onData = (chunk) => {
+      buffer += chunk.toString("ascii");
+      if (buffer.length > BLOB_MAX_CHARS) {
+        if (!settled) {
+          settled = true;
+          socket.removeListener("data", onData);
+          resolve(buffer);
+        }
+      }
+    };
+    socket.write(command, "ascii", (err) => {
+      if (err) {
+        if (!settled) {
+          settled = true;
+          socket.removeListener("data", onData);
+        }
+        return reject(err);
+      }
+      socket.on("data", onData);
+      setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        socket.removeListener("data", onData);
         resolve(buffer);
       }, timeoutMs);
     });
@@ -333,37 +398,67 @@ const stopPort = () => {
     }
     port = null;
   }
+  if (socket) {
+    try {
+      socket.destroy();
+    } catch {
+      /* ignore */
+    }
+    socket = null;
+  }
   if (timer) {
     clearTimeout(timer);
     timer = null;
   }
 };
 
+/* Open the active transport based on cfg.connection. Returns a handle with
+   a `.close()` or `.destroy()` method — the caller treats it opaquely, but
+   we store the right one on `port` (serial) or `socket` (TCP). */
+const openTransport = async (cfg) => {
+  if (cfg.connection === "TCP") {
+    return await openTcp(cfg);
+  }
+  return await openPort(cfg);
+};
+
+/* Pick the right sendCommand for the current transport. */
+const sendFor = (handle, cfg, command, timeoutMs) =>
+  cfg.connection === "TCP" ? sendCommandTcp(handle, command, timeoutMs)
+                            : sendCommand(handle, command, timeoutMs);
+
 const poll = async () => {
   if (stopping || pollInFlight) return;
 
   const cfg = await getEsslConfig();
   if (!cfg.enabled) return;
-  if (!cfg.portName) {
+
+  const usingTcp = cfg.connection === "TCP";
+  if (!usingTcp && !cfg.portName) {
     lastError = "No COM port configured for the eSSL device.";
+    return;
+  }
+  if (usingTcp && !cfg.host) {
+    lastError = "No TCP host configured for the eSSL device.";
     return;
   }
 
   pollInFlight = true;
   try {
-    if (!port) {
-      port = await openPort(cfg);
-    }
+    // Open (or keep) the active transport handle.
+    const activeHandle = usingTcp
+      ? (socket ?? (socket = await openTcp(cfg)))
+      : (port ?? (port = await openPort(cfg)));
 
     // Login (required before GETLOG on most eSSL models)
-    const loginResp = await sendCommand(port, `LOGIN ${cfg.user} ${cfg.pass}`, LOGIN_TIMEOUT_MS);
+    const loginResp = await sendFor(activeHandle, cfg, `LOGIN ${cfg.user} ${cfg.pass}`, LOGIN_TIMEOUT_MS);
     if (loginResp && /ERROR/i.test(loginResp)) {
       lastError = `eSSL login failed: ${loginResp}`;
       pollInFlight = false;
       return;
     }
 
-    const blob = await sendCommand(port, "GETLOG", GETLOG_TIMEOUT_MS);
+    const blob = await sendFor(activeHandle, cfg, "GETLOG", GETLOG_TIMEOUT_MS);
     const events = parseEsslLogs(blob);
 
     let imported = 0;
@@ -374,7 +469,7 @@ const poll = async () => {
 
     // Clear the terminal log buffer only after every record is safely in
     // the DB, so a crash between GETLOG and CLRLOG just re-imports.
-    await sendCommand(port, "CLRLOG", LOGIN_TIMEOUT_MS);
+    await sendFor(activeHandle, cfg, "CLRLOG", LOGIN_TIMEOUT_MS);
 
     lastPollAt = new Date().toISOString();
     lastImportCount = imported;
@@ -392,8 +487,12 @@ const start = async () => {
   if (timer || stopping) return;
 
   const cfg = await getEsslConfig();
-  if (!cfg.enabled || !cfg.portName) {
-    console.log("[eSSL] poller idle — no eSSL device configured (set ESSL_COMPORT or app_settings.essl_device)");
+  const usingTcp = cfg.connection === "TCP";
+  const hasTarget = usingTcp ? cfg.host : cfg.portName;
+
+  if (!cfg.enabled || !hasTarget) {
+    const target = usingTcp ? `ESL_HOST=${cfg.host || "not set"}` : `ESL_COMPORT=${cfg.portName || "not set"}`;
+    console.log(`[eSSL] poller idle — no eSSL device configured (${target}, or app_settings.essl_device)`);
     return;
   }
 
@@ -412,12 +511,27 @@ const stopPoller = () => {
   stopPort();
 };
 
-const status = () => ({
-  running: Boolean(timer) && !stopping,
-  lastPollAt,
-  lastError,
-  lastImportCount,
-});
+const status = async () => {
+  const cfg = await getEsslConfig();
+  return {
+    running: Boolean(timer) && !stopping,
+    connection: cfg.connection,
+    target: cfg.connection === "TCP" ? `${cfg.host}:${cfg.tcpPort}` : cfg.portName,
+    lastPollAt,
+    lastError,
+    lastImportCount,
+    config: {
+      enabled: cfg.enabled,
+      deviceType: cfg.deviceType,
+      connection: cfg.connection,
+      portName: cfg.portName,
+      host: cfg.host,
+      tcpPort: cfg.tcpPort,
+      baudRate: cfg.baudRate,
+      pollIntervalMs: cfg.pollIntervalMs,
+    },
+  };
+};
 
 /* ------------------------------------------------------------------ */
 /* Live operations (admin-triggered from the Settings UI)
@@ -433,10 +547,16 @@ const pollNow = async () => {
 
   const cfg = await getEsslConfig();
   if (!cfg.enabled) return { ok: false, error: "eSSL import is disabled in settings" };
-  if (!cfg.portName) return { ok: false, error: "No COM port configured. Fill in Serial Port and save first." };
 
-  // Reopen the port so admin just changed the port name in the UI — the
-  // previously-open handle would be for the old port.
+  const usingTcp = cfg.connection === "TCP";
+  if (usingTcp && !cfg.host) {
+    return { ok: false, error: "No TCP host configured. Fill in Host/IP and save first." };
+  }
+  if (!usingTcp && !cfg.portName) {
+    return { ok: false, error: "No COM port configured. Fill in Serial Port and save first." };
+  }
+
+  // Reopen the transport so a port/host change just made in the UI takes effect.
   stopPort();
   await poll();
 
@@ -539,6 +659,43 @@ const listSerialPorts = async () => {
   }
 };
 
+/**
+ * Open a short-lived TCP socket to the configured host:port and run a
+ * LOGIN + GETLOG round-trip, so the admin can test the network connection
+ * from the Settings UI without waiting for the background poller.
+ */
+const testTcpConnection = async () => {
+  const cfg = await getEsslConfig();
+  if (!cfg.host) return { ok: false, error: "No TCP host configured." };
+
+  const net = require("net");
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: cfg.host, port: cfg.tcpPort, timeout: 5000 });
+    let buf = "";
+    socket.on("connect", () => {
+      socket.write(`LOGIN ${cfg.user} ${cfg.pass}\n`, "ascii");
+    });
+    socket.on("data", (chunk) => {
+      buf += chunk.toString("ascii");
+      if (/OK|LOGIN|ERROR/i.test(buf)) {
+        socket.end();
+        resolve({
+          ok: !/ERROR/i.test(buf),
+          reached: true,
+          response: buf.slice(0, 200),
+        });
+      }
+    });
+    socket.on("timeout", () => {
+      socket.destroy();
+      resolve({ ok: false, reached: true, error: "Connection timed out (no response)." });
+    });
+    socket.on("error", (err) => {
+      resolve({ ok: false, reached: false, error: err.message });
+    });
+  });
+};
+
 module.exports = {
   start,
   stopPoller,
@@ -548,4 +705,5 @@ module.exports = {
   parseEsslLogs,
   pollNow,
   listSerialPorts,
+  testTcpConnection,
 };

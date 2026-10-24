@@ -8,21 +8,25 @@ const esslService = require("../services/esslService");
 exports.getStatus = async (req, res) => {
   try {
     const cfg = await esslService.getEsslConfig();
-    const poller = esslService.status();
+    const poller = await esslService.status();
     res.json({
       running: poller.running,
+      connection: poller.connection,
+      target: poller.target,
       lastPollAt: poller.lastPollAt,
       lastImportCount: poller.lastImportCount,
       lastError: poller.lastError,
-      config: {
+      config: poller.config || {
         enabled: cfg.enabled,
         deviceType: cfg.deviceType,
+        connection: cfg.connection,
         portName: cfg.portName,
+        host: cfg.host,
+        tcpPort: cfg.tcpPort,
         baudRate: cfg.baudRate,
         pollIntervalMs: cfg.pollIntervalMs,
         user: cfg.user,
         pass: cfg.pass,
-        employees: cfg.employees || [],
       },
     });
   } catch (err) {
@@ -137,6 +141,21 @@ exports.createDevice = async (req, res) => {
 exports.pollNow = async (req, res) => {
   try {
     const result = await esslService.pollNow();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+};
+
+/**
+ * POST /api/attendance/essl/test-tcp
+ * Admin only: open a short-lived socket to the configured host:port, send LOGIN,
+ * and return what the device responds. Confirms the eSSL is reachable over the LAN
+ * without waiting for the background poller.
+ */
+exports.testTcp = async (req, res) => {
+  try {
+    const result = await esslService.testTcpConnection();
     res.json(result);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
