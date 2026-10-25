@@ -13,6 +13,7 @@ import {
   FaStar,
   FaSyncAlt,
   FaUserFriends,
+  FaUtensils,
 } from "react-icons/fa";
 import API from "../../api";
 import { formatINR, todayISO } from "./reportUtils";
