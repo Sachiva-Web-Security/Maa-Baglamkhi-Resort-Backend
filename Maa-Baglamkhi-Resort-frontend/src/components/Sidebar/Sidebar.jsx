@@ -198,7 +198,7 @@ const Sidebar = ({ isMobile, sidebarOpen, setSidebarOpen, setIsAuthenticated }) 
       { id: 502, name: "Assign Notifications", icon: FaBell, path: "/assignment-notification", section: "operations" },
       { id: 503, name: "Accounts", icon: FaWallet, path: "/accounts", section: "records" },
       { id: 504, name: "Reports", icon: FaChartBar, path: "/reports", section: "records" },
-      { id: 504a, name: "Reports Suite", icon: FaListAlt, path: "/reports/suite", section: "records" },
+      { id: 5040, name: "Reports Suite", icon: FaListAlt, path: "/reports/suite", section: "records" },
       // { id: 505, name: "Inventory", icon: FaBoxes, path: "/inventory", section: "records",
       //   children: [
       //     { id: 5050, name: "Categories", path: "/inventory/categories", icon: FaListAlt },
