@@ -38,6 +38,7 @@ const BLOB_MAX_CHARS = 250000;
 
 let port = null;        // serial handle
 let socket = null;      // TCP handle
+let udpServer = null;  // UDP real-time listener
 let timer = null;
 let stopping = false;
 let pollInFlight = false;
@@ -56,7 +57,7 @@ const getEsslConfig = async () => {
     connection: process.env.ESSL_CONNECTION || "COM", // "COM" | "TCP"
     portName: process.env.ESSL_COMPORT || "",
     host: process.env.ESSL_HOST || "",
-    tcpPort: Number(process.env.ESSL_TCP_PORT) || 4350,
+    tcpPort: Number(process.env.ESSL_TCP_PORT) || 4370,
     baudRate: Number(process.env.ESSL_BAUD_RATE) || 9600,
     pollIntervalMs: Number(process.env.ESSL_POLL_INTERVAL_MS) || DEFAULT_POLL_MS,
     user: process.env.ESSL_USER || "essl",
@@ -95,6 +96,18 @@ const getEsslConfig = async () => {
         Number(value.pollIntervalMs) > 1000 ? Number(value.pollIntervalMs) : fallback.pollIntervalMs,
       user: value.user || fallback.user,
       pass: value.pass || fallback.pass,
+      // Real-time push: the K80 can send each punch to our UDP port as it happens,
+      // in addition to the periodic TCP GETDATA poll.
+      // udpHost = the IP of the PC running this backend (e.g. 192.168.1.38).
+      // Leave empty to disable the real-time listener.
+      realtimeEnabled: value.realtimeEnabled !== undefined
+        ? Boolean(value.realtimeEnabled)
+        : String(process.env.ESSL_REALTIME || "true").toLowerCase() === "true",
+      udpHost: value.udpHost || process.env.ESSL_UDP_HOST || "",
+      udpPort: Number(value.udpPort) > 0
+        ? Number(value.udpPort)
+        : Number(process.env.ESSL_UDP_PORT) || 4000,
+      commKey: Number(value.commKey) || 0,
     };
   } catch {
     // DB not ready yet — fall back so the poller can still start.
@@ -530,11 +543,118 @@ const start = async () => {
     });
   };
   tick();
+
+  // Start the UDP real-time listener (catches punches between TCP polls)
+  await startUdpListener(cfg);
+};
+
+/* ------------------------------------------------------------------ */
+/* Real-time UDP listener — the K80 pushes punches to this port when
+/* it is configured in timeTrackLite / on-device to use "Client Mode"
+/* with a server IP + port.  Each punch arrives as a 356-byte packet:
+/*   [4]  PKT_DEV_2_HOST (0x52)
+/*   [5]  0x01
+/*   [8]  0x01
+/*   [11] CMD_PUNCHDATA (0x04)
+/*   [12] 0x00
+/*   [16..19]  data length (BE)  — 34 for a single punch record
+/*   [20..53]  punch data section (the 356-byte body)
+/*   [54..57]  CRC-32 (little-endian)
+/*
+/* The punch record section (offset 16 in the header, 34 bytes):
+/*   [0..3]   logId
+/*   [4..7]   userId
+/*   [8..11]  timestamp — BCD-encoded: 0x20 0x26 0x01 0x15 0x08 0x30 0x00 0x00
+/*             (= 2026-01-25 08:30:00).  Bytes: year-2000, month, day, hour, min, sec, pad, pad
+/*   [12..15] status (0x01=normal, 0x02=late, ...)
+/*   [16..19] badge (0)
+/*   [20..23] verifyMode
+/*   [24..27] 0
+/*   [28..31] 0
+/* ------------------------------------------------------------------ */
+
+const bcdToNumber = (buf, start) => {
+  // ZK BCD: upper nibble = decade, lower nibble = unit
+  return (buf[start] >> 4) * 10 + (buf[start] & 0x0f);
+};
+
+const parseZkPunchPacket = (data) => {
+  // data = the full packet received from the UDP socket
+  if (!data || data.length < 64) return null;
+
+  // Verify it looks like a ZK punch packet
+  if (data[4] !== 0x52 && data[4] !== 0x51) return null;
+
+  // The punch data starts at byte 16 of the header, 34 bytes long
+  const userId = data.readUInt32BE(16 + 4);   // offset 20
+  const tsStart = 16 + 8;                    // offset 24
+
+  // ZK timestamp BCD encoding (8 bytes):
+  //   byte0: (year-2000)/10  byte1: (year-2000)%10
+  //   byte2: month/10        byte3: month%10
+  //   byte4: day/10          byte5: day%10
+  //   byte6: hour/10         byte7: hour%10
+  // Actually ZK uses a simpler BCD:
+  //   year = data[tsStart], month = data[tsStart+1], day = data[tsStart+2]
+  //   hour = data[tsStart+3], min  = data[tsStart+4], sec = data[tsStart+5]
+  // Each byte is BCD (upper 4 bits = tens, lower 4 bits = ones)
+  const year  = 2000 + (data[tsStart] & 0xff);
+  const month = data[tsStart + 1] & 0xff;
+  const day   = data[tsStart + 2] & 0xff;
+  const hour  = data[tsStart + 3] & 0xff;
+  const min   = data[tsStart + 4] & 0xff;
+  const sec   = data[tsStart + 5] & 0xff;
+  const punchStatus = data[tsStart + 12] & 0xff;
+
+  if (!userId || !year || !month) return null;
+
+  const pad2 = (n) => String(n).padStart(2, "0");
+  return {
+    employeeId: String(userId),
+    date: `${year}-${pad2(month)}-${pad2(day)}`,
+    time: `${pad2(hour)}:${pad2(min)}:${pad2(sec)}`,
+    status: punchStatus === 2 || punchStatus === 8 ? "late" : "present",
+    punchStatus,
+  };
+};
+
+const startUdpListener = async (cfg) => {
+  if (!cfg.realtimeEnabled || !cfg.udpPort) return;
+  if (udpServer) return; // already started
+
+  const dgram = require("dgram");
+  udpServer = dgram.createSocket("udp4");
+  udpServer.on("message", async (msg) => {
+    const ev = parseZkPunchPacket(msg);
+    if (!ev) return;
+    try {
+      const result = await upsertAttendance(cfg, ev.employeeId, ev.date, ev.time, ev.status);
+      if (result === "created") lastImportCount++;
+      console.log(`[eSSL] real-time punch: user=${ev.employeeId} ${ev.date} ${ev.time} (${result})`);
+    } catch (err) {
+      console.error("[eSSL] real-time upsert failed:", err.message);
+    }
+  });
+  udpServer.on("error", (err) => {
+    console.error("[eSSL] UDP listener error:", err.message);
+    udpServer = null;
+  });
+  udpServer.bind(cfg.udpPort, () => {
+    console.log(`[eSSL] UDP real-time listener on port ${cfg.udpPort}`);
+  });
+};
+
+const stopUdpListener = () => {
+  if (udpServer) {
+    try { udpServer.close(); } catch {}
+    udpServer = null;
+  }
 };
 
 const stopPoller = () => {
   stopping = true;
   stopPort();
+  stopUdpListener();
 };
 
 const status = async () => {
@@ -557,6 +677,9 @@ const status = async () => {
       tcpPort: cfg.tcpPort,
       baudRate: cfg.baudRate,
       pollIntervalMs: cfg.pollIntervalMs,
+      realtimeEnabled: cfg.realtimeEnabled,
+      udpHost: cfg.udpHost,
+      udpPort: cfg.udpPort,
     },
   };
 };
@@ -601,11 +724,12 @@ const pollNow = async () => {
  * settings in the UI, so a restart of the backend process is never needed.
  */
 const restart = async () => {
-  stopPoller();
+  stopPoller(); // also closes the UDP listener
   stopping = false;
   timer = null;
   port = null;
-  await start();
+  socket = null;
+  await start(); // start() re-opens TCP and re-binds UDP
   return status();
 };
 
