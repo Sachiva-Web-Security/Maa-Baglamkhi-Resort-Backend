@@ -473,11 +473,12 @@ const poll = async () => {
 
     if (usingTcp && isZkProto) {
       /* ── ZKTeco packet protocol (GETDATA + CKOUT) ───────────── */
-      // GETDATA: request log dump. startTs/endTs are YYYYMMDDHHMMSS numbers.
+      // GETDATA: request log dump. startTs/endTs as YYYYMMDDHHMMSS uint32.
+      // 0 = "from last clear" (0 start, now end = all records in buffer).
       const now = new Date();
-      const endTs  = +now.toISOString().slice(0, 10).replace(/-/g, "") + "235959";
-      const startTs = 0; // 0 = "from the beginning / last downloaded"
-      const data = await zkGetData(activeHandle, startTs, endTs, 1); // 1 = text
+      const endTs   = +now.toISOString().slice(0, 10).replace(/-/g, "") + "235959";
+      const startTs = 0;
+      const data = await zkGetData(activeHandle, startTs, endTs, 0, 100);
       events = parseZkGetData(data);
 
       // Clear the log buffer only after every record is safely in the DB,
@@ -824,35 +825,44 @@ const testTcpConnection = async () => {
 
   if (cfg.protocol === "zk") {
     /* ZKTeco protocol test: connect, send a GETDATA probe. Any response
-       (even "no data") proves the device is alive and speaking ZK. */
+       (even "no data") proves the device is alive and speaking ZK.
+       We use zkBuildCmd directly here so we don't hold the socket open
+       waiting for a full GETDATA dump — just confirm the ACK comes back. */
     return new Promise((resolve) => {
-      const socket = net.connect({ host: cfg.host, port: cfg.tcpPort, timeout: 6000 });
+      const socket = net.connect({ host: cfg.host, port: cfg.tcpPort });
+      let buf = Buffer.alloc(0);
+      const done = (result) => { try { socket.destroy(); } catch {} resolve(result); };
+
       socket.on("connect", () => {
-        zkGetData(socket, 0, 0, 1)
-          .then((data) => {
-            const len = data ? data.length : 0;
-            socket.destroy();
-            resolve({
+        // Send a minimal GETDATA probe (0 records) — just to verify the handshake
+        const probe = zkBuildCmd(CMD_PUNCHDATA, zkBuildGetDataBody(0, 0, 0, 1));
+        socket.write(probe, (err) => {
+          if (err) done({ ok: false, reached: true, protocol: "zk", error: "write failed: " + err.message });
+        });
+      });
+      socket.on("data", (chunk) => {
+        buf = Buffer.concat([buf, chunk]);
+        // Any bytes back means the device is alive and responding.
+        // An ACK packet is 24-byte header + 4-byte CRC = 28 bytes minimum.
+        if (buf.length >= 24) {
+          const pktType = buf.readUInt32LE(19);
+          const dataLen = buf.readUInt32LE(11);
+          if (buf.length >= 24 + dataLen + 4) {
+            const cmd = buf.readUInt32LE(15);
+            done({
               ok: true,
               reached: true,
               protocol: "zk",
-              response:
-                len > 0
-                  ? "ZK response received (" + len + " bytes of log data)."
-                  : "ZK connection OK, no log data yet.",
+              response: "ZK handshake OK — cmd=0x" + cmd.toString(16) + ", data=" + dataLen + " bytes, pktType=0x" + pktType.toString(16),
             });
-          })
-          .catch((err) => {
-            socket.destroy();
-            resolve({ ok: false, reached: true, protocol: "zk", error: err.message });
-          });
-      });
-      socket.on("timeout", () => {
-        socket.destroy();
-        resolve({ ok: false, reached: true, error: "Connection timed out — no response on this port." });
+          }
+        }
       });
       socket.on("error", (err) => {
-        resolve({ ok: false, reached: false, error: err.code || err.message });
+        done({ ok: false, reached: false, protocol: "zk", error: err.code || err.message });
+      });
+      socket.setTimeout(8000, () => {
+        done({ ok: false, reached: buf.length > 0, protocol: "zk", error: "No ZK handshake within 8s (got " + buf.length + " bytes)." });
       });
     });
   }
@@ -1053,100 +1063,114 @@ const crc32 = (buf) => {
   return (crc ^ 0xffffffff) >>> 0;
 };
 
-// ZK packet type
+// ── ZK protocol constants ──────────────────────────────────────────────
+// ZK uses a 24-byte packet header (NOT 64). Layout:
+//   byte 0:   0x51 (Host→Device) / 0x52 (Device→Host)
+//   byte 1:   0x01
+//   byte 2:   0x01
+//   byte 3-6: comm key (usually 0x00000000)
+//   byte 7-10: address (usually 0x00000001)
+//   byte 11-14: data length (4 bytes, little-endian, = body byte count)
+//   byte 15-18: command type (4 bytes, little-endian)
+//   byte 19-22: packet type (0x01 = command, 0x02 = ack, 0x04 = read data)
+//   byte 23:   0x00
+// Then the body (dataLen bytes), then a 4-byte CRC-32 little-endian.
+
 const PKT_HOST_2_DEV   = 0x51;
 const PKT_DEV_2_HOST   = 0x52;
-// ZK packet data flags
-const FLAG_READ       = 0x1;
-const FLAG_ACK        = 0x4;
-// Common ZK commands
-const CMD_TIME            = 0x01;
-const CMD_PUNCHDATA       = 0x04;
-const CMD_PUNCHOUT        = 0x05;
-const CMD_ACK             = 0x02;
+const PKT_TYPE_CMD     = 0x01;
+const PKT_TYPE_ACK     = 0x02;
+const PKT_TYPE_DATA    = 0x04;
+const CMD_PUNCHDATA    = 0x00000004;  // GETDATA
+const CMD_PUNCHOUT     = 0x00000005;  // CKOUT (clear downloaded logs)
+const CMD_READ_PUNCH   = 0x00032100;  // ReadPunch (raw record stream)
 
-const toAscii = (str, len) => {
-  const buf = Buffer.alloc(len);
-  buf.write(str, "ascii");
-  return buf;
-};
-
-/* Build a ZK command packet (host -> device). */
-const zkBuildCmd = (cmdCode, data = Buffer.alloc(0)) => {
-  const header = Buffer.alloc(64);
+/* Build a ZK command packet: 24-byte header + body + 4-byte CRC. */
+const zkBuildCmd = (cmdCode, body = Buffer.alloc(0), pktType = PKT_TYPE_CMD, commKey = 0, address = 1) => {
+  const header = Buffer.alloc(24);
   header[0] = PKT_HOST_2_DEV;
-  header[4] = 0x01;                     // packet count
-  header[5] = 0x01;
-  header[8] = 0x01;                     // address (device 1)
-  header[11] = cmdCode & 0xff;
-  header[12] = cmdCode >> 8;
-  const dataLen = data.length;
-  header.writeUInt32BE(dataLen, 16);     // byte 4 of data_len (big-endian)
-  header.writeUInt32BE(dataLen, 20);     // byte 1 of data_len (little-endian)
-  const packet = Buffer.concat([header, data]);
-  const full = Buffer.concat([packet, Buffer.from([
-    crc32(packet) & 0xff,
-    (crc32(packet) >> 8) & 0xff,
-    (crc32(packet) >> 16) & 0xff,
-    (crc32(packet) >> 24) & 0xff,
-  ])]);
+  header[1] = 0x01;
+  header[2] = 0x01;
+  header.writeUInt32LE(commKey, 3);       // bytes 3-6
+  header.writeUInt32LE(address, 7);       // bytes 7-10
+  header.writeUInt32LE(body.length, 11);  // bytes 11-14: data length
+  header.writeUInt32LE(cmdCode & 0xffffffff, 15);  // bytes 15-18: command
+  header.writeUInt32LE(pktType, 19);      // bytes 19-22: packet type
+  header[23] = 0x00;
+
+  const packet = Buffer.concat([header, body]);
+  const full = Buffer.concat([packet, Buffer.alloc(4)]);
+  full.writeUInt32LE(crc32(packet), 24 + body.length);
   return full;
 };
 
 /*
- * Send a GETDATA command to the device and read the full response.
- * GETDATA parameters (packed into the data section, big-endian 32-bit each):
- *   startTime, endTime, dataFormat, dataCount, ...
- * dataFormat 0 = binary, 1 = text (CSV). We use 1 (text) for portability.
+ * Build the GETDATA body: 20 bytes of big-endian params.
+ *   startTs, endTs (YYYYMMDDHHMMSS as uint32, 0 = all)
+ *   0x10001 = read-punch-data flag
+ *   startOffset (0 = from last cleared)
+ *   maxCount
  */
-const zkGetData = async (socket, startTs, endTs, dataFormat = 1) => {
-  const params = Buffer.alloc(20);
-  params.writeUInt32BE(startTs, 0);
-  params.writeUInt32BE(endTs, 4);
-  params.writeUInt32BE(dataFormat, 8);
-  params.writeUInt32BE(0, 12);   // start offset
-  params.writeUInt32BE(100, 16); // max records to fetch
-  return zkCmd(socket, CMD_PUNCHDATA, params, 30000);
+const zkBuildGetDataBody = (startTs, endTs, startOffset = 0, maxCount = 100) => {
+  const b = Buffer.alloc(20);
+  b.writeUInt32BE(startTs, 0);
+  b.writeUInt32BE(endTs, 4);
+  b.writeUInt32BE(0x10001, 8);   // flag: read punch data
+  b.writeUInt32BE(startOffset, 12);
+  b.writeUInt32BE(maxCount, 16);
+  return b;
 };
 
-const zkCmd = (socket, cmd, data, timeoutMs) => {
+const zkGetData = async (socket, startTs, endTs, startOffset = 0, maxCount = 100) => {
+  const body = zkBuildGetDataBody(startTs, endTs, startOffset, maxCount);
+  return zkCmd(socket, CMD_PUNCHDATA, body, 30000);
+};
+
+/*
+ * Read a ZK response: 24-byte header, then dataLen bytes, then 4-byte CRC.
+ * Resolves with the full body buffer (or empty Buffer on timeout).
+ */
+const zkCmd = (socket, cmd, body, timeoutMs) => {
   return new Promise((resolve, reject) => {
-    const packet = zkBuildCmd(cmd, data);
+    const packet = zkBuildCmd(cmd, body);
     const deadline = Date.now() + timeoutMs;
     let buf = Buffer.alloc(0);
     let settled = false;
 
     const onData = (chunk) => {
       buf = Buffer.concat([buf, chunk]);
-      // A ZK response: 64-byte header + data + 4-byte CRC
-      // Minimum is 68 bytes. For large GETDATA dumps, data grows.
-      // We wait until we see a valid response header, then wait for the
-      // declared data length, plus the 4-byte CRC trailer.
-      if (buf.length < 64) return;
-      // Check if we got at least a full header
-      if (buf[0] !== PKT_DEV_2_HOST && buf[0] !== PKT_HOST_2_DEV) {
-        // Possibly multiple packets or garbage — keep waiting
+      // Need at least a 24-byte header to read dataLen
+      if (buf.length < 24) return;
+      const pktType = buf.readUInt32LE(19);
+      const dataLen = buf.readUInt32LE(11);
+      const totalNeeded = 24 + dataLen + 4;
+
+      // ACK packets (0x02) are tiny — handle them immediately
+      if (pktType === PKT_TYPE_ACK && buf.length >= totalNeeded) {
+        if (!settled) {
+          settled = true;
+          socket.removeListener("data", onData);
+          resolve(buf.slice(24, 24 + dataLen));
+        }
         return;
       }
-      // Read the data length from the header
-      const dataLen = buf.readUInt32BE(16);
-      const totalNeeded = 64 + dataLen + 4;
+
+      // Data packets: wait for the full payload
       if (buf.length >= totalNeeded) {
         if (!settled) {
           settled = true;
           socket.removeListener("data", onData);
-          // Return the raw data section for the caller to parse
-          resolve(buf.slice(64, 64 + dataLen));
+          resolve(buf.slice(24, 24 + dataLen));
         }
       }
     };
 
     socket.on("data", onData);
+    socket.on("error", (err) => {
+      if (!settled) { settled = true; socket.removeListener("data", onData); reject(err); }
+    });
     socket.write(packet, (err) => {
-      if (err) {
-        if (!settled) { settled = true; socket.removeListener("data", onData); }
-        reject(err);
-      }
+      if (err && !settled) { settled = true; socket.removeListener("data", onData); reject(err); }
     });
 
     const t = setInterval(() => {
@@ -1154,22 +1178,22 @@ const zkCmd = (socket, cmd, data, timeoutMs) => {
         if (!settled) {
           settled = true;
           socket.removeListener("data", onData);
-          // On timeout, return whatever we have — it may be a partial dump
-          resolve(buf.slice(64));
+          clearInterval(t);
+          resolve(Buffer.alloc(0)); // timeout — no data
         }
-        clearInterval(t);
       }
     }, 500);
   });
 };
 
 /*
- * Send ACK to clear the punch log on the device after a successful GETDATA.
+ * CKOUT — tells the device the logs have been read and can be cleared.
+ * Body: 4 bytes, 0x00000001 (ack all logs)
  */
 const zkClearLog = async (socket) => {
-  const params = Buffer.alloc(16);
-  params.writeUInt32BE(0, 0);    // 0 = clear all downloaded records
-  return zkCmd(socket, CMD_PUNCHOUT, params, 10000);
+  const body = Buffer.alloc(4);
+  body.writeUInt32BE(1, 0);
+  return zkCmd(socket, CMD_PUNCHOUT, body, 10000);
 };
 
 /*
@@ -1185,32 +1209,44 @@ const zkClearLog = async (socket) => {
  *   [8..11]  user_id (uint32)
  *   [12..15] punch status
  */
+/**
+ * Parse a ZK GETDATA binary response into attendance events.
+ *
+ * ZK "ReadPunch" records are 40 bytes each:
+ *   [0..3]   logId
+ *   [4..7]   userId
+ *   [8..11]  timestamp (raw, varies by firmware — see bcdTimestamp fallback)
+ *   [12..15] status (1=normal, 2=late, 3=early, 4=forget-out, 5=forget-in,
+ *                   6=break-in, 7=break-out, 8=late-in/early-out)
+ *   [16..19] badge
+ *   [20..23] verifyMode
+ *   [24..27] 0
+ *   [28..31] 0
+ *   [32..35] 0
+ *   [36..39] 0
+ *
+ * The K80/eSSL ZLM60 firmware sometimes returns text (CSV-like) when
+ * dataFormat=1 is requested. We handle both:
+ */
 const parseZkGetData = (dataBuffer) => {
   const events = [];
+  if (!dataBuffer || dataBuffer.length === 0) return events;
 
-  // Try text (CSV) format first — most ZK devices in text mode
+  // ── Try text mode first (some ZK builds return semicolon-delimited CSV) ──
   const text = dataBuffer.toString("ascii").trim();
-  if (text && text.includes(";")) {
+  if (text.includes(";") && text.includes(",")) {
     for (const line of text.split(/[\r\n]+/)) {
       const parts = line.split(";").map((p) => p.trim());
-      // ZK text log: LogId;EventTime(YYYY-MM-DD HH:MM:SS);UserId;PunchType;...
-      if (parts.length < 3) continue;
-      const logId = parts[0];
-      const eventTimeStr = parts[1];
-      const userId = parts[2];
-
-      // eventTime is "YYYY-MM-DD HH:MM:SS" in most ZK text formats
-      const m = eventTimeStr.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})$/);
-      if (m && /^\d+$/.test(userId)) {
-        const punchType = parts[3] ? parseInt(parts[3], 10) : 0;
-        // ZK punch types: 1=normal, 2=late, 3=early, 4=forget out, 5=forget in,
-        // 6=break-in, 7=break-out, 8=late-in/early-out, ...
-        const status = (punchType === 2 || punchType === 8) ? "late" : "present";
+      if (parts.length < 4) continue;
+      // Typical: LogId;EventTime;UserId;PunchStatus
+      const m = (parts[1] || "").match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})$/);
+      if (m && /^\d+$/.test(parts[2] || "")) {
+        const punchType = parseInt(parts[3] || "0", 10);
         events.push({
-          employeeId: userId,
+          employeeId: parts[2],
           date: m[1],
           time: m[2],
-          status,
+          status: punchType === 2 || punchType === 8 ? "late" : "present",
           punchType,
         });
       }
@@ -1218,8 +1254,53 @@ const parseZkGetData = (dataBuffer) => {
     return events;
   }
 
-  // Binary format — 100-byte records
-  // (Falls back to returning empty; binary parsing is model-specific.)
+  // ── Binary mode: 40-byte records (standard ZK ReadPunch format) ──────────
+  const RECORD_LEN = 40;
+  const numRecords = Math.floor(dataBuffer.length / RECORD_LEN);
+  for (let i = 0; i < numRecords; i++) {
+    const off = i * RECORD_LEN;
+    const userId = dataBuffer.readUInt32BE(off + 4);
+    if (!userId) continue;
+
+    // ZK timestamp is stored as 4 bytes at offset 8.
+    // Many ZK firmwares store it as: year(1) month(1) day(1) hour(1) min(1) sec(1) [padded]
+    // where year is absolute year - 2000, or a BCD value.
+    // Try two common encodings and pick the one that looks plausible.
+    const raw8  = dataBuffer.readUInt32BE(off + 8);
+    // Encoding A: YYYYMMDDHHMMSS packed into a 32-bit number won't fit,
+    // so ZK uses byte-level: [off+8]=year-2000, [off+9]=month, [off+10]=day,
+    // [off+11]=hour, [off+12]=min, [off+13]=sec  (but these overlap status field
+    // in some layouts). The safest approach is to read the full 40-byte record
+    // and look for a plausible date string.
+    const raw12 = dataBuffer.readUInt32BE(off + 12); // status field
+    const status = raw12 & 0xff; // low byte of status
+
+    // Most ZK builds (including eSSL ZLM60) put the timestamp at offset 8
+    // as 6 bytes: year, month, day, hour, min, sec — plain integers, not BCD.
+    const year  = 2000 + dataBuffer[off + 8];
+    const month = dataBuffer[off + 9];
+    const day   = dataBuffer[off + 10];
+    const hour  = dataBuffer[off + 11];
+    const min   = dataBuffer[off + 12];
+    const sec   = dataBuffer[off + 13];
+
+    const pad = (n) => String(n).padStart(2, "0");
+    const dateStr = `${year}-${pad(month)}-${pad(day)}`;
+    const timeStr = `${pad(hour)}:${pad(min)}:${pad(sec)}`;
+
+    // Sanity-check: skip records with impossible dates (0000-00-00 etc.)
+    if (month < 1 || month > 12 || day < 1 || day > 31) continue;
+
+    events.push({
+      employeeId: String(userId),
+      date: dateStr,
+      time: timeStr,
+      status: status === 2 || status === 8 ? "late" : "present",
+      punchType: status,
+      raw: dataBuffer.slice(off, off + RECORD_LEN).toString("hex"),
+    });
+  }
+
   return events;
 };
 
