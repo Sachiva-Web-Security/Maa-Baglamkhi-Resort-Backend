@@ -369,7 +369,7 @@ router.get("/rooms-checkout", async (req, res) => {
          FROM bookings b
          WHERE b.check_out >= ? AND b.check_out <= ?
          ORDER BY b.check_out DESC, b.id DESC`,
-        [from, to],
+        [from + " 00:00:00", to + " 23:59:59"],
       )
     : [];
   await sendReport(req, res, {
@@ -432,16 +432,16 @@ router.get("/room-history", async (req, res) => {
            b.status,
            r.room_number,
            (
-             SELECT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(gp.first_name,''), ' ', COALESCE(gp.last_name,''))),''), br.guest_name, '—')
+             SELECT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(gp.first_name,''),' ',COALESCE(gp.last_name,''),' ',COALESCE(bg.first_name,''),' ',COALESCE(bg.last_name,''))),''), '—')
              FROM booking_guests bg LEFT JOIN guest_profiles gp ON gp.id = bg.guest_profile_id
-             WHERE bg.booking_id = b.id ORDER BY bg.id LIMIT 1
+             WHERE bg.booking_id = b.id ORDER BY bg.is_primary DESC, bg.id LIMIT 1
            ) AS guest
          FROM booking_rooms br
          JOIN rooms r ON r.id = br.room_id
          JOIN bookings b ON b.id = br.booking_id
          WHERE b.check_in >= ? OR b.check_out <= ?
          ORDER BY b.check_in DESC, b.id DESC, r.room_number`,
-        [to, from],
+        [to + " 00:00:00", from + " 23:59:59"],
       )
     : [];
   await sendReport(req, res, {
@@ -502,12 +502,12 @@ router.get("/guest-list-police", async (req, res) => {
            b.id, b.booking_code, r.room_number, b.check_in AS checkin_date, b.check_out AS checkout_date,
            b.status,
            (
-             SELECT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(gp.first_name,''),' ',COALESCE(gp.last_name,''))),''), bg.guest_name)
+             SELECT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(gp.first_name,''),' ',COALESCE(gp.last_name,''))),''), NULLIF(TRIM(CONCAT(COALESCE(bg.first_name,''),' ',COALESCE(bg.last_name,''))),''))
              FROM booking_guests bg LEFT JOIN guest_profiles gp ON gp.id = bg.guest_profile_id
-             WHERE bg.booking_id = b.id ORDER BY bg.id LIMIT 1
+             WHERE bg.booking_id = b.id ORDER BY bg.is_primary DESC, bg.id LIMIT 1
            ) AS guest_name,
            (
-             SELECT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(gp.first_name,''),' ',COALESCE(gp.last_name,''))),''), bg.guest_name)
+             SELECT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(gp.first_name,''),' ',COALESCE(gp.last_name,''))),''), NULLIF(TRIM(CONCAT(COALESCE(bg.first_name,''),' ',COALESCE(bg.last_name,''))),''))
              FROM booking_guests bg LEFT JOIN guest_profiles gp ON gp.id = bg.guest_profile_id
              WHERE bg.booking_id = b.id AND bg.is_primary = 1 ORDER BY bg.id LIMIT 1
            ) AS primary_guest,
@@ -529,9 +529,9 @@ router.get("/guest-list-police", async (req, res) => {
            b.id, b.booking_code, r.room_number, b.check_in AS checkin_date, b.check_out AS checkout_date,
            b.status,
            (
-             SELECT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(gp.first_name,''),' ',COALESCE(gp.last_name,''))),''), bg.guest_name)
+             SELECT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(gp.first_name,''),' ',COALESCE(gp.last_name,''))),''), NULLIF(TRIM(CONCAT(COALESCE(bg.first_name,''),' ',COALESCE(bg.last_name,''))),''))
              FROM booking_guests bg LEFT JOIN guest_profiles gp ON gp.id = bg.guest_profile_id
-             WHERE bg.booking_id = b.id ORDER BY bg.id LIMIT 1
+             WHERE bg.booking_id = b.id ORDER BY bg.is_primary DESC, bg.id LIMIT 1
            ) AS guest_name,
            b.total_guests, b.currency
          FROM booking_rooms br
@@ -539,7 +539,7 @@ router.get("/guest-list-police", async (req, res) => {
          JOIN bookings b ON b.id = br.booking_id
          WHERE b.status = 'checked_out' AND b.check_out >= ? AND b.check_out <= ?
          ORDER BY b.check_out DESC`,
-        [from, to],
+        [from + " 00:00:00", to + " 23:59:59"],
       )
     : [];
   const rows = [
@@ -1116,9 +1116,9 @@ router.get("/sales-by-guest", async (req, res) => {
            b.booking_code,
            r.room_number,
            (
-             SELECT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(gp.first_name,''),' ',COALESCE(gp.last_name,''))),''), bg.guest_name)
+             SELECT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(gp.first_name,''),' ',COALESCE(gp.last_name,''))),''), NULLIF(TRIM(CONCAT(COALESCE(bg.first_name,''),' ',COALESCE(bg.last_name,''))),''))
              FROM booking_guests bg LEFT JOIN guest_profiles gp ON gp.id = bg.guest_profile_id
-             WHERE bg.booking_id = b.id ORDER BY bg.id LIMIT 1
+             WHERE bg.booking_id = b.id ORDER BY bg.is_primary DESC, bg.id LIMIT 1
            ) AS guest_name,
            b.total_guests AS guests,
            b.total_amount AS room_charges,
@@ -1129,7 +1129,10 @@ router.get("/sales-by-guest", async (req, res) => {
          JOIN rooms r ON r.id = br.room_id
          WHERE b.status <> 'cancelled' AND b.check_in >= ? AND b.check_out <= ?
          ORDER BY b.check_in DESC, r.room_number`,
-        [from, to, from, to],
+        // MariaDB prepared statements cannot compare a DATETIME column against a
+        // DATE-typed bind parameter (this report returned zero rows for every
+        // window until the bounds were normalised to DATETIME literals).
+        [from + " 00:00:00", to + " 23:59:59", from + " 00:00:00", to + " 23:59:59"],
       )
     : [];
   await sendReport(req, res, {
@@ -1472,7 +1475,7 @@ router.get("/pax", async (req, res) => {
                LEFT JOIN rooms r ON r.id = br.room_id
                WHERE b.status <> 'cancelled' AND b.check_in >= ? AND b.check_out <= ?
                ORDER BY b.check_in DESC`,
-              [from, to],
+              [from + " 00:00:00", to + " 23:59:59"],
             )
           : [];
       })();
