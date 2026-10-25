@@ -176,6 +176,22 @@ exports.diagnose = async (req, res) => {
 };
 
 /**
+ * POST /api/attendance/essl/raw-dump
+ * Admin only: connect to the device, send a ReadPunch command, and return
+ * the raw response bytes as hex + ASCII. Use this when parsing returns 0
+ * events but the connection is alive, to inspect the actual firmware response.
+ */
+exports.rawDump = async (req, res) => {
+  try {
+    const cfg = await esslService.getEsslConfig();
+    const result = await esslService.rawZkDump(cfg);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+};
+
+/**
  * POST /api/attendance/essl/restart
  * Admin only: re-read config and restart the poll timer after the admin saved settings.
  */
