@@ -123,6 +123,7 @@ const Sidebar = ({ isMobile, sidebarOpen, setSidebarOpen, setIsAuthenticated }) 
   const roleMenuMap = {
     admin: [
       { id: 101, name: "Attendance", icon: FaUserCheck, path: "/attendance" },
+      { id: 115, name: "Fingerprint Attendance", icon: FaUserCheck, path: "/zk-attendance", section: "operations" },
       { id: 102, name: "Hotel", icon: FaHotel, path: "/hotel", section: "operations" },
       { id: 103, name: "Restaurant POS", icon: FaUtensils, path: "/restaurant", section: "operations" },
       { id: 104, name: "Kitchen", icon: FaFire, path: "/kitchen", section: "operations" },

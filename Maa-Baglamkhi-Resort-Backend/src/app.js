@@ -18,6 +18,7 @@ const { ensureSchema: ensureReferenceNotesSchema } = require("./models/SpecialRe
 const { ensureSchema: ensureAdvancePaymentSchema } = require("./models/PaymentsModel");
 const { ensureSchema: ensureAccountsSchema } = require("./models/ChartOfAccountsModel");
 const { ensureSchema: ensureAttendanceSchema } = require("./models/AttendanceRecordsModel");
+const { ensureSchema: ensureZkMachinesSchema } = require("./models/AttendanceMachinesModel");
 const { ensureSchema: ensureBanquetSchema } = require("./models/BanquetHallsModel");
 const { ensureSchema: ensureCompanySchema } = require("./models/ResortProfilesModel");
 const { ensureSchema: ensurePaymentHistorySchema } = require("./models/PaymentsModel");
@@ -98,6 +99,7 @@ app.use("/api/waiter", require("./routes/waiterRoutes"));
 app.use("/api/accounts", require("./routes/accountsRoutes"));
 app.use("/api/banquet", require("./routes/banquetRoutes"));
 app.use("/api/attendance", require("./routes/attendanceRoutes"));
+app.use("/api/zk", require("./routes/zkRoutes"));
 app.use("/api/reports", require("./routes/reportsRoutes"));
 app.use("/api/report", require("./routes/reportRoutes"));
 app.use("/api/reports-suite", require("./routes/reportsSuiteRoutes"));
@@ -189,6 +191,7 @@ async function initializeDatabase(options = {}) {
     }
     await bootstrapSchema("Accounts schema init", ensureAccountsSchema);
     await bootstrapSchema("Attendance schema init", ensureAttendanceSchema);
+    await bootstrapSchema("ZK attendance machines schema init", ensureZkMachinesSchema);
     await bootstrapSchema("Banquet schema init", ensureBanquetSchema);
     await bootstrapSchema("Room service schema init", ensureRoomServiceSchema);
     await bootstrapSchema("Token schema init", ensureTokenSchema);
