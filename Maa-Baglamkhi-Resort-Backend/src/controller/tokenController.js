@@ -117,7 +117,8 @@ exports.addItem = async (req, res) => {
 
     const [result] = await db.query(
       `INSERT INTO token_items (token_id, item_name, qty, rate) VALUES (?, ?, ?, ?)`,
-      [tokenId, req.body?.name || "Item", req.body?.qty || 1, req.body?.price || 0]
+      // The POS sends `rate` (its field for the item price), not `price`.
+      [tokenId, req.body?.name || "Item", req.body?.qty || 1, Number(req.body?.rate ?? req.body?.price) || 0]
     );
 
     res.json({ message: "Item added", id: result.insertId });
