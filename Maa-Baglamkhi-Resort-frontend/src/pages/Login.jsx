@@ -1,29 +1,78 @@
 // src/pages/Login.jsx
-// FIXED: Responsive login with proper field handling + error display
+// Staff login with quick role access — design matches the resort mockup.
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api";
 import { getRoleHome } from "../utils/roleHome";
 import { withAudit } from "../utils/auditAction";
-import { FaEye, FaEyeSlash } from "react-icons/fa";
+import loginBackdrop from "../assets/login_backdrop.png";
+import {
+  FaArrowRight,
+  FaBroom,
+  FaConciergeBell,
+  FaCrown,
+  FaEnvelope,
+  FaExclamationTriangle,
+  FaEye,
+  FaEyeSlash,
+  FaLock,
+  FaSpa,
+  FaSpinner,
+  FaUmbrella,
+  FaUserTie,
+  FaUtensils,
+} from "react-icons/fa";
 
-// NOTE: Previously this imported "../assets/bg.jpg" directly, but that file
-// doesn't exist in the project, which crashed the whole app at build time
-// (blank white/dark screen, nothing rendered). We now reference it from the
-// /public folder instead, so the app works with or without the image.
-// To use a real background image: drop a file at `public/bg.jpg` in your
-// project root (not src/assets). If it's missing, the gradient below is
-// used as a fallback and nothing breaks.
-const bgImage = "/bg.jpg";
-
+// Quick-access chips: each carries its own icon + accent palette.
 const ROLE_LOGIN_HINTS = [
-  { role: "admin", email: "admin@resort.com", label: "Admin" },
-  { role: "manager", email: "manager@resort.com", label: "Manager" },
-  { role: "receptionist", email: "reception@resort.com", label: "Reception" },
-  { role: "accountant", email: "accounts@resort.com", label: "Accounts" },
-  { role: "housekeeping", email: "tarun@resort.com", label: "Housekeeping" },
-  { role: "waiter", email: "waiter@resort.com", label: "Waiter" },
-  { role: "chef", email: "chef@resort.com", label: "Chef" },
+  {
+    role: "admin",
+    email: "admin@resort.com",
+    label: "Admin",
+    Icon: FaCrown,
+    chip: "border-amber-200/70 bg-amber-50",
+    icon: "bg-amber-100 text-amber-600",
+  },
+  {
+    role: "manager",
+    email: "manager@resort.com",
+    label: "Manager",
+    Icon: FaUserTie,
+    chip: "border-sky-200/70 bg-sky-50",
+    icon: "bg-sky-100 text-sky-600",
+  },
+  {
+    role: "receptionist",
+    email: "reception@resort.com",
+    label: "Reception",
+    Icon: FaConciergeBell,
+    chip: "border-emerald-200/70 bg-emerald-50",
+    icon: "bg-emerald-100 text-emerald-600",
+  },
+  {
+    role: "housekeeping",
+    email: "tarun@resort.com",
+    label: "Housekeeping",
+    Icon: FaBroom,
+    chip: "border-violet-200/70 bg-violet-50",
+    icon: "bg-violet-100 text-violet-600",
+  },
+  {
+    role: "waiter",
+    email: "waiter@resort.com",
+    label: "Waiter",
+    Icon: FaUmbrella,
+    chip: "border-orange-200/70 bg-orange-50",
+    icon: "bg-orange-100 text-orange-600",
+  },
+  {
+    role: "chef",
+    email: "chef@resort.com",
+    label: "Chef",
+    Icon: FaUtensils,
+    chip: "border-rose-200/70 bg-rose-50",
+    icon: "bg-rose-100 text-rose-600",
+  },
 ];
 
 const LOGIN_EMAIL_ALIASES = {
@@ -76,7 +125,9 @@ const Login = ({ setIsAuthenticated }) => {
         const shouldRetryWithAlias =
           aliasEmail &&
           err.response?.status === 400 &&
-         /invalid email/i.test(String(err.response?.data?.message || "").toLowerCase());
+          /invalid email/i.test(
+            String(err.response?.data?.message || "").toLowerCase(),
+          );
 
         if (!shouldRetryWithAlias) {
           throw err;
@@ -122,90 +173,129 @@ const Login = ({ setIsAuthenticated }) => {
 
   return (
     <div
-      className="relative flex min-h-screen w-full items-center justify-center overflow-hidden px-4 py-8 sm:px-6"
+      className="relative flex min-h-screen w-full items-center justify-center overflow-x-hidden px-3 py-6 sm:px-6 sm:py-10"
       style={{
         backgroundColor: "#0b1730",
-        backgroundImage: `linear-gradient(135deg, #081225 0%, #0b1730 55%, #09101f 100%), url(${bgImage})`,
+        backgroundImage: `linear-gradient(95deg, rgba(2,6,23,0.35) 0%, rgba(2,6,23,0.10) 35%, rgba(2,6,23,0.55) 100%), url(${loginBackdrop})`,
         backgroundSize: "cover, cover",
         backgroundPosition: "center, center",
         backgroundRepeat: "no-repeat, no-repeat",
-        backgroundBlendMode: "overlay",
         minHeight: "100vh",
       }}
     >
-      {/* Overlay */}
-      <div className="pointer-events-none absolute inset-0 bg-slate-900/45 backdrop-blur-[2px]" />
-
-      <div className="relative z-10 w-full max-w-md">
+      <div className="relative z-10 w-full max-w-[34rem] sm:max-w-[36rem]">
         {/* Card */}
-        <div className="overflow-hidden rounded-3xl border border-white/20 bg-white shadow-[0_32px_80px_rgba(15,23,42,0.3)]">
-          {/* Header stripe */}
-          <div className="bg-gradient-to-r from-slate-900 via-blue-900 to-teal-800 px-8 py-7 text-center text-white">
-            <div className="text-2xl font-black tracking-wide">
-              Maa BAGLAMUKHI RESORT
-            </div>
-            <div className="mt-1.5 text-sm font-semibold text-white/75">
-              Hotel Management System
+        <div className="overflow-hidden rounded-3xl bg-white shadow-[0_40px_110px_-20px_rgba(2,8,30,0.8)] ring-1 ring-white/20">
+          {/* Header: backdrop photo + lotus emblem */}
+          <div className="relative px-5 pb-5 pt-5 text-center text-white sm:px-6 sm:pb-6 sm:pt-6">
+            <img
+              src={loginBackdrop}
+              alt=""
+              aria-hidden="true"
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-slate-950/45 via-slate-950/35 to-slate-950/70" />
+
+            <div className="relative">
+              <FaSpa
+                size={34}
+                className="mx-auto text-amber-400 drop-shadow-[0_6px_14px_rgba(245,158,11,0.45)]"
+              />
+              <div className="mt-2.5 text-base font-black leading-tight tracking-wide drop-shadow-[0_2px_8px_rgba(0,0,0,0.55)] sm:text-lg">
+                Maa BAGLAMUKHI RESORT
+              </div>
+              <div className="mt-1.5 text-[10px] font-bold uppercase tracking-[0.3em] text-white/80">
+                Hotel Management System
+              </div>
             </div>
           </div>
 
-          <div className="px-8 py-7">
-            <h2 className="mb-6 text-center text-xl font-black text-slate-900">
+          <div className="px-4 py-3.5 sm:px-5 sm:py-4">
+            <h2 className="text-center text-base font-black text-slate-900 sm:text-lg">
               Staff Login
             </h2>
+            <p className="mt-0.5 text-center text-[11px] font-medium text-indigo-400 sm:text-[12px]">
+              Access your account to manage resort operations
+            </p>
 
             {/* Error banner */}
             {error && (
-              <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
-                ⚠️ {error}
+              <div
+                role="alert"
+                className="mt-4 flex items-start gap-2.5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] font-medium text-rose-700"
+              >
+                <FaExclamationTriangle className="mt-0.5 shrink-0 text-rose-500" size={15} />
+                <span>{error}</span>
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="mt-4 space-y-3.5">
               <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                <label
+                  htmlFor="login-email"
+                  className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500"
+                >
+                  <FaEnvelope size={11} className="text-slate-400" />
                   Email Address
                 </label>
                 <input
+                  id="login-email"
                   type="email"
                   value={email}
+                  autoComplete="username"
                   onChange={(e) => {
                     setEmail(e.target.value);
                     setError("");
                   }}
-                  placeholder="email@resort.com"
+                  placeholder="you@resort.com"
                   required
-                  className="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-xl bg-indigo-50/80 px-4 py-2.5 text-sm font-medium text-slate-900 outline-none ring-1 ring-indigo-100 transition placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-indigo-300"
                 />
               </div>
 
               <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                <label
+                  htmlFor="login-password"
+                  className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500"
+                >
+                  <FaLock size={11} className="text-slate-400" />
                   Password
                 </label>
                 <div className="relative">
                   <input
+                    id="login-password"
                     type={showPassword ? "text" : "password"}
                     value={password}
+                    autoComplete="current-password"
                     onChange={(e) => {
                       setPassword(e.target.value);
                       setError("");
                     }}
-                    placeholder="••••••••"
+                    placeholder="Your password"
                     required
-                    className="w-full rounded-xl border-2 border-slate-200 px-4 py-3 pr-11 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-xl bg-indigo-50/80 px-4 py-2.5 pr-11 text-sm font-medium text-slate-900 outline-none ring-1 ring-indigo-100 transition placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-indigo-300"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
                     aria-label={showPassword ? "Hide password" : "Show password"}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                    aria-pressed={showPassword}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-500"
                   >
                     {showPassword ? (
-                      <FaEyeSlash size={18} />
+                      <FaEyeSlash size={15} />
                     ) : (
-                      <FaEye size={18} />
+                      <FaEye size={15} />
                     )}
+                  </button>
+                </div>
+                <div className="mt-1.5 flex justify-end">
+                  <button
+                    type="button"
+                    title="Password reset coming soon"
+                    className="text-[13px] font-semibold text-indigo-500 transition hover:text-indigo-600 hover:underline"
+                  >
+                    Forgot password?
                   </button>
                 </div>
               </div>
@@ -213,31 +303,63 @@ const Login = ({ setIsAuthenticated }) => {
               <button
                 type="submit"
                 disabled={loading}
-                className="mt-2 w-full rounded-xl bg-gradient-to-r from-blue-700 to-teal-600 py-3 text-sm font-bold text-white shadow-lg transition hover:from-blue-800 hover:to-teal-700 disabled:opacity-60"
+                className="mt-1 flex w-full items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-teal-500 py-3 text-[14px] font-bold text-white shadow-lg shadow-blue-600/25 transition hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-70"
               >
-                {loading ? "Signing In…" : "Sign In"}
+                {loading ? (
+                  <>
+                    <FaSpinner className="animate-spin" size={15} />
+                    Signing In…
+                  </>
+                ) : (
+                  <>
+                    Sign In
+                    <FaArrowRight size={14} />
+                  </>
+                )}
               </button>
             </form>
 
-            {/* Role email shortcuts */}
-            <div className="mt-6">
-              <p className="mb-2.5 text-center text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                Role Email Shortcuts
-              </p>
-              <div className="flex flex-wrap justify-center gap-1.5">
-                {ROLE_LOGIN_HINTS.map((rc) => (
+            {/* Divider */}
+            <div className="mt-4 flex items-center gap-3">
+              <div className="h-px flex-1 bg-slate-200" />
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                Or Quick Access
+              </span>
+              <div className="h-px flex-1 bg-slate-200" />
+            </div>
+
+            {/* Quick role access */}
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {ROLE_LOGIN_HINTS.map(({ Icon, chip, icon, ...rc }) => {
+                const active = email.toLowerCase() === rc.email.toLowerCase();
+                return (
                   <button
                     key={rc.role}
                     type="button"
                     onClick={() => applyLoginHint(rc)}
-                    className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 hover:border-slate-300"
+                    aria-pressed={active}
+                    className={`flex min-w-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-bold text-slate-700 transition hover:-translate-y-px md:gap-2 md:px-2.5 ${chip} ${active ? "ring-2 ring-indigo-400" : ""}`}
                   >
-                    {rc.label}
+                    <span
+                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md md:h-6 md:w-6 md:rounded-lg ${icon}`}
+                    >
+                      <Icon size={11} />
+                    </span>
+                    <span className="truncate">{rc.label}</span>
                   </button>
-                ))}
-              </div>
-              <p className="mt-2 text-center text-[10px] text-slate-400">
-                These buttons only fill the email. Enter the current password manually.
+                );
+              })}
+            </div>
+
+            <p className="mt-3 text-center text-[10px] leading-relaxed text-slate-400">
+              These only fill the email — enter your password to sign in.
+            </p>
+
+            {/* Footer */}
+            <div className="mt-5 flex flex-col items-center gap-2">
+              <div className="h-3 w-px bg-slate-300" />
+              <p className="px-2 text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-400 sm:text-[10px] sm:tracking-[0.22em]">
+                Secure &bull; Reliable &bull; Hospitality Focused
               </p>
             </div>
           </div>
