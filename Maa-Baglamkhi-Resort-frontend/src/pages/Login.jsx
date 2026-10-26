@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import API from "../api";
 import { getRoleHome } from "../utils/roleHome";
 import { withAudit } from "../utils/auditAction";
+import { FaEye, FaEyeSlash } from "react-icons/fa";
 
 // NOTE: Previously this imported "../assets/bg.jpg" directly, but that file
 // doesn't exist in the project, which crashed the whole app at build time
@@ -46,6 +47,7 @@ const Login = ({ setIsAuthenticated }) => {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -181,17 +183,31 @@ const Login = ({ setIsAuthenticated }) => {
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
                   Password
                 </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    setError("");
-                  }}
-                  placeholder="••••••••"
-                  required
-                  className="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setError("");
+                    }}
+                    placeholder="••••••••"
+                    required
+                    className="w-full rounded-xl border-2 border-slate-200 px-4 py-3 pr-11 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                  >
+                    {showPassword ? (
+                      <FaEyeSlash size={18} />
+                    ) : (
+                      <FaEye size={18} />
+                    )}
+                  </button>
+                </div>
               </div>
 
               <button
