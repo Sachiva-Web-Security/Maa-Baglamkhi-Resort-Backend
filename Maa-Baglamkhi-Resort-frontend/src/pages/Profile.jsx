@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   FaCamera,
   FaCheckCircle,
@@ -18,6 +18,7 @@ import API, { getBackendBaseURL } from "../api";
 import { withAudit } from "../utils/auditAction";
 
 const Profile = () => {
+  const navigate = useNavigate();
   const location = useLocation();
   const securitySectionRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -67,7 +68,22 @@ const Profile = () => {
           localStorage.setItem("avatarUrl", full);
         }
       } catch (err) {
-        if (!cancelled) setError(err.response?.data?.message || "Could not load profile.");
+        if (cancelled) return;
+        // Backend signals the role is undefined for this account → the
+        // session/role in localStorage is no longer trustworthy. Clear it
+        // and force a re-login instead of showing a dead-end error.
+        if (err.response?.data?.code === "ROLE_NOT_DEFINED") {
+          localStorage.removeItem("token");
+          localStorage.removeItem("role");
+          localStorage.removeItem("name");
+          localStorage.removeItem("email");
+          localStorage.removeItem("isAuthenticated");
+          localStorage.removeItem("avatarUrl");
+          window.dispatchEvent(new Event("auth:unauthorized"));
+          navigate("/login");
+          return;
+        }
+        setError(err.response?.data?.message || "Could not load profile.");
       } finally {
         if (!cancelled) setLoadingProfile(false);
       }

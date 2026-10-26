@@ -278,11 +278,31 @@ exports.getMe = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
+    // Resolve the role to its NAME (like authController's login query does),
+    // not the raw role_id. The frontend's role system (Sidebar menu map,
+    // normalizeRole, ROLE_HOME) is keyed on role names; a bare "3" matches
+    // nothing, which blanked out the whole sidebar menu.
+    // No hardcoded fallback role: if the lookup misses, tell the client
+    // explicitly so it can force a re-login (login is where the role name
+    // is always resolved via the roles join).
+    const [[roleRow]] = await db.query(
+      "SELECT name FROM roles WHERE id = ? LIMIT 1",
+      [user.role_id]
+    );
+    if (!roleRow?.name) {
+      return res.status(400).json({
+        code: "ROLE_NOT_DEFINED",
+        message: "Role not defined for this account. Please login again.",
+      });
+    }
+
+    const roleName = String(roleRow.name).toLowerCase();
+
     return res.json({
       id: user.id,
       name: user.name,
       email: user.email,
-      role: String(user.role_id || user.role || "").toLowerCase(),
+      role: roleName,
       phone: user.phone || null,
       avatarUrl: user.avatar_url || null,
     });

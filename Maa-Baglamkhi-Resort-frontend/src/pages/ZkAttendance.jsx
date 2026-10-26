@@ -8,6 +8,7 @@ import {
   FaTimes,
 } from "react-icons/fa";
 import API from "../api";
+import "./ZkAttendance.css";
 
 /* Admin panel for ESSL / ZKTeco fingerprint attendance machines.
    Registers devices by IP, verifies their clock, and pulls fingerprint
@@ -165,20 +166,23 @@ const ZkAttendance = () => {
   const timeCell = (value) => String(value || "").slice(0, 5);
 
   return (
-    <div style={{ padding: "24px", maxWidth: 1100, margin: "0 auto", fontFamily: "inherit" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, display: "flex", alignItems: "center", gap: 10 }}>
-          <FaFingerprint style={{ color: "#2e7d32" }} />
-          Fingerprint Attendance (ESSL / ZKTeco)
+    <div className="zk-attendance rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6 md:p-7 transition-all duration-300">
+      <div className="zk-attendance__header flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="zk-attendance__title mt-1 text-[22px] font-bold leading-tight text-[#1f2a44] sm:text-[26px]">
+          <span className="mb-2 flex items-center gap-2 text-[12px] font-bold uppercase tracking-[0.08em] text-emerald-600 sm:text-[13px]">
+            <FaFingerprint />
+            Fingerprint Attendance (ESSL / ZKTeco)
+          </span>
+          Machines
         </h2>
         <button
           onClick={() => (showForm ? resetForm() : setShowForm(true))}
-          style={{
-            display: "flex", alignItems: "center", gap: 8,
-            padding: "8px 16px", borderRadius: 8, border: "1px solid #2e7d32",
-            background: showForm ? "#fff" : "#2e7d32", color: showForm ? "#2e7d32" : "#fff",
-            cursor: "pointer", fontWeight: 600,
-          }}
+          className={
+            "inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all duration-300 " +
+            (showForm
+              ? "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              : "dashboard-button-primary text-white")
+          }
         >
           {showForm ? <><FaTimes /> Cancel</> : <><FaPlus /> Register machine</>}
         </button>
@@ -196,7 +200,7 @@ const ZkAttendance = () => {
         </div>
       )}
       {lastSync && (
-        <div style={{ padding: 10, borderRadius: 8, background: "#e3f2fd", color: "#0d47a1", marginBottom: 14 }}>
+        <div className="mb-3.5 rounded-lg border border-blue-100 bg-blue-50/70 p-2.5 text-[#0d47a1]">
           <strong>Last sync ({lastSync.machine}):</strong> {lastSync.logsPulled} punches in
           {lastSync.window.from} → {lastSync.window.to}, {lastSync.recordsCreated} created,
           {" "}{lastSync.recordsUpdated} updated, at {lastSync.syncedAt}.
@@ -204,9 +208,9 @@ const ZkAttendance = () => {
       )}
 
       {showForm && (
-        <div style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 10, padding: 18, marginBottom: 20 }}>
-          <h3 style={{ marginTop: 0 }}>{editing ? "Edit machine" : "Register machine"}</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="dashboard-card-subtle mb-5 rounded-xl border border-slate-200 p-5">
+          <h3 className="mb-4 text-lg font-bold text-[#1f2a44]">{editing ? "Edit machine" : "Register machine"}</h3>
+          <div className="zk-attendance__form-grid">
             <label>Name<input value={form.name} onChange={setField("name")} placeholder="Front desk" style={inputStyle} /></label>
             <label>IP<input value={form.ip} onChange={setField("ip")} placeholder="192.168.1.50" style={inputStyle} /></label>
             <label>Port<input type="number" value={form.port} onChange={setField("port")} style={inputStyle} /></label>
@@ -230,14 +234,14 @@ const ZkAttendance = () => {
           <p style={{ fontSize: 12, color: "#666", margin: "10px 0 0" }}>
             The night shift split owns 18:00–23:59 and 00:00–08:59, so a 06:00 punch reports against the previous day.
           </p>
-          <button onClick={saveMachine} style={{ marginTop: 14, padding: "8px 18px", borderRadius: 8, background: "#2e7d32", color: "#fff", border: "none", fontWeight: 600, cursor: "pointer" }}>
+          <button onClick={saveMachine} className="dashboard-button-primary mt-3.5 px-4 py-2 text-sm text-white">
             {editing ? "Save changes" : "Register machine"}
           </button>
         </div>
       )}
 
-      <div style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 10, overflow: "hidden" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+      <div className="zk-attendance__table-wrap dashboard-card overflow-hidden rounded-xl">
+        <table className="zk-attendance__table" style={{ borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
             <tr style={{ background: "#f5f5f5", textAlign: "left" }}>
               <th style={thStyle}>Machine</th>

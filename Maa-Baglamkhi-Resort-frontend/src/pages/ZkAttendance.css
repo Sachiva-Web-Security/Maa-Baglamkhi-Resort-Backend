@@ -1,0 +1,37 @@
+/* Responsive styles for the ZK fingerprint attendance page.
+   Desktop layout uses Tailwind classes in the component; these rules add the
+   form grid, machine table scroll behaviour and narrow-screen overrides. */
+
+.zk-attendance {
+  width: 100%;
+}
+
+/* Register / edit form: 2 columns on desktop, single column on phones */
+.zk-attendance__form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* Machine table: let it scroll horizontally instead of crushing columns */
+.zk-attendance__table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.zk-attendance__table {
+  min-width: 640px;
+  table-layout: fixed;
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .zk-attendance__form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .zk-attendance__header button {
+    width: 100%;
+    justify-content: center;
+  }
+}

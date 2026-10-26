@@ -1,19 +1,6 @@
-import { useState, useEffect } from "react";
-import { Card, Table, Tag, Button, Space, message, Spin, Statistic, Row, Col, Modal, Input, Select } from "antd";
-import {
-  PrinterOutlined,
-  ReloadOutlined,
-  StopOutlined,
-  RedoOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  ExclamationCircleOutlined,
-  FileTextOutlined,
-} from "@ant-design/icons";
+import { useState, useEffect, useRef } from "react";
+import { FaFileAlt, FaPrint, FaRedo, FaStop, FaSync, FaTimes } from "react-icons/fa";
 import PrintService from "../services/printService";
-
-const { Search } = Input;
-const { Option } = Select;
 
 const PRINT_TYPE_LABELS = {
   gst_invoice: "GST Invoice",
@@ -32,30 +19,134 @@ const PRINT_TYPE_LABELS = {
   folio_statement: "Folio Statement",
 };
 
-const STATUS_COLORS = {
-  success: "green",
-  failed: "red",
-  queued: "orange",
-  processing: "blue",
-  completed: "green",
+const STATUS_STYLES = {
+  success: { bg: "#e8f5e9", color: "#1b5e20", label: "SUCCESS" },
+  completed: { bg: "#e8f5e9", color: "#1b5e20", label: "COMPLETED" },
+  failed: { bg: "#fdecea", color: "#c62828", label: "FAILED" },
+  queued: { bg: "#fff4e5", color: "#b26a00", label: "QUEUED" },
+  processing: { bg: "#e3f2fd", color: "#0d47a1", label: "PROCESSING" },
 };
+
+const HISTORY_PER_PAGE = 20;
+
+const StatusPill = ({ status }) => {
+  const s =
+    STATUS_STYLES[String(status || "").toLowerCase()] ||
+    { bg: "#f1f5f9", color: "#475569", label: String(status || "UNKNOWN").toUpperCase() };
+  return (
+    <span
+      className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-bold"
+      style={{ background: s.bg, color: s.color }}
+    >
+      {s.label}
+    </span>
+  );
+};
+
+const SectionCard = ({ title, action, children }) => (
+  <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+      <h3 className="text-[15px] font-bold text-[#1f2a44]">{title}</h3>
+      {action}
+    </header>
+    <div className="p-2 sm:p-0">{children}</div>
+  </section>
+);
+
+const PageButton = ({ children, onClick, type = "button", primary, disabled }) => (
+  <button
+    type={type}
+    onClick={onClick}
+    disabled={disabled}
+    className={
+      "inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-[13px] font-bold transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-50 " +
+      (primary
+        ? "bg-[#2563eb] text-white shadow-[0_10px_24px_rgba(37,99,235,0.18)] hover:bg-[#1d4ed8]"
+        : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50")
+    }
+  >
+    {children}
+  </button>
+);
+
+const Modal = ({ title, open, onClose, onSubmit, submitLabel, children }) => {
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-bold text-[#1f2a44]">{title}</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+          >
+            <FaTimes />
+          </button>
+        </div>
+        <div className="space-y-4">{children}</div>
+        <div className="mt-5 flex justify-end gap-2">
+          <PageButton onClick={onClose}>Cancel</PageButton>
+          <PageButton primary onClick={onSubmit}>
+            {submitLabel}
+          </PageButton>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const FieldLabel = ({ children }) => (
+  <label className="mb-1.5 block text-xs font-bold text-slate-600">{children}</label>
+);
+
+const FieldInput = (props) => (
+  <input
+    {...props}
+    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+  />
+);
+
+const FieldSelect = ({ children, ...props }) => (
+  <select
+    {...props}
+    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+  >
+    {children}
+  </select>
+);
 
 function PrintManagement() {
   const [loading, setLoading] = useState(true);
-  const [queueLoading, setQueueLoading] = useState(false);
   const [history, setHistory] = useState([]);
   const [queue, setQueue] = useState(null);
   const [printTypes, setPrintTypes] = useState(null);
-  const [printerStatus, setPrinterStatus] = useState(null);
+  const [historyPage, setHistoryPage] = useState(1);
   const [reprintModal, setReprintModal] = useState(false);
   const [testPrintModal, setTestPrintModal] = useState(false);
   const [reprintForm, setReprintForm] = useState({ printType: "gst_invoice", invoiceNo: "", kotNo: "" });
   const [testForm, setTestForm] = useState({ printerKey: "A4_PRINTER", message: "Test Print - Maa Baglamukhi Resort" });
+  const [toasts, setToasts] = useState([]);
+  const toastIdRef = useRef(0);
+
+  const pushToast = (text, tone = "success") => {
+    toastIdRef.current += 1;
+    const id = toastIdRef.current;
+    setToasts((t) => [...t, { id, text, tone }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
+  };
 
   useEffect(() => {
     loadAllData();
     const interval = setInterval(loadQueueStatus, 5000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadAllData = async () => {
@@ -70,8 +161,9 @@ function PrintManagement() {
       setHistory(historyRes.history || []);
       setQueue(queueRes);
       setPrintTypes(typesRes);
+      setHistoryPage(1);
     } catch (err) {
-      message.error("Failed to load print data: " + err.message);
+      pushToast("Failed to load print data: " + err.message, "error");
     } finally {
       setLoading(false);
     }
@@ -84,22 +176,13 @@ function PrintManagement() {
     } catch {}
   };
 
-  const loadPrinterStatus = async (printerKey) => {
-    try {
-      const status = await PrintService.getPrinterStatus(printerKey);
-      setPrinterStatus(status);
-    } catch (err) {
-      message.error("Failed to check printer status: " + err.message);
-    }
-  };
-
   const handleReprint = async () => {
     if (!reprintForm.printType) {
-      message.error("Select a print type");
+      pushToast("Select a print type", "error");
       return;
     }
     if (!reprintForm.invoiceNo && !reprintForm.kotNo) {
-      message.error("Enter an Invoice No or KOT No");
+      pushToast("Enter an Invoice No or KOT No", "error");
       return;
     }
 
@@ -110,15 +193,15 @@ function PrintManagement() {
         reprintForm.kotNo
       );
       if (result.success) {
-        message.success("Reprint queued successfully");
+        pushToast("Reprint queued successfully");
         setReprintModal(false);
         setReprintForm({ printType: "gst_invoice", invoiceNo: "", kotNo: "" });
         loadAllData();
       } else {
-        message.error(result.error || "Reprint failed");
+        pushToast(result.error || "Reprint failed", "error");
       }
     } catch (err) {
-      message.error("Reprint failed: " + err.message);
+      pushToast("Reprint failed: " + err.message, "error");
     }
   };
 
@@ -126,257 +209,334 @@ function PrintManagement() {
     try {
       const result = await PrintService.testPrint(testForm.printerKey, testForm.message);
       if (result.success) {
-        message.success("Test print sent successfully");
+        pushToast("Test print sent successfully");
         setTestPrintModal(false);
       } else {
-        message.error(result.error || "Test print failed");
+        pushToast(result.error || "Test print failed", "error");
       }
     } catch (err) {
-      message.error("Test print failed: " + err.message);
+      pushToast("Test print failed: " + err.message, "error");
     }
   };
 
   const handleCancelJob = async (jobId) => {
     try {
       await PrintService.cancelJob(jobId);
-      message.success("Job cancelled");
+      pushToast("Job cancelled");
       loadQueueStatus();
     } catch (err) {
-      message.error("Failed to cancel job: " + err.message);
+      pushToast("Failed to cancel job: " + err.message, "error");
     }
   };
 
-  const historyColumns = [
-    {
-      title: "Print No",
-      dataIndex: "print_no",
-      key: "print_no",
-      width: 150,
-      render: (text) => <span style={{ fontFamily: "monospace" }}>{text}</span>,
-    },
-    {
-      title: "Type",
-      dataIndex: "print_type",
-      key: "print_type",
-      render: (type) => PRINT_TYPE_LABELS[type] || type,
-    },
-    {
-      title: "Printer",
-      dataIndex: "printer_name",
-      key: "printer_name",
-    },
-    {
-      title: "Status",
-      dataIndex: "status",
-      key: "status",
-      render: (status) => {
-        const icon =
-          status === "success" ? (
-            <CheckCircleOutlined style={{ color: "#52c41a" }} />
-          ) : status === "failed" ? (
-            <CloseCircleOutlined style={{ color: "#ff4d4f" }} />
-          ) : status === "queued" ? (
-            <ExclamationCircleOutlined style={{ color: "#faad14" }} />
-          ) : (
-            <CheckCircleOutlined style={{ color: "#1890ff" }} />
-          );
-        return (
-          <Space>
-            {icon}
-            <Tag color={STATUS_COLORS[status] || "default"}>{status.toUpperCase()}</Tag>
-          </Space>
-        );
-      },
-    },
-    {
-      title: "Printed At",
-      dataIndex: "printed_at",
-      key: "printed_at",
-      render: (date) => (date ? new Date(date).toLocaleString("en-IN") : "N/A"),
-    },
-    {
-      title: "Error",
-      dataIndex: "error_message",
-      key: "error_message",
-      render: (err) => (err ? <span style={{ color: "#ff4d4f" }}>{err}</span> : "-"),
-    },
-  ];
+  const queueJobs = queue?.recentJobs || [];
+  const historyTotalPages = Math.max(1, Math.ceil(history.length / HISTORY_PER_PAGE));
+  const pagedHistory = history.slice(
+    (historyPage - 1) * HISTORY_PER_PAGE,
+    historyPage * HISTORY_PER_PAGE
+  );
 
-  const queueColumns = [
-    {
-      title: "Job ID",
-      dataIndex: "job_id",
-      key: "job_id",
-      render: (text) => <span style={{ fontFamily: "monospace", fontSize: 12 }}>{text}</span>,
-    },
-    {
-      title: "Type",
-      dataIndex: "print_type",
-      key: "print_type",
-      render: (type) => PRINT_TYPE_LABELS[type] || type,
-    },
-    {
-      title: "Printer",
-      dataIndex: "printer_name",
-      key: "printer_name",
-    },
-    {
-      title: "Priority",
-      dataIndex: "priority",
-      key: "priority",
-      render: (p) => <Tag color={p >= 10 ? "red" : p >= 5 ? "orange" : "default"}>P{p}</Tag>,
-    },
-    {
-      title: "Retries",
-      dataIndex: "retry_count",
-      key: "retry_count",
-      render: (r, row) => `${r}/${row.max_retries}`,
-    },
-    {
-      title: "Status",
-      dataIndex: "status",
-      key: "status",
-      render: (status) => <Tag color={STATUS_COLORS[status] || "default"}>{status}</Tag>,
-    },
-    {
-      title: "Action",
-      key: "action",
-      render: (_, row) =>
-        row.status === "queued" ? (
-          <Button size="small" danger onClick={() => handleCancelJob(row.job_id)} icon={<StopOutlined />}>
-            Cancel
-          </Button>
-        ) : null,
-    },
-  ];
+  const thClass = "px-4 py-3 text-left text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500";
+  const tdClass = "px-4 py-3 align-middle text-[13px] text-slate-700";
+
+  const refreshAction = (
+    <PageButton onClick={loadQueueStatus}>
+      <FaSync /> Refresh
+    </PageButton>
+  );
 
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-        <h2>
-          <PrinterOutlined /> Print Management
+    <div className="rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6 md:p-7 transition-all duration-300">
+      {/* Toasts */}
+      {toasts.length > 0 && (
+        <div className="fixed right-4 top-4 z-[60] flex flex-col gap-2">
+          {toasts.map((t) => (
+            <div
+              key={t.id}
+              className={
+                "max-w-sm rounded-xl border px-4 py-3 text-[13px] font-semibold shadow-lg " +
+                (t.tone === "error"
+                  ? "border-red-200 bg-red-50 text-red-700"
+                  : "border-green-200 bg-green-50 text-green-800")
+              }
+            >
+              {t.text}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Page header */}
+      <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="m-0 text-[22px] font-bold leading-tight text-[#1f2a44] sm:text-[26px]">
+          <span className="mb-2 flex items-center gap-2 text-[12px] font-bold uppercase tracking-[0.08em] text-blue-600 sm:text-[13px]">
+            <FaPrint />
+            Printing
+          </span>
+          Print Management
         </h2>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={loadAllData}>Refresh</Button>
-          <Button icon={<RedoOutlined />} onClick={() => setReprintModal(true)}>Reprint</Button>
-          <Button type="primary" icon={<FileTextOutlined />} onClick={() => setTestPrintModal(true)}>Test Print</Button>
-        </Space>
+        <div className="flex flex-wrap items-center gap-2">
+          <PageButton onClick={loadAllData}>
+            <FaSync /> Refresh
+          </PageButton>
+          <PageButton onClick={() => setReprintModal(true)}>
+            <FaRedo /> Reprint
+          </PageButton>
+          <PageButton primary onClick={() => setTestPrintModal(true)}>
+            <FaFileAlt /> Test Print
+          </PageButton>
+        </div>
       </div>
 
       {/* Stats */}
       {queue && (
-        <Row gutter={16} style={{ marginBottom: 24 }}>
-          <Col span={6}>
-            <Card>
-              <Statistic title="Queued" value={queue.counts?.queued || 0} valueStyle={{ color: "#faad14" }} />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic title="Processing" value={queue.counts?.processing || 0} valueStyle={{ color: "#1890ff" }} />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic title="Completed" value={queue.counts?.completed || 0} valueStyle={{ color: "#52c41a" }} />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic title="Failed" value={queue.counts?.failed || 0} valueStyle={{ color: "#ff4d4f" }} />
-            </Card>
-          </Col>
-        </Row>
+        <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-amber-700">Queued</p>
+            <p className="mt-1 text-3xl font-bold text-amber-700">{queue.counts?.queued || 0}</p>
+          </div>
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+            <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-blue-700">Processing</p>
+            <p className="mt-1 text-3xl font-bold text-blue-700">{queue.counts?.processing || 0}</p>
+          </div>
+          <div className="rounded-xl border border-green-200 bg-green-50 p-4">
+            <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-green-700">Completed</p>
+            <p className="mt-1 text-3xl font-bold text-green-700">{queue.counts?.completed || 0}</p>
+          </div>
+          <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+            <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-red-700">Failed</p>
+            <p className="mt-1 text-3xl font-bold text-red-700">{queue.counts?.failed || 0}</p>
+          </div>
+        </div>
       )}
 
       {/* Print Queue */}
-      <Card title="Print Queue" style={{ marginBottom: 24 }} extra={<Button size="small" onClick={loadQueueStatus} icon={<ReloadOutlined />}>Refresh</Button>}>
-        {loading ? (
-          <div style={{ textAlign: "center", padding: 40 }}><Spin /></div>
-        ) : queue?.recentJobs?.length > 0 ? (
-          <Table columns={queueColumns} dataSource={queue.recentJobs} rowKey="job_id" pagination={false} size="small" />
-        ) : (
-          <div style={{ textAlign: "center", padding: 40, color: "#999" }}>No jobs in queue</div>
-        )}
-      </Card>
+      <div className="mt-4 space-y-4">
+        <SectionCard title="Print Queue" action={refreshAction}>
+          {queue === null ? (
+            <div className="py-10 text-center text-sm text-slate-400">Loading queue…</div>
+          ) : queueJobs.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] border-separate border-spacing-0">
+                <thead>
+                  <tr className="bg-slate-50">
+                    <th className={thClass}>Job ID</th>
+                    <th className={thClass}>Type</th>
+                    <th className={thClass}>Printer</th>
+                    <th className={thClass}>Priority</th>
+                    <th className={thClass}>Retries</th>
+                    <th className={thClass}>Status</th>
+                    <th className={thClass}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {queueJobs.map((row) => (
+                    <tr key={row.job_id} className="border-t border-slate-100">
+                      <td className={tdClass}>
+                        <span title={row.job_id} className="block max-w-[160px] truncate font-mono text-xs text-slate-500">
+                          {row.job_id}
+                        </span>
+                      </td>
+                      <td className={tdClass}>{PRINT_TYPE_LABELS[row.print_type] || row.print_type}</td>
+                      <td className={tdClass}>{row.printer_name || "-"}</td>
+                      <td className={tdClass}>
+                        <span
+                          className="inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold"
+                          style={
+                            row.priority >= 10
+                              ? { background: "#fdecea", color: "#c62828" }
+                              : row.priority >= 5
+                              ? { background: "#fff4e5", color: "#b26a00" }
+                              : { background: "#f1f5f9", color: "#475569" }
+                          }
+                        >
+                          P{row.priority}
+                        </span>
+                      </td>
+                      <td className={tdClass}>
+                        {row.retry_count}/{row.max_retries}
+                      </td>
+                      <td className={tdClass}>
+                        <StatusPill status={row.status} />
+                      </td>
+                      <td className={tdClass}>
+                        {row.status === "queued" ? (
+                          <button
+                            type="button"
+                            onClick={() => handleCancelJob(row.job_id)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold text-red-700 transition hover:bg-red-100"
+                          >
+                            <FaStop /> Cancel
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="py-10 text-center text-sm text-slate-400">No jobs in queue</div>
+          )}
+        </SectionCard>
 
-      {/* Print History */}
-      <Card title="Print History" extra={<Button size="small" onClick={loadAllData} icon={<ReloadOutlined />}>Refresh</Button>}>
-        {loading ? (
-          <div style={{ textAlign: "center", padding: 40 }}><Spin /></div>
-        ) : history.length > 0 ? (
-          <Table columns={historyColumns} dataSource={history} rowKey="id" pagination={{ pageSize: 20 }} size="small" />
-        ) : (
-          <div style={{ textAlign: "center", padding: 40, color: "#999" }}>No print history</div>
-        )}
-      </Card>
+        {/* Print History */}
+        <SectionCard
+          title="Print History"
+          action={
+            <div className="flex items-center gap-2">
+              <PageButton onClick={loadAllData}>
+                <FaSync /> Refresh
+              </PageButton>
+            </div>
+          }
+        >
+          {loading ? (
+            <div className="py-10 text-center text-sm text-slate-400">Loading history…</div>
+          ) : history.length > 0 ? (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] border-separate border-spacing-0">
+                  <thead>
+                    <tr className="bg-slate-50">
+                      <th className={thClass}>Print No</th>
+                      <th className={thClass}>Type</th>
+                      <th className={thClass}>Printer</th>
+                      <th className={thClass}>Status</th>
+                      <th className={thClass}>Printed At</th>
+                      <th className={thClass}>Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedHistory.map((row) => (
+                      <tr key={row.id} className="border-t border-slate-100">
+                        <td className={tdClass}>
+                          <span className="font-mono text-xs">
+                            {row.print_no || `#${row.id}`}
+                          </span>
+                        </td>
+                        <td className={tdClass}>{PRINT_TYPE_LABELS[row.print_type] || row.print_type}</td>
+                        <td className={tdClass}>{row.printer_name || "-"}</td>
+                        <td className={tdClass}>
+                          <StatusPill status={row.status} />
+                        </td>
+                        <td className={tdClass}>
+                          {row.printed_at ? new Date(row.printed_at).toLocaleString("en-IN") : "N/A"}
+                        </td>
+                        <td className={tdClass}>
+                          {row.error_message ? (
+                            <span title={row.error_message} className="block max-w-[320px] truncate text-red-600">
+                              {row.error_message}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center justify-between gap-3 px-4 py-3">
+                <span className="text-xs font-semibold text-slate-500">
+                  Page {historyPage} of {historyTotalPages}
+                </span>
+                <div className="flex gap-2">
+                  <PageButton disabled={historyPage <= 1} onClick={() => setHistoryPage((p) => p - 1)}>
+                    Previous
+                  </PageButton>
+                  <PageButton
+                    disabled={historyPage >= historyTotalPages}
+                    onClick={() => setHistoryPage((p) => p + 1)}
+                  >
+                    Next
+                  </PageButton>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="py-10 text-center text-sm text-slate-400">No print history</div>
+          )}
+        </SectionCard>
+      </div>
 
       {/* Reprint Modal */}
       <Modal
         title="Reprint Document"
         open={reprintModal}
-        onOk={handleReprint}
-        onCancel={() => setReprintModal(false)}
+        onClose={() => setReprintModal(false)}
+        onSubmit={handleReprint}
+        submitLabel="Reprint"
       >
-        <Space direction="vertical" style={{ width: "100%" }}>
+        <div>
+          <FieldLabel>Print Type</FieldLabel>
+          <FieldSelect
+            value={reprintForm.printType}
+            onChange={(e) => setReprintForm({ ...reprintForm, printType: e.target.value })}
+          >
+            {reprintForm.printType && !printTypes?.types?.some((t) => t.printType === reprintForm.printType) && (
+              <option value={reprintForm.printType}>{PRINT_TYPE_LABELS[reprintForm.printType] || reprintForm.printType}</option>
+            )}
+            {printTypes?.types?.map((t) => (
+              <option key={t.printType} value={t.printType}>
+                {t.label}
+              </option>
+            ))}
+          </FieldSelect>
+        </div>
+        <div>
+          <FieldLabel>Invoice Number</FieldLabel>
+          <FieldInput
+            placeholder="e.g., HOTINV-20250725-0001"
+            value={reprintForm.invoiceNo}
+            onChange={(e) => setReprintForm({ ...reprintForm, invoiceNo: e.target.value })}
+          />
+        </div>
+        {["kot", "kot_customer_copy"].includes(reprintForm.printType) && (
           <div>
-            <label style={{ display: "block", marginBottom: 4, fontWeight: 500 }}>Print Type</label>
-            <Select
-              style={{ width: "100%" }}
-              value={reprintForm.printType}
-              onChange={(val) => setReprintForm({ ...reprintForm, printType: val })}
-            >
-              {printTypes?.types?.map((t) => (
-                <Option key={t.printType} value={t.printType}>{t.label}</Option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <label style={{ display: "block", marginBottom: 4, fontWeight: 500 }}>Invoice Number</label>
-            <Input
-              placeholder="e.g., HOTINV-20250725-0001"
-              value={reprintForm.invoiceNo}
-              onChange={(e) => setReprintForm({ ...reprintForm, invoiceNo: e.target.value })}
+            <FieldLabel>KOT Number</FieldLabel>
+            <FieldInput
+              placeholder="e.g., KOT-000152"
+              value={reprintForm.kotNo}
+              onChange={(e) => setReprintForm({ ...reprintForm, kotNo: e.target.value })}
             />
           </div>
-          {["kot", "kot_customer_copy"].includes(reprintForm.printType) && (
-            <div>
-              <label style={{ display: "block", marginBottom: 4, fontWeight: 500 }}>KOT Number</label>
-              <Input
-                placeholder="e.g., KOT-000152"
-                value={reprintForm.kotNo}
-                onChange={(e) => setReprintForm({ ...reprintForm, kotNo: e.target.value })}
-              />
-            </div>
-          )}
-        </Space>
+        )}
       </Modal>
 
       {/* Test Print Modal */}
       <Modal
         title="Test Print"
         open={testPrintModal}
-        onOk={handleTestPrint}
-        onCancel={() => setTestPrintModal(false)}
+        onClose={() => setTestPrintModal(false)}
+        onSubmit={handleTestPrint}
+        submitLabel="Send test print"
       >
-        <Space direction="vertical" style={{ width: "100%" }}>
-          <div>
-            <label style={{ display: "block", marginBottom: 4, fontWeight: 500 }}>Printer</label>
-            <Select
-              style={{ width: "100%" }}
-              value={testForm.printerKey}
-              onChange={(val) => setTestForm({ ...testForm, printerKey: val })}
-            >
-              {printTypes?.printers?.map((p) => (
-                <Option key={p.printerKey} value={p.printerKey}>{p.name} ({p.type})</Option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <label style={{ display: "block", marginBottom: 4, fontWeight: 500 }}>Test Message</label>
-            <Input value={testForm.message} onChange={(e) => setTestForm({ ...testForm, message: e.target.value })} />
-          </div>
-        </Space>
+        <div>
+          <FieldLabel>Printer</FieldLabel>
+          <FieldSelect
+            value={testForm.printerKey}
+            onChange={(e) => setTestForm({ ...testForm, printerKey: e.target.value })}
+          >
+            {testForm.printerKey && !printTypes?.printers?.some((p) => p.printerKey === testForm.printerKey) && (
+              <option value={testForm.printerKey}>{testForm.printerKey}</option>
+            )}
+            {printTypes?.printers?.map((p) => (
+              <option key={p.printerKey} value={p.printerKey}>
+                {p.name} ({p.type})
+              </option>
+            ))}
+          </FieldSelect>
+        </div>
+        <div>
+          <FieldLabel>Test Message</FieldLabel>
+          <FieldInput
+            value={testForm.message}
+            onChange={(e) => setTestForm({ ...testForm, message: e.target.value })}
+          />
+        </div>
       </Modal>
     </div>
   );
